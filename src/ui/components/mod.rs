@@ -1,0 +1,8 @@
+pub mod chart;
+pub mod dashboard;
+pub mod keyboard_diagram;
+pub mod menu;
+pub mod progress_bar;
+pub mod stats_dashboard;
+pub mod stats_sidebar;
+pub mod typing_area;
