@@ -1,4 +1,6 @@
+pub mod cache;
 pub mod code_syntax;
+pub mod dictionary;
 pub mod github_code;
 pub mod passage;
 pub mod phonetic;

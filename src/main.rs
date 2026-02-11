@@ -22,7 +22,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::widgets::{Block, Paragraph, Widget};
 use ratatui::Terminal;
 
 use app::{App, AppScreen, LessonMode};
@@ -137,6 +137,7 @@ fn handle_menu_key(app: &mut App, key: KeyEvent) {
             app.start_lesson();
         }
         KeyCode::Char('s') => app.go_to_stats(),
+        KeyCode::Char('c') => app.go_to_settings(),
         KeyCode::Up | KeyCode::Char('k') => app.menu.prev(),
         KeyCode::Down | KeyCode::Char('j') => app.menu.next(),
         KeyCode::Enter => match app.menu.selected {
@@ -153,6 +154,7 @@ fn handle_menu_key(app: &mut App, key: KeyEvent) {
                 app.start_lesson();
             }
             3 => app.go_to_stats(),
+            4 => app.go_to_settings(),
             _ => {}
         },
         _ => {}
@@ -191,13 +193,37 @@ fn handle_result_key(app: &mut App, key: KeyEvent) {
 fn handle_stats_key(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc | KeyCode::Char('q') => app.go_to_menu(),
+        KeyCode::Char('d') | KeyCode::Char('1') => app.stats_tab = 0,
+        KeyCode::Char('h') | KeyCode::Char('2') => app.stats_tab = 1,
+        KeyCode::Char('k') | KeyCode::Char('3') => app.stats_tab = 2,
+        KeyCode::Tab => app.stats_tab = (app.stats_tab + 1) % 3,
+        KeyCode::BackTab => app.stats_tab = if app.stats_tab == 0 { 2 } else { app.stats_tab - 1 },
         _ => {}
     }
 }
 
 fn handle_settings_key(app: &mut App, key: KeyEvent) {
     match key.code {
-        KeyCode::Esc => app.go_to_menu(),
+        KeyCode::Esc => {
+            let _ = app.config.save();
+            app.go_to_menu();
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            if app.settings_selected > 0 {
+                app.settings_selected -= 1;
+            }
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if app.settings_selected < 3 {
+                app.settings_selected += 1;
+            }
+        }
+        KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => {
+            app.settings_cycle_forward();
+        }
+        KeyCode::Left | KeyCode::Char('h') => {
+            app.settings_cycle_backward();
+        }
         _ => {}
     }
 }
@@ -313,7 +339,7 @@ fn render_lesson(frame: &mut ratatui::Frame, app: &App) {
             .constraints([
                 Constraint::Min(5),
                 Constraint::Length(3),
-                Constraint::Length(4),
+                Constraint::Length(5),
             ])
             .split(app_layout.main);
 
@@ -327,8 +353,13 @@ fn render_lesson(frame: &mut ratatui::Frame, app: &App) {
         );
         frame.render_widget(progress, main_layout[1]);
 
+        let next_char = lesson
+            .target
+            .get(lesson.cursor)
+            .copied();
         let kbd = KeyboardDiagram::new(
             app.letter_unlock.focused,
+            next_char,
             &app.letter_unlock.included,
             app.theme,
         );
@@ -357,7 +388,13 @@ fn render_result(frame: &mut ratatui::Frame, app: &App) {
 
 fn render_stats(frame: &mut ratatui::Frame, app: &App) {
     let area = frame.area();
-    let dashboard = StatsDashboard::new(&app.lesson_history, app.theme);
+    let dashboard = StatsDashboard::new(
+        &app.lesson_history,
+        &app.key_stats,
+        app.stats_tab,
+        app.config.target_wpm,
+        app.theme,
+    );
     frame.render_widget(dashboard, area);
 }
 
@@ -365,45 +402,83 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
     let area = frame.area();
     let colors = &app.theme.colors;
 
+    let centered = ui::layout::centered_rect(60, 80, area);
+
     let block = Block::bordered()
         .title(" Settings ")
-        .border_style(Style::default().fg(colors.accent()));
+        .border_style(Style::default().fg(colors.accent()))
+        .style(Style::default().bg(colors.bg()));
+    let inner = block.inner(centered);
+    block.render(centered, frame.buffer_mut());
 
-    let target_wpm = format!("  Target WPM: {}", app.config.target_wpm);
-    let theme_name = format!("  Theme: {}", app.config.theme);
-    let layout_name = format!("  Layout: {}", app.config.keyboard_layout);
-    let languages = format!("  Languages: {}", app.config.code_languages.join(", "));
+    let available_themes = ui::theme::Theme::available_themes();
+    let languages_all = ["rust", "python", "javascript", "go"];
+    let current_lang = app
+        .config
+        .code_languages
+        .first()
+        .map(|s| s.as_str())
+        .unwrap_or("rust");
 
-    let lines = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            "  Settings coming soon...",
-            Style::default().fg(colors.text_pending()),
-        )),
-        Line::from(""),
-        Line::from(Span::styled(
-            &*target_wpm,
-            Style::default().fg(colors.fg()),
-        )),
-        Line::from(Span::styled(
-            &*theme_name,
-            Style::default().fg(colors.fg()),
-        )),
-        Line::from(Span::styled(
-            &*layout_name,
-            Style::default().fg(colors.fg()),
-        )),
-        Line::from(Span::styled(
-            &*languages,
-            Style::default().fg(colors.fg()),
-        )),
-        Line::from(""),
-        Line::from(Span::styled(
-            "  [ESC] Back",
-            Style::default().fg(colors.accent()),
-        )),
+    let fields: Vec<(String, String)> = vec![
+        ("Target WPM".to_string(), format!("{}", app.config.target_wpm)),
+        ("Theme".to_string(), app.config.theme.clone()),
+        ("Word Count".to_string(), format!("{}", app.config.word_count)),
+        ("Code Language".to_string(), current_lang.to_string()),
     ];
 
-    let paragraph = Paragraph::new(lines).block(block);
-    frame.render_widget(paragraph, area);
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2),
+            Constraint::Length(fields.len() as u16 * 3),
+            Constraint::Min(0),
+            Constraint::Length(2),
+        ])
+        .split(inner);
+
+    let header = Paragraph::new(Line::from(Span::styled(
+        "  Use arrows to navigate, Enter/Right to change, ESC to save & exit",
+        Style::default().fg(colors.text_pending()),
+    )));
+    header.render(layout[0], frame.buffer_mut());
+
+    let field_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(fields.iter().map(|_| Constraint::Length(3)).collect::<Vec<_>>())
+        .split(layout[1]);
+
+    for (i, (label, value)) in fields.iter().enumerate() {
+        let is_selected = i == app.settings_selected;
+        let indicator = if is_selected { " > " } else { "   " };
+
+        let label_text = format!("{indicator}{label}:");
+        let value_text = format!("  < {value} >");
+
+        let label_style = Style::default().fg(if is_selected {
+            colors.accent()
+        } else {
+            colors.fg()
+        }).add_modifier(if is_selected { Modifier::BOLD } else { Modifier::empty() });
+
+        let value_style = Style::default().fg(if is_selected {
+            colors.focused_key()
+        } else {
+            colors.text_pending()
+        });
+
+        let lines = vec![
+            Line::from(Span::styled(label_text, label_style)),
+            Line::from(Span::styled(value_text, value_style)),
+        ];
+        Paragraph::new(lines).render(field_layout[i], frame.buffer_mut());
+    }
+
+    let _ = (available_themes, languages_all);
+
+    let footer = Paragraph::new(Line::from(Span::styled(
+        "  [ESC] Save & back  [Enter/arrows] Change value",
+        Style::default().fg(colors.accent()),
+    )));
+    footer.render(layout[3], frame.buffer_mut());
 }

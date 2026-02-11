@@ -7,6 +7,7 @@ use crate::engine::key_stats::KeyStatsStore;
 use crate::engine::letter_unlock::LetterUnlock;
 use crate::engine::scoring;
 use crate::generator::code_syntax::CodeSyntaxGenerator;
+use crate::generator::dictionary::Dictionary;
 use crate::generator::passage::PassageGenerator;
 use crate::generator::phonetic::PhoneticGenerator;
 use crate::generator::TextGenerator;
@@ -26,7 +27,6 @@ pub enum AppScreen {
     Lesson,
     LessonResult,
     StatsDashboard,
-    #[allow(dead_code)]
     Settings,
 }
 
@@ -52,8 +52,12 @@ pub struct App {
     pub profile: ProfileData,
     pub store: Option<JsonStore>,
     pub should_quit: bool,
+    pub settings_selected: usize,
+    pub stats_tab: usize,
     rng: SmallRng,
     transition_table: TransitionTable,
+    #[allow(dead_code)]
+    dictionary: Dictionary,
 }
 
 impl App {
@@ -89,7 +93,8 @@ impl App {
         let mut key_stats_with_target = key_stats;
         key_stats_with_target.target_cpm = config.target_cpm();
 
-        let transition_table = TransitionTable::build_english();
+        let dictionary = Dictionary::load();
+        let transition_table = TransitionTable::build_from_words(&dictionary.words_list());
 
         Self {
             screen: AppScreen::Menu,
@@ -106,8 +111,11 @@ impl App {
             profile,
             store,
             should_quit: false,
+            settings_selected: 0,
+            stats_tab: 0,
             rng: SmallRng::from_entropy(),
             transition_table,
+            dictionary,
         }
     }
 
@@ -127,8 +135,9 @@ impl App {
                 let filter = CharFilter::new(self.letter_unlock.included.clone());
                 let focused = self.letter_unlock.focused;
                 let table = self.transition_table.clone();
+                let dict = Dictionary::load();
                 let rng = SmallRng::from_rng(&mut self.rng).unwrap();
-                let mut generator = PhoneticGenerator::new(table, rng);
+                let mut generator = PhoneticGenerator::new(table, dict, rng);
                 generator.generate(&filter, focused, word_count)
             }
             LessonMode::Code => {
@@ -145,7 +154,8 @@ impl App {
             }
             LessonMode::Passage => {
                 let filter = CharFilter::new(('a'..='z').collect());
-                let mut generator = PassageGenerator::new();
+                let rng = SmallRng::from_rng(&mut self.rng).unwrap();
+                let mut generator = PassageGenerator::new(rng);
                 generator.generate(&filter, None, word_count)
             }
         }
@@ -244,6 +254,90 @@ impl App {
     }
 
     pub fn go_to_stats(&mut self) {
+        self.stats_tab = 0;
         self.screen = AppScreen::StatsDashboard;
+    }
+
+    pub fn go_to_settings(&mut self) {
+        self.settings_selected = 0;
+        self.screen = AppScreen::Settings;
+    }
+
+    pub fn settings_cycle_forward(&mut self) {
+        match self.settings_selected {
+            0 => {
+                self.config.target_wpm = (self.config.target_wpm + 5).min(200);
+                self.key_stats.target_cpm = self.config.target_cpm();
+            }
+            1 => {
+                let themes = Theme::available_themes();
+                if let Some(idx) = themes.iter().position(|t| *t == self.config.theme) {
+                    let next = (idx + 1) % themes.len();
+                    self.config.theme = themes[next].clone();
+                } else if let Some(first) = themes.first() {
+                    self.config.theme = first.clone();
+                }
+                if let Some(new_theme) = Theme::load(&self.config.theme) {
+                    let theme: &'static Theme = Box::leak(Box::new(new_theme));
+                    self.theme = theme;
+                    self.menu.theme = theme;
+                }
+            }
+            2 => {
+                self.config.word_count = (self.config.word_count + 5).min(100);
+            }
+            3 => {
+                let langs = ["rust", "python", "javascript", "go"];
+                let current = self
+                    .config
+                    .code_languages
+                    .first()
+                    .map(|s| s.as_str())
+                    .unwrap_or("rust");
+                let idx = langs.iter().position(|&l| l == current).unwrap_or(0);
+                let next = (idx + 1) % langs.len();
+                self.config.code_languages = vec![langs[next].to_string()];
+            }
+            _ => {}
+        }
+    }
+
+    pub fn settings_cycle_backward(&mut self) {
+        match self.settings_selected {
+            0 => {
+                self.config.target_wpm = self.config.target_wpm.saturating_sub(5).max(10);
+                self.key_stats.target_cpm = self.config.target_cpm();
+            }
+            1 => {
+                let themes = Theme::available_themes();
+                if let Some(idx) = themes.iter().position(|t| *t == self.config.theme) {
+                    let next = if idx == 0 { themes.len() - 1 } else { idx - 1 };
+                    self.config.theme = themes[next].clone();
+                } else if let Some(first) = themes.first() {
+                    self.config.theme = first.clone();
+                }
+                if let Some(new_theme) = Theme::load(&self.config.theme) {
+                    let theme: &'static Theme = Box::leak(Box::new(new_theme));
+                    self.theme = theme;
+                    self.menu.theme = theme;
+                }
+            }
+            2 => {
+                self.config.word_count = self.config.word_count.saturating_sub(5).max(5);
+            }
+            3 => {
+                let langs = ["rust", "python", "javascript", "go"];
+                let current = self
+                    .config
+                    .code_languages
+                    .first()
+                    .map(|s| s.as_str())
+                    .unwrap_or("rust");
+                let idx = langs.iter().position(|&l| l == current).unwrap_or(0);
+                let next = if idx == 0 { langs.len() - 1 } else { idx - 1 };
+                self.config.code_languages = vec![langs[next].to_string()];
+            }
+            _ => {}
+        }
     }
 }

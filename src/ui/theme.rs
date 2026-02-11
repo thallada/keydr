@@ -89,7 +89,7 @@ impl Default for ThemeColors {
             text_correct: "#a6e3a1".to_string(),
             text_incorrect: "#f38ba8".to_string(),
             text_incorrect_bg: "#45273a".to_string(),
-            text_pending: "#585b70".to_string(),
+            text_pending: "#a6adc8".to_string(),
             text_cursor_bg: "#f5e0dc".to_string(),
             text_cursor_fg: "#1e1e2e".to_string(),
             focused_key: "#f9e2af".to_string(),
