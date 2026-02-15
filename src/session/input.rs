@@ -40,6 +40,7 @@ pub fn process_char(lesson: &mut LessonState, ch: char) -> Option<KeystrokeEvent
         lesson.input.push(CharStatus::Correct);
     } else {
         lesson.input.push(CharStatus::Incorrect(ch));
+        lesson.typo_flags.insert(lesson.cursor);
     }
     lesson.cursor += 1;
 

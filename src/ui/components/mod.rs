@@ -1,3 +1,4 @@
+pub mod activity_heatmap;
 pub mod chart;
 pub mod dashboard;
 pub mod keyboard_diagram;

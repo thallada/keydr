@@ -26,7 +26,7 @@ impl Widget for StatsSidebar<'_> {
         let accuracy = self.lesson.accuracy();
         let progress = self.lesson.progress() * 100.0;
         let correct = self.lesson.correct_count();
-        let incorrect = self.lesson.incorrect_count();
+        let incorrect = self.lesson.typo_count();
         let elapsed = self.lesson.elapsed_secs();
 
         let wpm_str = format!("{wpm:.0}");

@@ -1,3 +1,6 @@
+use std::collections::HashSet;
+use std::time::Instant;
+
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
 
@@ -37,6 +40,16 @@ pub enum LessonMode {
     Passage,
 }
 
+impl LessonMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LessonMode::Adaptive => "adaptive",
+            LessonMode::Code => "code",
+            LessonMode::Passage => "passage",
+        }
+    }
+}
+
 pub struct App {
     pub screen: AppScreen,
     pub lesson_mode: LessonMode,
@@ -54,6 +67,10 @@ pub struct App {
     pub should_quit: bool,
     pub settings_selected: usize,
     pub stats_tab: usize,
+    pub depressed_keys: HashSet<char>,
+    pub last_key_time: Option<Instant>,
+    pub history_selected: usize,
+    pub history_confirm_delete: bool,
     rng: SmallRng,
     transition_table: TransitionTable,
     #[allow(dead_code)]
@@ -96,7 +113,7 @@ impl App {
         let dictionary = Dictionary::load();
         let transition_table = TransitionTable::build_from_words(&dictionary.words_list());
 
-        Self {
+        let mut app = Self {
             screen: AppScreen::Menu,
             lesson_mode: LessonMode::Adaptive,
             lesson: None,
@@ -113,10 +130,16 @@ impl App {
             should_quit: false,
             settings_selected: 0,
             stats_tab: 0,
+            depressed_keys: HashSet::new(),
+            last_key_time: None,
+            history_selected: 0,
+            history_confirm_delete: false,
             rng: SmallRng::from_entropy(),
             transition_table,
             dictionary,
-        }
+        };
+        app.start_lesson();
+        app
     }
 
     pub fn start_lesson(&mut self) {
@@ -181,7 +204,7 @@ impl App {
 
     fn finish_lesson(&mut self) {
         if let Some(ref lesson) = self.lesson {
-            let result = LessonResult::from_lesson(lesson, &self.lesson_events);
+            let result = LessonResult::from_lesson(lesson, &self.lesson_events, self.lesson_mode.as_str());
 
             if self.lesson_mode == LessonMode::Adaptive {
                 for kt in &result.per_key_times {
@@ -255,7 +278,82 @@ impl App {
 
     pub fn go_to_stats(&mut self) {
         self.stats_tab = 0;
+        self.history_selected = 0;
+        self.history_confirm_delete = false;
         self.screen = AppScreen::StatsDashboard;
+    }
+
+    pub fn delete_session(&mut self) {
+        if self.lesson_history.is_empty() {
+            return;
+        }
+        // History tab shows reverse order, so convert display index to actual index
+        let actual_idx = self.lesson_history.len() - 1 - self.history_selected;
+        self.lesson_history.remove(actual_idx);
+        self.rebuild_from_history();
+        self.save_data();
+
+        // Clamp selection to visible range (max 20 visible rows)
+        if !self.lesson_history.is_empty() {
+            let max_visible = self.lesson_history.len().min(20) - 1;
+            self.history_selected = self.history_selected.min(max_visible);
+        } else {
+            self.history_selected = 0;
+        }
+    }
+
+    pub fn rebuild_from_history(&mut self) {
+        // Reset all derived state
+        self.key_stats = KeyStatsStore::default();
+        self.key_stats.target_cpm = self.config.target_cpm();
+        self.letter_unlock = LetterUnlock::new();
+        self.profile.total_score = 0.0;
+        self.profile.total_lessons = 0;
+        self.profile.streak_days = 0;
+        self.profile.best_streak = 0;
+        self.profile.last_practice_date = None;
+
+        // Replay each remaining session oldest→newest
+        for result in &self.lesson_history {
+            // Only update adaptive progression for adaptive sessions
+            if result.lesson_mode == "adaptive" {
+                for kt in &result.per_key_times {
+                    if kt.correct {
+                        self.key_stats.update_key(kt.key, kt.time_ms);
+                    }
+                }
+                self.letter_unlock.update(&self.key_stats);
+            }
+
+            // Compute score
+            let complexity = scoring::compute_complexity(self.letter_unlock.unlocked_count());
+            let score = scoring::compute_score(result, complexity);
+            self.profile.total_score += score;
+            self.profile.total_lessons += 1;
+
+            // Rebuild streak tracking
+            let day = result.timestamp.format("%Y-%m-%d").to_string();
+            if self.profile.last_practice_date.as_deref() != Some(&day) {
+                if let Some(ref last) = self.profile.last_practice_date {
+                    let result_date = result.timestamp.date_naive();
+                    let last_date =
+                        chrono::NaiveDate::parse_from_str(last, "%Y-%m-%d").unwrap_or(result_date);
+                    let diff = result_date.signed_duration_since(last_date).num_days();
+                    if diff == 1 {
+                        self.profile.streak_days += 1;
+                    } else {
+                        self.profile.streak_days = 1;
+                    }
+                } else {
+                    self.profile.streak_days = 1;
+                }
+                self.profile.best_streak =
+                    self.profile.best_streak.max(self.profile.streak_days);
+                self.profile.last_practice_date = Some(day);
+            }
+        }
+
+        self.profile.unlocked_letters = self.letter_unlock.included.clone();
     }
 
     pub fn go_to_settings(&mut self) {

@@ -1,6 +1,8 @@
+use std::collections::HashSet;
+
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Widget};
 
 use crate::keyboard::finger::{self, Finger, Hand};
@@ -10,7 +12,9 @@ pub struct KeyboardDiagram<'a> {
     pub focused_key: Option<char>,
     pub next_key: Option<char>,
     pub unlocked_keys: &'a [char],
+    pub depressed_keys: &'a HashSet<char>,
     pub theme: &'a Theme,
+    pub compact: bool,
 }
 
 impl<'a> KeyboardDiagram<'a> {
@@ -18,14 +22,22 @@ impl<'a> KeyboardDiagram<'a> {
         focused_key: Option<char>,
         next_key: Option<char>,
         unlocked_keys: &'a [char],
+        depressed_keys: &'a HashSet<char>,
         theme: &'a Theme,
     ) -> Self {
         Self {
             focused_key,
             next_key,
             unlocked_keys,
+            depressed_keys,
             theme,
+            compact: false,
         }
+    }
+
+    pub fn compact(mut self, compact: bool) -> Self {
+        self.compact = compact;
+        self
     }
 }
 
@@ -50,6 +62,17 @@ fn finger_color(ch: char) -> Color {
     }
 }
 
+fn brighten_color(color: Color) -> Color {
+    match color {
+        Color::Rgb(r, g, b) => Color::Rgb(
+            r.saturating_add(60),
+            g.saturating_add(60),
+            b.saturating_add(60),
+        ),
+        other => other,
+    }
+}
+
 impl Widget for KeyboardDiagram<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
@@ -61,12 +84,18 @@ impl Widget for KeyboardDiagram<'_> {
         let inner = block.inner(area);
         block.render(area, buf);
 
-        if inner.height < 3 || inner.width < 30 {
+        let key_width: u16 = if self.compact { 3 } else { 5 };
+        let min_width: u16 = if self.compact { 21 } else { 30 };
+
+        if inner.height < 3 || inner.width < min_width {
             return;
         }
 
-        let key_width: u16 = 5;
-        let offsets: &[u16] = &[1, 3, 5];
+        let offsets: &[u16] = if self.compact {
+            &[0, 1, 3]
+        } else {
+            &[1, 3, 5]
+        };
 
         for (row_idx, row) in ROWS.iter().enumerate() {
             let y = inner.y + row_idx as u16;
@@ -82,11 +111,23 @@ impl Widget for KeyboardDiagram<'_> {
                     break;
                 }
 
+                let is_depressed = self.depressed_keys.contains(&key);
                 let is_unlocked = self.unlocked_keys.contains(&key);
                 let is_focused = self.focused_key == Some(key);
                 let is_next = self.next_key == Some(key);
 
-                let style = if is_next {
+                // Priority: depressed > next_expected > focused > unlocked > locked
+                let style = if is_depressed {
+                    let bg = if is_unlocked {
+                        brighten_color(finger_color(key))
+                    } else {
+                        brighten_color(colors.accent_dim())
+                    };
+                    Style::default()
+                        .fg(Color::White)
+                        .bg(bg)
+                        .add_modifier(Modifier::BOLD)
+                } else if is_next {
                     Style::default()
                         .fg(colors.bg())
                         .bg(colors.accent())
@@ -104,7 +145,11 @@ impl Widget for KeyboardDiagram<'_> {
                         .bg(colors.bg())
                 };
 
-                let display = format!("[ {key} ]");
+                let display = if self.compact {
+                    format!("[{key}]")
+                } else {
+                    format!("[ {key} ]")
+                };
                 buf.set_string(x, y, &display, style);
             }
         }

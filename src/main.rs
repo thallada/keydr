@@ -9,11 +9,14 @@ mod store;
 mod ui;
 
 use std::io;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use clap::Parser;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{
+    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags,
+    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -68,6 +71,14 @@ fn main() -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
+
+    // Try to enable keyboard enhancement for Release event support
+    let keyboard_enhanced = execute!(
+        io::stdout(),
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::REPORT_EVENT_TYPES)
+    )
+    .is_ok();
+
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -75,6 +86,9 @@ fn main() -> Result<()> {
 
     let result = run_app(&mut terminal, &mut app, &events);
 
+    if keyboard_enhanced {
+        let _ = execute!(io::stdout(), PopKeyboardEnhancementFlags);
+    }
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
@@ -96,7 +110,16 @@ fn run_app(
 
         match events.next()? {
             AppEvent::Key(key) => handle_key(app, key),
-            AppEvent::Tick => {}
+            AppEvent::Tick => {
+                // Fallback: clear depressed keys after 150ms if no Release event received
+                if let Some(last) = app.last_key_time {
+                    if last.elapsed() > Duration::from_millis(150) && !app.depressed_keys.is_empty()
+                    {
+                        app.depressed_keys.clear();
+                        app.last_key_time = None;
+                    }
+                }
+            }
             AppEvent::Resize(_, _) => {}
         }
 
@@ -107,6 +130,25 @@ fn run_app(
 }
 
 fn handle_key(app: &mut App, key: KeyEvent) {
+    // Track depressed keys for keyboard diagram
+    match (&key.code, key.kind) {
+        (KeyCode::Char(ch), KeyEventKind::Press) => {
+            app.depressed_keys.insert(ch.to_ascii_lowercase());
+            app.last_key_time = Some(Instant::now());
+        }
+        (KeyCode::Char(ch), KeyEventKind::Release) => {
+            app.depressed_keys.remove(&ch.to_ascii_lowercase());
+            return; // Don't process Release events as input
+        }
+        (_, KeyEventKind::Release) => return,
+        _ => {}
+    }
+
+    // Only process Press events — ignore Repeat to avoid inflating input
+    if key.kind != KeyEventKind::Press {
+        return;
+    }
+
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
         app.should_quit = true;
         return;
@@ -167,7 +209,7 @@ fn handle_lesson_key(app: &mut App, key: KeyEvent) {
             let has_progress = app.lesson.as_ref().is_some_and(|l| l.cursor > 0);
             if has_progress {
                 if let Some(ref lesson) = app.lesson {
-                    let result = LessonResult::from_lesson(lesson, &app.lesson_events);
+                    let result = LessonResult::from_lesson(lesson, &app.lesson_events, app.lesson_mode.as_str());
                     app.last_result = Some(result);
                 }
                 app.screen = AppScreen::LessonResult;
@@ -191,6 +233,52 @@ fn handle_result_key(app: &mut App, key: KeyEvent) {
 }
 
 fn handle_stats_key(app: &mut App, key: KeyEvent) {
+    // Confirmation dialog takes priority
+    if app.history_confirm_delete {
+        match key.code {
+            KeyCode::Char('y') => {
+                app.delete_session();
+                app.history_confirm_delete = false;
+            }
+            KeyCode::Char('n') | KeyCode::Esc => {
+                app.history_confirm_delete = false;
+            }
+            _ => {}
+        }
+        return;
+    }
+
+    // History tab has row navigation
+    if app.stats_tab == 1 {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => app.go_to_menu(),
+            KeyCode::Char('j') | KeyCode::Down => {
+                if !app.lesson_history.is_empty() {
+                    let max_visible = app.lesson_history.len().min(20) - 1;
+                    app.history_selected =
+                        (app.history_selected + 1).min(max_visible);
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                app.history_selected = app.history_selected.saturating_sub(1);
+            }
+            KeyCode::Char('x') | KeyCode::Delete => {
+                if !app.lesson_history.is_empty() {
+                    app.history_confirm_delete = true;
+                }
+            }
+            KeyCode::Char('d') | KeyCode::Char('1') => app.stats_tab = 0,
+            KeyCode::Char('h') | KeyCode::Char('2') => {} // already on history
+            KeyCode::Char('3') => app.stats_tab = 2,
+            KeyCode::Tab => app.stats_tab = (app.stats_tab + 1) % 3,
+            KeyCode::BackTab => {
+                app.stats_tab = if app.stats_tab == 0 { 2 } else { app.stats_tab - 1 }
+            }
+            _ => {}
+        }
+        return;
+    }
+
     match key.code {
         KeyCode::Esc | KeyCode::Char('q') => app.go_to_menu(),
         KeyCode::Char('d') | KeyCode::Char('1') => app.stats_tab = 0,
@@ -304,69 +392,105 @@ fn render_lesson(frame: &mut ratatui::Frame, app: &App) {
 
     if let Some(ref lesson) = app.lesson {
         let app_layout = AppLayout::new(area);
+        let tier = app_layout.tier;
 
         let mode_name = match app.lesson_mode {
             LessonMode::Adaptive => "Adaptive",
             LessonMode::Code => "Code",
             LessonMode::Passage => "Passage",
         };
-        let header_title = format!(" {mode_name} Practice ");
-        let focus_text = if let Some(focused) = app.letter_unlock.focused {
-            format!(" | Focus: '{focused}'")
-        } else {
-            String::new()
-        };
-        let header = Paragraph::new(Line::from(vec![
-            Span::styled(
-                &*header_title,
+
+        // For medium/narrow: show compact stats in header
+        if !tier.show_sidebar() {
+            let wpm = lesson.wpm();
+            let accuracy = lesson.accuracy();
+            let errors = lesson.typo_count();
+            let header_text = format!(
+                " {mode_name} | WPM: {wpm:.0} | Acc: {accuracy:.1}% | Errors: {errors}"
+            );
+            let header = Paragraph::new(Line::from(Span::styled(
+                &*header_text,
                 Style::default()
                     .fg(colors.header_fg())
                     .bg(colors.header_bg())
                     .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                &*focus_text,
-                Style::default()
-                    .fg(colors.focused_key())
-                    .bg(colors.header_bg()),
-            ),
-        ]))
-        .style(Style::default().bg(colors.header_bg()));
-        frame.render_widget(header, app_layout.header);
+            )))
+            .style(Style::default().bg(colors.header_bg()));
+            frame.render_widget(header, app_layout.header);
+        } else {
+            let header_title = format!(" {mode_name} Practice ");
+            let focus_text = if let Some(focused) = app.letter_unlock.focused {
+                format!(" | Focus: '{focused}'")
+            } else {
+                String::new()
+            };
+            let header = Paragraph::new(Line::from(vec![
+                Span::styled(
+                    &*header_title,
+                    Style::default()
+                        .fg(colors.header_fg())
+                        .bg(colors.header_bg())
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    &*focus_text,
+                    Style::default()
+                        .fg(colors.focused_key())
+                        .bg(colors.header_bg()),
+                ),
+            ]))
+            .style(Style::default().bg(colors.header_bg()));
+            frame.render_widget(header, app_layout.header);
+        }
+
+        // Build main area constraints based on tier
+        let show_kbd = tier.show_keyboard(area.height);
+        let show_progress = tier.show_progress_bar(area.height);
+
+        let mut constraints: Vec<Constraint> = vec![Constraint::Min(5)];
+        if show_progress {
+            constraints.push(Constraint::Length(3));
+        }
+        if show_kbd {
+            constraints.push(Constraint::Length(5));
+        }
 
         let main_layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(5),
-                Constraint::Length(3),
-                Constraint::Length(5),
-            ])
+            .constraints(constraints)
             .split(app_layout.main);
 
         let typing = TypingArea::new(lesson, app.theme);
         frame.render_widget(typing, main_layout[0]);
 
-        let progress = ProgressBar::new(
-            "Letter Progress",
-            app.letter_unlock.progress(),
-            app.theme,
-        );
-        frame.render_widget(progress, main_layout[1]);
+        let mut idx = 1;
+        if show_progress {
+            let progress = ProgressBar::new(
+                "Letter Progress",
+                app.letter_unlock.progress(),
+                app.theme,
+            );
+            frame.render_widget(progress, main_layout[idx]);
+            idx += 1;
+        }
 
-        let next_char = lesson
-            .target
-            .get(lesson.cursor)
-            .copied();
-        let kbd = KeyboardDiagram::new(
-            app.letter_unlock.focused,
-            next_char,
-            &app.letter_unlock.included,
-            app.theme,
-        );
-        frame.render_widget(kbd, main_layout[2]);
+        if show_kbd {
+            let next_char = lesson.target.get(lesson.cursor).copied();
+            let kbd = KeyboardDiagram::new(
+                app.letter_unlock.focused,
+                next_char,
+                &app.letter_unlock.included,
+                &app.depressed_keys,
+                app.theme,
+            )
+            .compact(tier.compact_keyboard());
+            frame.render_widget(kbd, main_layout[idx]);
+        }
 
-        let sidebar = StatsSidebar::new(lesson, app.theme);
-        frame.render_widget(sidebar, app_layout.sidebar);
+        if let Some(sidebar_area) = app_layout.sidebar {
+            let sidebar = StatsSidebar::new(lesson, app.theme);
+            frame.render_widget(sidebar, sidebar_area);
+        }
 
         let footer = Paragraph::new(Line::from(Span::styled(
             " [ESC] End lesson  [Backspace] Delete ",
@@ -394,6 +518,8 @@ fn render_stats(frame: &mut ratatui::Frame, app: &App) {
         app.stats_tab,
         app.config.target_wpm,
         app.theme,
+        app.history_selected,
+        app.history_confirm_delete,
     );
     frame.render_widget(dashboard, area);
 }

@@ -6,11 +6,13 @@ use ratatui::widgets::{Axis, Block, Chart, Dataset, GraphType, Widget};
 
 use crate::ui::theme::Theme;
 
+#[allow(dead_code)]
 pub struct WpmChart<'a> {
     pub data: &'a [(f64, f64)],
     pub theme: &'a Theme,
 }
 
+#[allow(dead_code)]
 impl<'a> WpmChart<'a> {
     pub fn new(data: &'a [(f64, f64)], theme: &'a Theme) -> Self {
         Self { data, theme }
