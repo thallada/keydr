@@ -5,12 +5,12 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget};
 
 use crate::engine::key_stats::KeyStatsStore;
-use crate::session::result::LessonResult;
+use crate::session::result::DrillResult;
 use crate::ui::components::activity_heatmap::ActivityHeatmap;
 use crate::ui::theme::Theme;
 
 pub struct StatsDashboard<'a> {
-    pub history: &'a [LessonResult],
+    pub history: &'a [DrillResult],
     pub key_stats: &'a KeyStatsStore,
     pub active_tab: usize,
     pub target_wpm: u32,
@@ -21,7 +21,7 @@ pub struct StatsDashboard<'a> {
 
 impl<'a> StatsDashboard<'a> {
     pub fn new(
-        history: &'a [LessonResult],
+        history: &'a [DrillResult],
         key_stats: &'a KeyStatsStore,
         active_tab: usize,
         target_wpm: u32,
@@ -54,7 +54,7 @@ impl Widget for StatsDashboard<'_> {
 
         if self.history.is_empty() {
             let msg = Paragraph::new(Line::from(Span::styled(
-                "No lessons completed yet. Start typing!",
+                "No drills completed yet. Start typing!",
                 Style::default().fg(colors.text_pending()),
             )));
             msg.render(inner, buf);
@@ -71,7 +71,7 @@ impl Widget for StatsDashboard<'_> {
             .split(inner);
 
         // Tab header
-        let tabs = ["[D] Dashboard", "[H] History", "[K] Keystrokes"];
+        let tabs = ["[1] Dashboard", "[2] History", "[3] Keystrokes"];
         let tab_spans: Vec<Span> = tabs
             .iter()
             .enumerate()
@@ -113,7 +113,7 @@ impl Widget for StatsDashboard<'_> {
         let footer_text = if self.active_tab == 1 {
             "  [ESC] Back  [Tab] Next tab  [j/k] Navigate  [x] Delete"
         } else {
-            "  [ESC] Back  [Tab] Next tab  [D/H/K] Switch tab"
+            "  [ESC] Back  [Tab] Next tab  [1/2/3] Switch tab"
         };
         let footer = Paragraph::new(Line::from(Span::styled(
             footer_text,
@@ -198,7 +198,7 @@ impl StatsDashboard<'_> {
 
         let summary = vec![
             Line::from(vec![
-                Span::styled("  Lessons: ", Style::default().fg(colors.fg())),
+                Span::styled("  Drills: ", Style::default().fg(colors.fg())),
                 Span::styled(
                     &*total_str,
                     Style::default()
@@ -249,8 +249,9 @@ impl StatsDashboard<'_> {
     fn render_wpm_bar_graph(&self, area: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
 
+        let target_label = format!(" WPM per Drill (Last 20, Target: {}) ", self.target_wpm);
         let block = Block::bordered()
-            .title(" WPM (Last 20) ")
+            .title(target_label)
             .border_style(Style::default().fg(colors.border()));
         let inner = block.inner(area);
         block.render(area, buf);
@@ -276,20 +277,40 @@ impl StatsDashboard<'_> {
 
         let max_wpm = recent.iter().fold(0.0f64, |a, &b| a.max(b)).max(10.0);
         let target = self.target_wpm as f64;
-        let bar_count = (inner.width as usize).min(recent.len());
+
+        // Reserve left margin for Y-axis labels
+        let y_label_width: u16 = 4;
+        let chart_x = inner.x + y_label_width;
+        let chart_width = inner.width.saturating_sub(y_label_width);
+
+        if chart_width < 5 {
+            return;
+        }
+
+        let bar_count = (chart_width as usize).min(recent.len());
         let bar_spacing = if bar_count > 0 {
-            inner.width / bar_count as u16
+            chart_width / bar_count as u16
         } else {
             return;
         };
+
+        // Y-axis labels (max, mid, 0)
+        let max_label = format!("{:.0}", max_wpm);
+        let mid_label = format!("{:.0}", max_wpm / 2.0);
+        buf.set_string(inner.x, inner.y, &max_label, Style::default().fg(colors.text_pending()));
+        if inner.height > 3 {
+            let mid_y = inner.y + inner.height / 2;
+            buf.set_string(inner.x, mid_y, &mid_label, Style::default().fg(colors.text_pending()));
+        }
+        buf.set_string(inner.x, inner.y + inner.height - 1, "0", Style::default().fg(colors.text_pending()));
 
         let bar_chars = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
         // Render each bar as a column
         let start_idx = recent.len().saturating_sub(bar_count);
         for (i, &wpm) in recent[start_idx..].iter().enumerate() {
-            let x = inner.x + i as u16 * bar_spacing;
-            if x >= inner.x + inner.width {
+            let x = chart_x + i as u16 * bar_spacing;
+            if x >= chart_x + chart_width {
                 break;
             }
 
@@ -343,7 +364,7 @@ impl StatsDashboard<'_> {
 
         if data.is_empty() {
             let block = Block::bordered()
-                .title(" Accuracy Trend ")
+                .title(" Accuracy % (Last 50 Drills) ")
                 .border_style(Style::default().fg(colors.border()));
             block.render(area, buf);
             return;
@@ -360,18 +381,18 @@ impl StatsDashboard<'_> {
         let chart = Chart::new(vec![dataset])
             .block(
                 Block::bordered()
-                    .title(" Accuracy Trend ")
+                    .title(" Accuracy % (Last 50 Drills) ")
                     .border_style(Style::default().fg(colors.border())),
             )
             .x_axis(
                 Axis::default()
-                    .title("Lesson")
+                    .title("Drill #")
                     .style(Style::default().fg(colors.text_pending()))
                     .bounds([0.0, max_x]),
             )
             .y_axis(
                 Axis::default()
-                    .title("%")
+                    .title("Accuracy %")
                     .style(Style::default().fg(colors.text_pending()))
                     .bounds([80.0, 100.0]),
             );
@@ -481,7 +502,7 @@ impl StatsDashboard<'_> {
             )),
         ];
 
-        let recent: Vec<&LessonResult> = self.history.iter().rev().take(20).collect();
+        let recent: Vec<&DrillResult> = self.history.iter().rev().take(20).collect();
         let total = self.history.len();
 
         for (i, result) in recent.iter().enumerate() {
@@ -534,16 +555,21 @@ impl StatsDashboard<'_> {
         let colors = &self.theme.colors;
 
         let block = Block::bordered()
-            .title(" Character Speed Distribution ")
+            .title(" Avg Key Time by Character ")
             .border_style(Style::default().fg(colors.border()));
         let inner = block.inner(area);
         block.render(area, buf);
 
-        if inner.width < 52 || inner.height < 2 {
+        let columns_per_row: usize = 13;
+        let col_width: u16 = 4;
+        let row_height: u16 = 3;
+
+        if inner.width < columns_per_row as u16 * col_width || inner.height < row_height {
             return;
         }
 
         let letters: Vec<char> = ('a'..='z').collect();
+        let row_count = if inner.height >= row_height * 2 { 2 } else { 1 };
         let max_time = letters
             .iter()
             .filter_map(|&ch| self.key_stats.stats.get(&ch))
@@ -553,9 +579,13 @@ impl StatsDashboard<'_> {
 
         let bar_chars = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
-        for (i, &ch) in letters.iter().enumerate() {
-            let x = inner.x + (i as u16 * 2).min(inner.width.saturating_sub(1));
-            if x >= inner.x + inner.width {
+        for (i, &ch) in letters.iter().take(columns_per_row * row_count).enumerate() {
+            let row = i / columns_per_row;
+            let col = i % columns_per_row;
+            let x = inner.x + (col as u16 * col_width);
+            let y = inner.y + row as u16 * row_height;
+
+            if x + col_width > inner.x + inner.width || y + 2 >= inner.y + inner.height {
                 break;
             }
 
@@ -576,35 +606,37 @@ impl StatsDashboard<'_> {
             };
 
             // Letter label
-            buf.set_string(x, inner.y, &ch.to_string(), Style::default().fg(color));
+            buf.set_string(x, y, &ch.to_string(), Style::default().fg(color));
 
             // Bar indicator
-            if inner.height >= 2 {
-                let bar_char = if time > 0.0 {
-                    let idx = ((ratio * 7.0).round() as usize).min(7);
-                    bar_chars[idx]
-                } else {
-                    ' '
-                };
-                buf.set_string(
-                    x,
-                    inner.y + 1,
-                    &bar_char.to_string(),
-                    Style::default().fg(color),
-                );
-            }
+            let bar_char = if time > 0.0 {
+                let idx = ((ratio * 7.0).round() as usize).min(7);
+                bar_chars[idx]
+            } else {
+                ' '
+            };
+            buf.set_string(x, y + 1, &bar_char.to_string(), Style::default().fg(color));
 
-            // Time label on row 3
-            if inner.height >= 3 && time > 0.0 {
-                let time_label = format!("{time:.0}");
-                if x + time_label.len() as u16 <= inner.x + inner.width {
-                    buf.set_string(
-                        x,
-                        inner.y + 2,
-                        &time_label,
-                        Style::default().fg(colors.text_pending()),
-                    );
-                }
+            // Time label on row 3, render seconds when value exceeds 999ms.
+            if time > 0.0 {
+                let time_label = if time > 999.0 {
+                    format!("({:.0}s)", time / 1000.0)
+                } else {
+                    format!("{time:.0}")
+                };
+                let label = if time_label.len() > col_width as usize {
+                    let start = time_label.len() - col_width as usize;
+                    &time_label[start..]
+                } else {
+                    &time_label
+                };
+                let label_x = x + col_width.saturating_sub(label.len() as u16);
+                buf.set_string(
+                    label_x,
+                    y + 2,
+                    label,
+                    Style::default().fg(colors.text_pending()),
+                );
             }
         }
     }
@@ -649,7 +681,7 @@ impl StatsDashboard<'_> {
         let colors = &self.theme.colors;
 
         let block = Block::bordered()
-            .title(" Keyboard Accuracy ")
+            .title(" Keyboard Accuracy % ")
             .border_style(Style::default().fg(colors.border()));
         let inner = block.inner(area);
         block.render(area, buf);
@@ -732,7 +764,7 @@ impl StatsDashboard<'_> {
         let colors = &self.theme.colors;
 
         let block = Block::bordered()
-            .title(" Slowest ")
+            .title(" Slowest Keys (ms) ")
             .border_style(Style::default().fg(colors.border()));
         let inner = block.inner(area);
         block.render(area, buf);
@@ -765,7 +797,7 @@ impl StatsDashboard<'_> {
         let colors = &self.theme.colors;
 
         let block = Block::bordered()
-            .title(" Fastest ")
+            .title(" Fastest Keys (ms) ")
             .border_style(Style::default().fg(colors.border()));
         let inner = block.inner(area);
         block.render(area, buf);
@@ -798,7 +830,7 @@ impl StatsDashboard<'_> {
         let colors = &self.theme.colors;
 
         let block = Block::bordered()
-            .title(" Worst Accuracy ")
+            .title(" Worst Accuracy Keys (%) ")
             .border_style(Style::default().fg(colors.border()));
         let inner = block.inner(area);
         block.render(area, buf);
@@ -858,7 +890,7 @@ impl StatsDashboard<'_> {
         let colors = &self.theme.colors;
 
         let block = Block::bordered()
-            .title(" Overall ")
+            .title(" Overall Totals ")
             .border_style(Style::default().fg(colors.border()));
         let inner = block.inner(area);
         block.render(area, buf);

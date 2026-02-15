@@ -6,16 +6,16 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, Widget};
 
-use crate::session::result::LessonResult;
+use crate::session::result::DrillResult;
 use crate::ui::theme::Theme;
 
 pub struct ActivityHeatmap<'a> {
-    history: &'a [LessonResult],
+    history: &'a [DrillResult],
     theme: &'a Theme,
 }
 
 impl<'a> ActivityHeatmap<'a> {
-    pub fn new(history: &'a [LessonResult], theme: &'a Theme) -> Self {
+    pub fn new(history: &'a [DrillResult], theme: &'a Theme) -> Self {
         Self { history, theme }
     }
 }
@@ -25,7 +25,7 @@ impl Widget for ActivityHeatmap<'_> {
         let colors = &self.theme.colors;
 
         let block = Block::bordered()
-            .title(" Activity ")
+            .title(" Daily Activity (Sessions per Day) ")
             .border_style(Style::default().fg(colors.border()));
         let inner = block.inner(area);
         block.render(area, buf);

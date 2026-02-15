@@ -1,3 +1,3 @@
 pub mod input;
-pub mod lesson;
+pub mod drill;
 pub mod result;

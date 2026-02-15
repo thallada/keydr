@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use crate::session::input::CharStatus;
 
-pub struct LessonState {
+pub struct DrillState {
     pub target: Vec<char>,
     pub input: Vec<CharStatus>,
     pub cursor: usize,
@@ -12,7 +12,7 @@ pub struct LessonState {
     pub typo_flags: HashSet<usize>,
 }
 
-impl LessonState {
+impl DrillState {
     pub fn new(text: &str) -> Self {
         Self {
             target: text.chars().collect(),
@@ -90,72 +90,72 @@ mod tests {
     use crate::session::input;
 
     #[test]
-    fn test_new_lesson() {
-        let lesson = LessonState::new("hello");
-        assert_eq!(lesson.target.len(), 5);
-        assert_eq!(lesson.cursor, 0);
-        assert!(!lesson.is_complete());
-        assert_eq!(lesson.progress(), 0.0);
+    fn test_new_drill() {
+        let drill = DrillState::new("hello");
+        assert_eq!(drill.target.len(), 5);
+        assert_eq!(drill.cursor, 0);
+        assert!(!drill.is_complete());
+        assert_eq!(drill.progress(), 0.0);
     }
 
     #[test]
     fn test_accuracy_starts_at_100() {
-        let lesson = LessonState::new("test");
-        assert_eq!(lesson.accuracy(), 100.0);
+        let drill = DrillState::new("test");
+        assert_eq!(drill.accuracy(), 100.0);
     }
 
     #[test]
-    fn test_empty_lesson_progress() {
-        let lesson = LessonState::new("");
-        assert!(lesson.is_complete());
-        assert_eq!(lesson.progress(), 0.0);
+    fn test_empty_drill_progress() {
+        let drill = DrillState::new("");
+        assert!(drill.is_complete());
+        assert_eq!(drill.progress(), 0.0);
     }
 
     #[test]
     fn test_correct_typing_no_typos() {
-        let mut lesson = LessonState::new("abc");
-        input::process_char(&mut lesson, 'a');
-        input::process_char(&mut lesson, 'b');
-        input::process_char(&mut lesson, 'c');
-        assert!(lesson.typo_flags.is_empty());
-        assert_eq!(lesson.accuracy(), 100.0);
+        let mut drill = DrillState::new("abc");
+        input::process_char(&mut drill, 'a');
+        input::process_char(&mut drill, 'b');
+        input::process_char(&mut drill, 'c');
+        assert!(drill.typo_flags.is_empty());
+        assert_eq!(drill.accuracy(), 100.0);
     }
 
     #[test]
     fn test_wrong_then_backspace_then_correct_counts_as_error() {
-        let mut lesson = LessonState::new("abc");
+        let mut drill = DrillState::new("abc");
         // Type wrong at pos 0
-        input::process_char(&mut lesson, 'x');
-        assert!(lesson.typo_flags.contains(&0));
+        input::process_char(&mut drill, 'x');
+        assert!(drill.typo_flags.contains(&0));
         // Backspace
-        input::process_backspace(&mut lesson);
+        input::process_backspace(&mut drill);
         // Typo flag persists
-        assert!(lesson.typo_flags.contains(&0));
+        assert!(drill.typo_flags.contains(&0));
         // Type correct
-        input::process_char(&mut lesson, 'a');
-        assert!(lesson.typo_flags.contains(&0));
-        assert_eq!(lesson.typo_count(), 1);
-        assert!(lesson.accuracy() < 100.0);
+        input::process_char(&mut drill, 'a');
+        assert!(drill.typo_flags.contains(&0));
+        assert_eq!(drill.typo_count(), 1);
+        assert!(drill.accuracy() < 100.0);
     }
 
     #[test]
     fn test_multiple_errors_same_position_counts_as_one() {
-        let mut lesson = LessonState::new("abc");
+        let mut drill = DrillState::new("abc");
         // Wrong, backspace, wrong again, backspace, correct
-        input::process_char(&mut lesson, 'x');
-        input::process_backspace(&mut lesson);
-        input::process_char(&mut lesson, 'y');
-        input::process_backspace(&mut lesson);
-        input::process_char(&mut lesson, 'a');
-        assert_eq!(lesson.typo_count(), 1);
+        input::process_char(&mut drill, 'x');
+        input::process_backspace(&mut drill);
+        input::process_char(&mut drill, 'y');
+        input::process_backspace(&mut drill);
+        input::process_char(&mut drill, 'a');
+        assert_eq!(drill.typo_count(), 1);
     }
 
     #[test]
     fn test_wrong_char_without_backspace() {
-        let mut lesson = LessonState::new("abc");
-        input::process_char(&mut lesson, 'x'); // wrong at pos 0
-        input::process_char(&mut lesson, 'b'); // correct at pos 1
-        assert_eq!(lesson.typo_count(), 1);
-        assert!(lesson.typo_flags.contains(&0));
+        let mut drill = DrillState::new("abc");
+        input::process_char(&mut drill, 'x'); // wrong at pos 0
+        input::process_char(&mut drill, 'b'); // correct at pos 1
+        assert_eq!(drill.typo_count(), 1);
+        assert!(drill.typo_flags.contains(&0));
     }
 }

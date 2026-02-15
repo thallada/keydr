@@ -24,17 +24,17 @@ impl<'a> Menu<'a> {
             items: vec![
                 MenuItem {
                     key: "1".to_string(),
-                    label: "Adaptive Practice".to_string(),
+                    label: "Adaptive Drill".to_string(),
                     description: "Phonetic words with adaptive letter unlocking".to_string(),
                 },
                 MenuItem {
                     key: "2".to_string(),
-                    label: "Code Practice".to_string(),
+                    label: "Code Drill".to_string(),
                     description: "Practice typing code syntax".to_string(),
                 },
                 MenuItem {
                     key: "3".to_string(),
-                    label: "Passage Mode".to_string(),
+                    label: "Passage Drill".to_string(),
                     description: "Type passages from books".to_string(),
                 },
                 MenuItem {

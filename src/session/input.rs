@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use crate::session::lesson::LessonState;
+use crate::session::drill::DrillState;
 
 #[derive(Clone, Debug)]
 pub enum CharStatus {
@@ -17,16 +17,16 @@ pub struct KeystrokeEvent {
     pub correct: bool,
 }
 
-pub fn process_char(lesson: &mut LessonState, ch: char) -> Option<KeystrokeEvent> {
-    if lesson.is_complete() {
+pub fn process_char(drill: &mut DrillState, ch: char) -> Option<KeystrokeEvent> {
+    if drill.is_complete() {
         return None;
     }
 
-    if lesson.started_at.is_none() {
-        lesson.started_at = Some(Instant::now());
+    if drill.started_at.is_none() {
+        drill.started_at = Some(Instant::now());
     }
 
-    let expected = lesson.target[lesson.cursor];
+    let expected = drill.target[drill.cursor];
     let correct = ch == expected;
 
     let event = KeystrokeEvent {
@@ -37,23 +37,23 @@ pub fn process_char(lesson: &mut LessonState, ch: char) -> Option<KeystrokeEvent
     };
 
     if correct {
-        lesson.input.push(CharStatus::Correct);
+        drill.input.push(CharStatus::Correct);
     } else {
-        lesson.input.push(CharStatus::Incorrect(ch));
-        lesson.typo_flags.insert(lesson.cursor);
+        drill.input.push(CharStatus::Incorrect(ch));
+        drill.typo_flags.insert(drill.cursor);
     }
-    lesson.cursor += 1;
+    drill.cursor += 1;
 
-    if lesson.is_complete() {
-        lesson.finished_at = Some(Instant::now());
+    if drill.is_complete() {
+        drill.finished_at = Some(Instant::now());
     }
 
     Some(event)
 }
 
-pub fn process_backspace(lesson: &mut LessonState) {
-    if lesson.cursor > 0 {
-        lesson.cursor -= 1;
-        lesson.input.pop();
+pub fn process_backspace(drill: &mut DrillState) {
+    if drill.cursor > 0 {
+        drill.cursor -= 1;
+        drill.input.pop();
     }
 }

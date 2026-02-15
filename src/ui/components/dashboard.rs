@@ -4,16 +4,16 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget};
 
-use crate::session::result::LessonResult;
+use crate::session::result::DrillResult;
 use crate::ui::theme::Theme;
 
 pub struct Dashboard<'a> {
-    pub result: &'a LessonResult,
+    pub result: &'a DrillResult,
     pub theme: &'a Theme,
 }
 
 impl<'a> Dashboard<'a> {
-    pub fn new(result: &'a LessonResult, theme: &'a Theme) -> Self {
+    pub fn new(result: &'a DrillResult, theme: &'a Theme) -> Self {
         Self { result, theme }
     }
 }
@@ -23,7 +23,7 @@ impl Widget for Dashboard<'_> {
         let colors = &self.theme.colors;
 
         let block = Block::bordered()
-            .title(" Lesson Complete ")
+            .title(" Drill Complete ")
             .border_style(Style::default().fg(colors.accent()))
             .style(Style::default().bg(colors.bg()));
         let inner = block.inner(area);

@@ -28,8 +28,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget};
 use ratatui::Terminal;
 
-use app::{App, AppScreen, LessonMode};
-use session::result::LessonResult;
+use app::{App, AppScreen, DrillMode};
+use session::result::DrillResult;
 use event::{AppEvent, EventHandler};
 use ui::components::dashboard::Dashboard;
 use ui::components::keyboard_diagram::KeyboardDiagram;
@@ -48,7 +48,7 @@ struct Cli {
     #[arg(short, long, help = "Keyboard layout (qwerty, dvorak, colemak)")]
     layout: Option<String>,
 
-    #[arg(short, long, help = "Number of words per lesson")]
+    #[arg(short, long, help = "Number of words per drill")]
     words: Option<usize>,
 }
 
@@ -156,8 +156,8 @@ fn handle_key(app: &mut App, key: KeyEvent) {
 
     match app.screen {
         AppScreen::Menu => handle_menu_key(app, key),
-        AppScreen::Lesson => handle_lesson_key(app, key),
-        AppScreen::LessonResult => handle_result_key(app, key),
+        AppScreen::Drill => handle_drill_key(app, key),
+        AppScreen::DrillResult => handle_result_key(app, key),
         AppScreen::StatsDashboard => handle_stats_key(app, key),
         AppScreen::Settings => handle_settings_key(app, key),
     }
@@ -167,16 +167,16 @@ fn handle_menu_key(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => app.should_quit = true,
         KeyCode::Char('1') => {
-            app.lesson_mode = LessonMode::Adaptive;
-            app.start_lesson();
+            app.drill_mode = DrillMode::Adaptive;
+            app.start_drill();
         }
         KeyCode::Char('2') => {
-            app.lesson_mode = LessonMode::Code;
-            app.start_lesson();
+            app.drill_mode = DrillMode::Code;
+            app.start_drill();
         }
         KeyCode::Char('3') => {
-            app.lesson_mode = LessonMode::Passage;
-            app.start_lesson();
+            app.drill_mode = DrillMode::Passage;
+            app.start_drill();
         }
         KeyCode::Char('s') => app.go_to_stats(),
         KeyCode::Char('c') => app.go_to_settings(),
@@ -184,16 +184,16 @@ fn handle_menu_key(app: &mut App, key: KeyEvent) {
         KeyCode::Down | KeyCode::Char('j') => app.menu.next(),
         KeyCode::Enter => match app.menu.selected {
             0 => {
-                app.lesson_mode = LessonMode::Adaptive;
-                app.start_lesson();
+                app.drill_mode = DrillMode::Adaptive;
+                app.start_drill();
             }
             1 => {
-                app.lesson_mode = LessonMode::Code;
-                app.start_lesson();
+                app.drill_mode = DrillMode::Code;
+                app.start_drill();
             }
             2 => {
-                app.lesson_mode = LessonMode::Passage;
-                app.start_lesson();
+                app.drill_mode = DrillMode::Passage;
+                app.start_drill();
             }
             3 => app.go_to_stats(),
             4 => app.go_to_settings(),
@@ -203,17 +203,17 @@ fn handle_menu_key(app: &mut App, key: KeyEvent) {
     }
 }
 
-fn handle_lesson_key(app: &mut App, key: KeyEvent) {
+fn handle_drill_key(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc => {
-            let has_progress = app.lesson.as_ref().is_some_and(|l| l.cursor > 0);
-            if has_progress && app.lesson_mode != LessonMode::Adaptive {
-                // Non-adaptive: show result screen for partial lesson
-                if let Some(ref lesson) = app.lesson {
-                    let result = LessonResult::from_lesson(lesson, &app.lesson_events, app.lesson_mode.as_str());
+            let has_progress = app.drill.as_ref().is_some_and(|d| d.cursor > 0);
+            if has_progress && app.drill_mode != DrillMode::Adaptive {
+                // Non-adaptive: show result screen for partial drill
+                if let Some(ref drill) = app.drill {
+                    let result = DrillResult::from_drill(drill, &app.drill_events, app.drill_mode.as_str());
                     app.last_result = Some(result);
                 }
-                app.screen = AppScreen::LessonResult;
+                app.screen = AppScreen::DrillResult;
             } else {
                 app.go_to_menu();
             }
@@ -226,7 +226,7 @@ fn handle_lesson_key(app: &mut App, key: KeyEvent) {
 
 fn handle_result_key(app: &mut App, key: KeyEvent) {
     match key.code {
-        KeyCode::Char('r') => app.retry_lesson(),
+        KeyCode::Char('r') => app.retry_drill(),
         KeyCode::Char('q') | KeyCode::Esc => app.go_to_menu(),
         KeyCode::Char('s') => app.go_to_stats(),
         _ => {}
@@ -254,8 +254,8 @@ fn handle_stats_key(app: &mut App, key: KeyEvent) {
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') => app.go_to_menu(),
             KeyCode::Char('j') | KeyCode::Down => {
-                if !app.lesson_history.is_empty() {
-                    let max_visible = app.lesson_history.len().min(20) - 1;
+                if !app.drill_history.is_empty() {
+                    let max_visible = app.drill_history.len().min(20) - 1;
                     app.history_selected =
                         (app.history_selected + 1).min(max_visible);
                 }
@@ -264,12 +264,12 @@ fn handle_stats_key(app: &mut App, key: KeyEvent) {
                 app.history_selected = app.history_selected.saturating_sub(1);
             }
             KeyCode::Char('x') | KeyCode::Delete => {
-                if !app.lesson_history.is_empty() {
+                if !app.drill_history.is_empty() {
                     app.history_confirm_delete = true;
                 }
             }
-            KeyCode::Char('d') | KeyCode::Char('1') => app.stats_tab = 0,
-            KeyCode::Char('h') | KeyCode::Char('2') => {} // already on history
+            KeyCode::Char('1') => app.stats_tab = 0,
+            KeyCode::Char('2') => {} // already on history
             KeyCode::Char('3') => app.stats_tab = 2,
             KeyCode::Tab => app.stats_tab = (app.stats_tab + 1) % 3,
             KeyCode::BackTab => {
@@ -282,9 +282,9 @@ fn handle_stats_key(app: &mut App, key: KeyEvent) {
 
     match key.code {
         KeyCode::Esc | KeyCode::Char('q') => app.go_to_menu(),
-        KeyCode::Char('d') | KeyCode::Char('1') => app.stats_tab = 0,
-        KeyCode::Char('h') | KeyCode::Char('2') => app.stats_tab = 1,
-        KeyCode::Char('k') | KeyCode::Char('3') => app.stats_tab = 2,
+        KeyCode::Char('1') => app.stats_tab = 0,
+        KeyCode::Char('2') => app.stats_tab = 1,
+        KeyCode::Char('3') => app.stats_tab = 2,
         KeyCode::Tab => app.stats_tab = (app.stats_tab + 1) % 3,
         KeyCode::BackTab => app.stats_tab = if app.stats_tab == 0 { 2 } else { app.stats_tab - 1 },
         _ => {}
@@ -326,8 +326,8 @@ fn render(frame: &mut ratatui::Frame, app: &App) {
 
     match app.screen {
         AppScreen::Menu => render_menu(frame, app),
-        AppScreen::Lesson => render_lesson(frame, app),
-        AppScreen::LessonResult => render_result(frame, app),
+        AppScreen::Drill => render_drill(frame, app),
+        AppScreen::DrillResult => render_result(frame, app),
         AppScreen::StatsDashboard => render_stats(frame, app),
         AppScreen::Settings => render_settings(frame, app),
     }
@@ -387,25 +387,25 @@ fn render_menu(frame: &mut ratatui::Frame, app: &App) {
     frame.render_widget(footer, layout[2]);
 }
 
-fn render_lesson(frame: &mut ratatui::Frame, app: &App) {
+fn render_drill(frame: &mut ratatui::Frame, app: &App) {
     let area = frame.area();
     let colors = &app.theme.colors;
 
-    if let Some(ref lesson) = app.lesson {
+    if let Some(ref drill) = app.drill {
         let app_layout = AppLayout::new(area);
         let tier = app_layout.tier;
 
-        let mode_name = match app.lesson_mode {
-            LessonMode::Adaptive => "Adaptive",
-            LessonMode::Code => "Code",
-            LessonMode::Passage => "Passage",
+        let mode_name = match app.drill_mode {
+            DrillMode::Adaptive => "Adaptive",
+            DrillMode::Code => "Code",
+            DrillMode::Passage => "Passage",
         };
 
         // For medium/narrow: show compact stats in header
         if !tier.show_sidebar() {
-            let wpm = lesson.wpm();
-            let accuracy = lesson.accuracy();
-            let errors = lesson.typo_count();
+            let wpm = drill.wpm();
+            let accuracy = drill.accuracy();
+            let errors = drill.typo_count();
             let header_text = format!(
                 " {mode_name} | WPM: {wpm:.0} | Acc: {accuracy:.1}% | Errors: {errors}"
             );
@@ -419,7 +419,7 @@ fn render_lesson(frame: &mut ratatui::Frame, app: &App) {
             .style(Style::default().bg(colors.header_bg()));
             frame.render_widget(header, app_layout.header);
         } else {
-            let header_title = format!(" {mode_name} Practice ");
+            let header_title = format!(" {mode_name} Drill ");
             let focus_text = if let Some(focused) = app.letter_unlock.focused {
                 format!(" | Focus: '{focused}'")
             } else {
@@ -461,7 +461,7 @@ fn render_lesson(frame: &mut ratatui::Frame, app: &App) {
             .constraints(constraints)
             .split(app_layout.main);
 
-        let typing = TypingArea::new(lesson, app.theme);
+        let typing = TypingArea::new(drill, app.theme);
         frame.render_widget(typing, main_layout[0]);
 
         let mut idx = 1;
@@ -476,7 +476,7 @@ fn render_lesson(frame: &mut ratatui::Frame, app: &App) {
         }
 
         if show_kbd {
-            let next_char = lesson.target.get(lesson.cursor).copied();
+            let next_char = drill.target.get(drill.cursor).copied();
             let kbd = KeyboardDiagram::new(
                 app.letter_unlock.focused,
                 next_char,
@@ -489,12 +489,12 @@ fn render_lesson(frame: &mut ratatui::Frame, app: &App) {
         }
 
         if let Some(sidebar_area) = app_layout.sidebar {
-            let sidebar = StatsSidebar::new(lesson, app.last_result.as_ref(), app.theme);
+            let sidebar = StatsSidebar::new(drill, app.last_result.as_ref(), &app.drill_history, app.theme);
             frame.render_widget(sidebar, sidebar_area);
         }
 
         let footer = Paragraph::new(Line::from(Span::styled(
-            " [ESC] End lesson  [Backspace] Delete ",
+            " [ESC] End drill  [Backspace] Delete ",
             Style::default().fg(colors.text_pending()),
         )));
         frame.render_widget(footer, app_layout.footer);
@@ -514,7 +514,7 @@ fn render_result(frame: &mut ratatui::Frame, app: &App) {
 fn render_stats(frame: &mut ratatui::Frame, app: &App) {
     let area = frame.area();
     let dashboard = StatsDashboard::new(
-        &app.lesson_history,
+        &app.drill_history,
         &app.key_stats,
         app.stats_tab,
         app.config.target_wpm,

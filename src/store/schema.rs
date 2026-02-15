@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::engine::key_stats::KeyStatsStore;
-use crate::session::result::LessonResult;
+use crate::session::result::DrillResult;
 
 const SCHEMA_VERSION: u32 = 1;
 
@@ -10,7 +10,8 @@ pub struct ProfileData {
     pub schema_version: u32,
     pub unlocked_letters: Vec<char>,
     pub total_score: f64,
-    pub total_lessons: u32,
+    #[serde(alias = "total_lessons")]
+    pub total_drills: u32,
     pub streak_days: u32,
     pub best_streak: u32,
     pub last_practice_date: Option<String>,
@@ -22,7 +23,7 @@ impl Default for ProfileData {
             schema_version: SCHEMA_VERSION,
             unlocked_letters: Vec::new(),
             total_score: 0.0,
-            total_lessons: 0,
+            total_drills: 0,
             streak_days: 0,
             best_streak: 0,
             last_practice_date: None,
@@ -46,16 +47,17 @@ impl Default for KeyStatsData {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct LessonHistoryData {
+pub struct DrillHistoryData {
     pub schema_version: u32,
-    pub lessons: Vec<LessonResult>,
+    #[serde(alias = "lessons")]
+    pub drills: Vec<DrillResult>,
 }
 
-impl Default for LessonHistoryData {
+impl Default for DrillHistoryData {
     fn default() -> Self {
         Self {
             schema_version: SCHEMA_VERSION,
-            lessons: Vec::new(),
+            drills: Vec::new(),
         }
     }
 }

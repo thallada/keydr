@@ -2,10 +2,10 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::session::input::KeystrokeEvent;
-use crate::session::lesson::LessonState;
+use crate::session::drill::DrillState;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct LessonResult {
+pub struct DrillResult {
     pub wpm: f64,
     pub cpm: f64,
     pub accuracy: f64,
@@ -15,11 +15,11 @@ pub struct LessonResult {
     pub elapsed_secs: f64,
     pub timestamp: DateTime<Utc>,
     pub per_key_times: Vec<KeyTime>,
-    #[serde(default = "default_lesson_mode")]
-    pub lesson_mode: String,
+    #[serde(default = "default_drill_mode", alias = "lesson_mode")]
+    pub drill_mode: String,
 }
 
-fn default_lesson_mode() -> String {
+fn default_drill_mode() -> String {
     "adaptive".to_string()
 }
 
@@ -30,8 +30,8 @@ pub struct KeyTime {
     pub correct: bool,
 }
 
-impl LessonResult {
-    pub fn from_lesson(lesson: &LessonState, events: &[KeystrokeEvent], lesson_mode: &str) -> Self {
+impl DrillResult {
+    pub fn from_drill(drill: &DrillState, events: &[KeystrokeEvent], drill_mode: &str) -> Self {
         let per_key_times: Vec<KeyTime> = events
             .windows(2)
             .map(|pair| {
@@ -44,8 +44,8 @@ impl LessonResult {
             })
             .collect();
 
-        let total_chars = lesson.target.len();
-        let typo_count = lesson.typo_flags.len();
+        let total_chars = drill.target.len();
+        let typo_count = drill.typo_flags.len();
         let accuracy = if total_chars > 0 {
             ((total_chars - typo_count) as f64 / total_chars as f64 * 100.0).clamp(0.0, 100.0)
         } else {
@@ -53,16 +53,16 @@ impl LessonResult {
         };
 
         Self {
-            wpm: lesson.wpm(),
-            cpm: lesson.cpm(),
+            wpm: drill.wpm(),
+            cpm: drill.cpm(),
             accuracy,
             correct: total_chars - typo_count,
             incorrect: typo_count,
             total_chars,
-            elapsed_secs: lesson.elapsed_secs(),
+            elapsed_secs: drill.elapsed_secs(),
             timestamp: Utc::now(),
             per_key_times,
-            lesson_mode: lesson_mode.to_string(),
+            drill_mode: drill_mode.to_string(),
         }
     }
 }

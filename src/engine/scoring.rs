@@ -1,6 +1,6 @@
-use crate::session::result::LessonResult;
+use crate::session::result::DrillResult;
 
-pub fn compute_score(result: &LessonResult, complexity: f64) -> f64 {
+pub fn compute_score(result: &DrillResult, complexity: f64) -> f64 {
     let speed = result.cpm;
     let errors = result.incorrect as f64;
     let length = result.total_chars as f64;

@@ -17,46 +17,46 @@ use crate::generator::TextGenerator;
 use crate::generator::transition_table::TransitionTable;
 
 use crate::session::input::{self, KeystrokeEvent};
-use crate::session::lesson::LessonState;
-use crate::session::result::LessonResult;
+use crate::session::drill::DrillState;
+use crate::session::result::DrillResult;
 use crate::store::json_store::JsonStore;
-use crate::store::schema::{KeyStatsData, LessonHistoryData, ProfileData};
+use crate::store::schema::{KeyStatsData, DrillHistoryData, ProfileData};
 use crate::ui::components::menu::Menu;
 use crate::ui::theme::Theme;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AppScreen {
     Menu,
-    Lesson,
-    LessonResult,
+    Drill,
+    DrillResult,
     StatsDashboard,
     Settings,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LessonMode {
+pub enum DrillMode {
     Adaptive,
     Code,
     Passage,
 }
 
-impl LessonMode {
+impl DrillMode {
     pub fn as_str(self) -> &'static str {
         match self {
-            LessonMode::Adaptive => "adaptive",
-            LessonMode::Code => "code",
-            LessonMode::Passage => "passage",
+            DrillMode::Adaptive => "adaptive",
+            DrillMode::Code => "code",
+            DrillMode::Passage => "passage",
         }
     }
 }
 
 pub struct App {
     pub screen: AppScreen,
-    pub lesson_mode: LessonMode,
-    pub lesson: Option<LessonState>,
-    pub lesson_events: Vec<KeystrokeEvent>,
-    pub last_result: Option<LessonResult>,
-    pub lesson_history: Vec<LessonResult>,
+    pub drill_mode: DrillMode,
+    pub drill: Option<DrillState>,
+    pub drill_events: Vec<KeystrokeEvent>,
+    pub last_result: Option<DrillResult>,
+    pub drill_history: Vec<DrillResult>,
     pub menu: Menu<'static>,
     pub theme: &'static Theme,
     pub config: Config,
@@ -86,10 +86,10 @@ impl App {
 
         let store = JsonStore::new().ok();
 
-        let (key_stats, letter_unlock, profile, lesson_history) = if let Some(ref s) = store {
+        let (key_stats, letter_unlock, profile, drill_history) = if let Some(ref s) = store {
             let ksd = s.load_key_stats();
             let pd = s.load_profile();
-            let lhd = s.load_lesson_history();
+            let lhd = s.load_drill_history();
 
             let lu = if pd.unlocked_letters.is_empty() {
                 LetterUnlock::new()
@@ -97,7 +97,7 @@ impl App {
                 LetterUnlock::from_included(pd.unlocked_letters.clone())
             };
 
-            (ksd.stats, lu, pd, lhd.lessons)
+            (ksd.stats, lu, pd, lhd.drills)
         } else {
             (
                 KeyStatsStore::default(),
@@ -115,11 +115,11 @@ impl App {
 
         let mut app = Self {
             screen: AppScreen::Menu,
-            lesson_mode: LessonMode::Adaptive,
-            lesson: None,
-            lesson_events: Vec::new(),
+            drill_mode: DrillMode::Adaptive,
+            drill: None,
+            drill_events: Vec::new(),
             last_result: None,
-            lesson_history,
+            drill_history,
             menu,
             theme,
             config,
@@ -138,23 +138,23 @@ impl App {
             transition_table,
             dictionary,
         };
-        app.start_lesson();
+        app.start_drill();
         app
     }
 
-    pub fn start_lesson(&mut self) {
+    pub fn start_drill(&mut self) {
         let text = self.generate_text();
-        self.lesson = Some(LessonState::new(&text));
-        self.lesson_events.clear();
-        self.screen = AppScreen::Lesson;
+        self.drill = Some(DrillState::new(&text));
+        self.drill_events.clear();
+        self.screen = AppScreen::Drill;
     }
 
     fn generate_text(&mut self) -> String {
         let word_count = self.config.word_count;
-        let mode = self.lesson_mode;
+        let mode = self.drill_mode;
 
         match mode {
-            LessonMode::Adaptive => {
+            DrillMode::Adaptive => {
                 let filter = CharFilter::new(self.letter_unlock.included.clone());
                 let focused = self.letter_unlock.focused;
                 let table = self.transition_table.clone();
@@ -163,7 +163,7 @@ impl App {
                 let mut generator = PhoneticGenerator::new(table, dict, rng);
                 generator.generate(&filter, focused, word_count)
             }
-            LessonMode::Code => {
+            DrillMode::Code => {
                 let filter = CharFilter::new(('a'..='z').collect());
                 let lang = self
                     .config
@@ -175,7 +175,7 @@ impl App {
                 let mut generator = CodeSyntaxGenerator::new(rng, &lang);
                 generator.generate(&filter, None, word_count)
             }
-            LessonMode::Passage => {
+            DrillMode::Passage => {
                 let filter = CharFilter::new(('a'..='z').collect());
                 let rng = SmallRng::from_rng(&mut self.rng).unwrap();
                 let mut generator = PassageGenerator::new(rng);
@@ -185,28 +185,28 @@ impl App {
     }
 
     pub fn type_char(&mut self, ch: char) {
-        if let Some(ref mut lesson) = self.lesson {
-            if let Some(event) = input::process_char(lesson, ch) {
-                self.lesson_events.push(event);
+        if let Some(ref mut drill) = self.drill {
+            if let Some(event) = input::process_char(drill, ch) {
+                self.drill_events.push(event);
             }
 
-            if lesson.is_complete() {
-                self.finish_lesson();
+            if drill.is_complete() {
+                self.finish_drill();
             }
         }
     }
 
     pub fn backspace(&mut self) {
-        if let Some(ref mut lesson) = self.lesson {
-            input::process_backspace(lesson);
+        if let Some(ref mut drill) = self.drill {
+            input::process_backspace(drill);
         }
     }
 
-    fn finish_lesson(&mut self) {
-        if let Some(ref lesson) = self.lesson {
-            let result = LessonResult::from_lesson(lesson, &self.lesson_events, self.lesson_mode.as_str());
+    fn finish_drill(&mut self) {
+        if let Some(ref drill) = self.drill {
+            let result = DrillResult::from_drill(drill, &self.drill_events, self.drill_mode.as_str());
 
-            if self.lesson_mode == LessonMode::Adaptive {
+            if self.drill_mode == DrillMode::Adaptive {
                 for kt in &result.per_key_times {
                     if kt.correct {
                         self.key_stats.update_key(kt.key, kt.time_ms);
@@ -218,7 +218,7 @@ impl App {
             let complexity = scoring::compute_complexity(self.letter_unlock.unlocked_count());
             let score = scoring::compute_score(&result, complexity);
             self.profile.total_score += score;
-            self.profile.total_lessons += 1;
+            self.profile.total_drills += 1;
             self.profile.unlocked_letters = self.letter_unlock.included.clone();
 
             let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
@@ -240,18 +240,18 @@ impl App {
                 self.profile.last_practice_date = Some(today);
             }
 
-            self.lesson_history.push(result.clone());
-            if self.lesson_history.len() > 500 {
-                self.lesson_history.remove(0);
+            self.drill_history.push(result.clone());
+            if self.drill_history.len() > 500 {
+                self.drill_history.remove(0);
             }
 
             self.last_result = Some(result);
 
-            // Adaptive mode auto-continues to next lesson (like keybr.com)
-            if self.lesson_mode == LessonMode::Adaptive {
-                self.start_lesson();
+            // Adaptive mode auto-continues to next drill (like keybr.com)
+            if self.drill_mode == DrillMode::Adaptive {
+                self.start_drill();
             } else {
-                self.screen = AppScreen::LessonResult;
+                self.screen = AppScreen::DrillResult;
             }
 
             self.save_data();
@@ -265,21 +265,21 @@ impl App {
                 schema_version: 1,
                 stats: self.key_stats.clone(),
             });
-            let _ = store.save_lesson_history(&LessonHistoryData {
+            let _ = store.save_drill_history(&DrillHistoryData {
                 schema_version: 1,
-                lessons: self.lesson_history.clone(),
+                drills: self.drill_history.clone(),
             });
         }
     }
 
-    pub fn retry_lesson(&mut self) {
-        self.start_lesson();
+    pub fn retry_drill(&mut self) {
+        self.start_drill();
     }
 
     pub fn go_to_menu(&mut self) {
         self.screen = AppScreen::Menu;
-        self.lesson = None;
-        self.lesson_events.clear();
+        self.drill = None;
+        self.drill_events.clear();
     }
 
     pub fn go_to_stats(&mut self) {
@@ -290,18 +290,18 @@ impl App {
     }
 
     pub fn delete_session(&mut self) {
-        if self.lesson_history.is_empty() {
+        if self.drill_history.is_empty() {
             return;
         }
         // History tab shows reverse order, so convert display index to actual index
-        let actual_idx = self.lesson_history.len() - 1 - self.history_selected;
-        self.lesson_history.remove(actual_idx);
+        let actual_idx = self.drill_history.len() - 1 - self.history_selected;
+        self.drill_history.remove(actual_idx);
         self.rebuild_from_history();
         self.save_data();
 
         // Clamp selection to visible range (max 20 visible rows)
-        if !self.lesson_history.is_empty() {
-            let max_visible = self.lesson_history.len().min(20) - 1;
+        if !self.drill_history.is_empty() {
+            let max_visible = self.drill_history.len().min(20) - 1;
             self.history_selected = self.history_selected.min(max_visible);
         } else {
             self.history_selected = 0;
@@ -314,15 +314,15 @@ impl App {
         self.key_stats.target_cpm = self.config.target_cpm();
         self.letter_unlock = LetterUnlock::new();
         self.profile.total_score = 0.0;
-        self.profile.total_lessons = 0;
+        self.profile.total_drills = 0;
         self.profile.streak_days = 0;
         self.profile.best_streak = 0;
         self.profile.last_practice_date = None;
 
         // Replay each remaining session oldest→newest
-        for result in &self.lesson_history {
+        for result in &self.drill_history {
             // Only update adaptive progression for adaptive sessions
-            if result.lesson_mode == "adaptive" {
+            if result.drill_mode == "adaptive" {
                 for kt in &result.per_key_times {
                     if kt.correct {
                         self.key_stats.update_key(kt.key, kt.time_ms);
@@ -335,7 +335,7 @@ impl App {
             let complexity = scoring::compute_complexity(self.letter_unlock.unlocked_count());
             let score = scoring::compute_score(result, complexity);
             self.profile.total_score += score;
-            self.profile.total_lessons += 1;
+            self.profile.total_drills += 1;
 
             // Rebuild streak tracking
             let day = result.timestamp.format("%Y-%m-%d").to_string();

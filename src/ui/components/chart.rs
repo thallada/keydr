@@ -53,7 +53,7 @@ impl Widget for WpmChart<'_> {
             )
             .x_axis(
                 Axis::default()
-                    .title("Lesson")
+                    .title("Drill #")
                     .style(Style::default().fg(colors.text_pending()))
                     .bounds([0.0, max_x]),
             )

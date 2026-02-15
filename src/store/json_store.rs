@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::store::schema::{KeyStatsData, LessonHistoryData, ProfileData};
+use crate::store::schema::{KeyStatsData, DrillHistoryData, ProfileData};
 
 pub struct JsonStore {
     base_dir: PathBuf,
@@ -65,11 +65,11 @@ impl JsonStore {
         self.save("key_stats.json", data)
     }
 
-    pub fn load_lesson_history(&self) -> LessonHistoryData {
+    pub fn load_drill_history(&self) -> DrillHistoryData {
         self.load("lesson_history.json")
     }
 
-    pub fn save_lesson_history(&self, data: &LessonHistoryData) -> Result<()> {
+    pub fn save_drill_history(&self, data: &DrillHistoryData) -> Result<()> {
         self.save("lesson_history.json", data)
     }
 }
