@@ -207,7 +207,8 @@ fn handle_lesson_key(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc => {
             let has_progress = app.lesson.as_ref().is_some_and(|l| l.cursor > 0);
-            if has_progress {
+            if has_progress && app.lesson_mode != LessonMode::Adaptive {
+                // Non-adaptive: show result screen for partial lesson
                 if let Some(ref lesson) = app.lesson {
                     let result = LessonResult::from_lesson(lesson, &app.lesson_events, app.lesson_mode.as_str());
                     app.last_result = Some(result);
@@ -488,7 +489,7 @@ fn render_lesson(frame: &mut ratatui::Frame, app: &App) {
         }
 
         if let Some(sidebar_area) = app_layout.sidebar {
-            let sidebar = StatsSidebar::new(lesson, app.theme);
+            let sidebar = StatsSidebar::new(lesson, app.last_result.as_ref(), app.theme);
             frame.render_widget(sidebar, sidebar_area);
         }
 

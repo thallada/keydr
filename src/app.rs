@@ -246,7 +246,13 @@ impl App {
             }
 
             self.last_result = Some(result);
-            self.screen = AppScreen::LessonResult;
+
+            // Adaptive mode auto-continues to next lesson (like keybr.com)
+            if self.lesson_mode == LessonMode::Adaptive {
+                self.start_lesson();
+            } else {
+                self.screen = AppScreen::LessonResult;
+            }
 
             self.save_data();
         }
