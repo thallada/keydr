@@ -488,7 +488,7 @@ impl StatsDashboard<'_> {
         table_block.render(layout[0], buf);
 
         let header = Line::from(vec![Span::styled(
-            "   #     WPM    Raw    Acc%    Time      Date",
+            "   #     WPM    Raw    Acc%    Time      Date       Mode",
             Style::default()
                 .fg(colors.accent())
                 .add_modifier(Modifier::BOLD),
@@ -523,8 +523,14 @@ impl StatsDashboard<'_> {
                 " "
             };
 
+            let mode_str = if result.ranked {
+                ""
+            } else {
+                " (unranked)"
+            };
             let row = format!(
-                " {wpm_indicator}{idx_str}  {wpm_str}  {raw_str}  {acc_str}  {time_str:>6}  {date_str}"
+                " {wpm_indicator}{idx_str}  {wpm_str}  {raw_str}  {acc_str}  {time_str:>6}  {date_str}  {mode}{mode_str}",
+                mode = result.drill_mode,
             );
 
             let acc_color = if result.accuracy >= 95.0 {
@@ -538,6 +544,9 @@ impl StatsDashboard<'_> {
             let is_selected = i == self.history_selected;
             let style = if is_selected {
                 Style::default().fg(acc_color).bg(colors.accent_dim())
+            } else if !result.ranked {
+                // Muted styling for unranked drills
+                Style::default().fg(colors.text_pending())
             } else {
                 Style::default().fg(acc_color)
             };

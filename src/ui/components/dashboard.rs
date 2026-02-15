@@ -42,13 +42,20 @@ impl Widget for Dashboard<'_> {
             ])
             .split(inner);
 
-        let title = Paragraph::new(Line::from(Span::styled(
+        let mut title_spans = vec![Span::styled(
             "Results",
             Style::default()
                 .fg(colors.accent())
                 .add_modifier(Modifier::BOLD),
-        )))
-        .alignment(Alignment::Center);
+        )];
+        if !self.result.ranked {
+            title_spans.push(Span::styled(
+                "  (Unranked \u{2014} does not count toward skill tree)",
+                Style::default().fg(colors.text_pending()),
+            ));
+        }
+        let title = Paragraph::new(Line::from(title_spans))
+            .alignment(Alignment::Center);
         title.render(layout[0], buf);
 
         let wpm_text = format!("{:.0} WPM", self.result.wpm);

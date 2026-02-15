@@ -7,12 +7,16 @@ use rand::SeedableRng;
 use crate::config::Config;
 use crate::engine::filter::CharFilter;
 use crate::engine::key_stats::KeyStatsStore;
-use crate::engine::letter_unlock::LetterUnlock;
 use crate::engine::scoring;
+use crate::engine::skill_tree::{BranchId, BranchStatus, DrillScope, SkillTree};
+use crate::generator::capitalize;
+use crate::generator::code_patterns;
 use crate::generator::code_syntax::CodeSyntaxGenerator;
 use crate::generator::dictionary::Dictionary;
+use crate::generator::numbers;
 use crate::generator::passage::PassageGenerator;
 use crate::generator::phonetic::PhoneticGenerator;
+use crate::generator::punctuate;
 use crate::generator::TextGenerator;
 use crate::generator::transition_table::TransitionTable;
 
@@ -31,6 +35,7 @@ pub enum AppScreen {
     DrillResult,
     StatsDashboard,
     Settings,
+    SkillTree,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,11 +53,16 @@ impl DrillMode {
             DrillMode::Passage => "passage",
         }
     }
+
+    pub fn is_ranked(self) -> bool {
+        matches!(self, DrillMode::Adaptive)
+    }
 }
 
 pub struct App {
     pub screen: AppScreen,
     pub drill_mode: DrillMode,
+    pub drill_scope: DrillScope,
     pub drill: Option<DrillState>,
     pub drill_events: Vec<KeystrokeEvent>,
     pub last_result: Option<DrillResult>,
@@ -61,7 +71,7 @@ pub struct App {
     pub theme: &'static Theme,
     pub config: Config,
     pub key_stats: KeyStatsStore,
-    pub letter_unlock: LetterUnlock,
+    pub skill_tree: SkillTree,
     pub profile: ProfileData,
     pub store: Option<JsonStore>,
     pub should_quit: bool,
@@ -71,6 +81,7 @@ pub struct App {
     pub last_key_time: Option<Instant>,
     pub history_selected: usize,
     pub history_confirm_delete: bool,
+    pub skill_tree_selected: usize,
     rng: SmallRng,
     transition_table: TransitionTable,
     #[allow(dead_code)]
@@ -86,22 +97,31 @@ impl App {
 
         let store = JsonStore::new().ok();
 
-        let (key_stats, letter_unlock, profile, drill_history) = if let Some(ref s) = store {
-            let ksd = s.load_key_stats();
+        let (key_stats, skill_tree, profile, drill_history) = if let Some(ref s) = store {
+            // load_profile returns None if file exists but can't parse (schema mismatch)
             let pd = s.load_profile();
-            let lhd = s.load_drill_history();
 
-            let lu = if pd.unlocked_letters.is_empty() {
-                LetterUnlock::new()
-            } else {
-                LetterUnlock::from_included(pd.unlocked_letters.clone())
-            };
-
-            (ksd.stats, lu, pd, lhd.drills)
+            match pd {
+                Some(pd) if !pd.needs_reset() => {
+                    let ksd = s.load_key_stats();
+                    let lhd = s.load_drill_history();
+                    let st = SkillTree::new(pd.skill_tree.clone());
+                    (ksd.stats, st, pd, lhd.drills)
+                }
+                _ => {
+                    // Schema mismatch or parse failure: full reset of all stores
+                    (
+                        KeyStatsStore::default(),
+                        SkillTree::default(),
+                        ProfileData::default(),
+                        Vec::new(),
+                    )
+                }
+            }
         } else {
             (
                 KeyStatsStore::default(),
-                LetterUnlock::new(),
+                SkillTree::default(),
                 ProfileData::default(),
                 Vec::new(),
             )
@@ -116,6 +136,7 @@ impl App {
         let mut app = Self {
             screen: AppScreen::Menu,
             drill_mode: DrillMode::Adaptive,
+            drill_scope: DrillScope::Global,
             drill: None,
             drill_events: Vec::new(),
             last_result: None,
@@ -124,7 +145,7 @@ impl App {
             theme,
             config,
             key_stats: key_stats_with_target,
-            letter_unlock,
+            skill_tree,
             profile,
             store,
             should_quit: false,
@@ -134,6 +155,7 @@ impl App {
             last_key_time: None,
             history_selected: 0,
             history_confirm_delete: false,
+            skill_tree_selected: 0,
             rng: SmallRng::from_entropy(),
             transition_table,
             dictionary,
@@ -155,13 +177,84 @@ impl App {
 
         match mode {
             DrillMode::Adaptive => {
-                let filter = CharFilter::new(self.letter_unlock.included.clone());
-                let focused = self.letter_unlock.focused;
+                let scope = self.drill_scope;
+                let all_keys = self.skill_tree.unlocked_keys(scope);
+                let focused = self.skill_tree.focused_key(scope, &self.key_stats);
+
+                // Generate base lowercase text using only lowercase keys from scope
+                let lowercase_keys: Vec<char> = all_keys.iter()
+                    .copied()
+                    .filter(|ch| ch.is_ascii_lowercase() || *ch == ' ')
+                    .collect();
+                let filter = CharFilter::new(lowercase_keys);
+                // Only pass focused to phonetic generator if it's a lowercase letter
+                let lowercase_focused = focused.filter(|ch| ch.is_ascii_lowercase());
                 let table = self.transition_table.clone();
                 let dict = Dictionary::load();
                 let rng = SmallRng::from_rng(&mut self.rng).unwrap();
                 let mut generator = PhoneticGenerator::new(table, dict, rng);
-                generator.generate(&filter, focused, word_count)
+                let mut text = generator.generate(&filter, lowercase_focused, word_count);
+
+                // Apply capitalization if uppercase keys are in scope
+                let cap_keys: Vec<char> = all_keys.iter()
+                    .copied()
+                    .filter(|ch| ch.is_ascii_uppercase())
+                    .collect();
+                if !cap_keys.is_empty() {
+                    let mut rng = SmallRng::from_rng(&mut self.rng).unwrap();
+                    text = capitalize::apply_capitalization(&text, &cap_keys, focused, &mut rng);
+                }
+
+                // Apply punctuation if punctuation keys are in scope
+                let punct_keys: Vec<char> = all_keys.iter()
+                    .copied()
+                    .filter(|ch| matches!(ch, '.' | ',' | '\'' | ';' | ':' | '"' | '-' | '?' | '!' | '(' | ')'))
+                    .collect();
+                if !punct_keys.is_empty() {
+                    let mut rng = SmallRng::from_rng(&mut self.rng).unwrap();
+                    text = punctuate::apply_punctuation(&text, &punct_keys, focused, &mut rng);
+                }
+
+                // Apply numbers if digit keys are in scope
+                let digit_keys: Vec<char> = all_keys.iter()
+                    .copied()
+                    .filter(|ch| ch.is_ascii_digit())
+                    .collect();
+                if !digit_keys.is_empty() {
+                    let has_dot = all_keys.contains(&'.');
+                    let mut rng = SmallRng::from_rng(&mut self.rng).unwrap();
+                    text = numbers::apply_numbers(&text, &digit_keys, has_dot, focused, &mut rng);
+                }
+
+                // Apply code symbols only if this drill is for the CodeSymbols branch,
+                // or if it's a global drill and CodeSymbols is active
+                let code_active = match scope {
+                    DrillScope::Branch(id) => id == BranchId::CodeSymbols,
+                    DrillScope::Global => matches!(
+                        self.skill_tree.branch_status(BranchId::CodeSymbols),
+                        BranchStatus::InProgress | BranchStatus::Complete
+                    ),
+                };
+                if code_active {
+                    let symbol_keys: Vec<char> = all_keys.iter()
+                        .copied()
+                        .filter(|ch| matches!(ch,
+                            '=' | '+' | '*' | '/' | '-' | '{' | '}' | '[' | ']' | '<' | '>' |
+                            '&' | '|' | '^' | '~' | '@' | '#' | '$' | '%' | '_' | '\\' | '`'
+                        ))
+                        .collect();
+                    if !symbol_keys.is_empty() {
+                        let mut rng = SmallRng::from_rng(&mut self.rng).unwrap();
+                        text = code_patterns::apply_code_symbols(&text, &symbol_keys, focused, &mut rng);
+                    }
+                }
+
+                // Apply whitespace line breaks if newline is in scope
+                if all_keys.contains(&'\n') {
+                    text = insert_line_breaks(&text);
+                }
+
+                text
             }
             DrillMode::Code => {
                 let filter = CharFilter::new(('a'..='z').collect());
@@ -204,22 +297,23 @@ impl App {
 
     fn finish_drill(&mut self) {
         if let Some(ref drill) = self.drill {
-            let result = DrillResult::from_drill(drill, &self.drill_events, self.drill_mode.as_str());
+            let ranked = self.drill_mode.is_ranked();
+            let result = DrillResult::from_drill(drill, &self.drill_events, self.drill_mode.as_str(), ranked);
 
-            if self.drill_mode == DrillMode::Adaptive {
+            if ranked {
                 for kt in &result.per_key_times {
                     if kt.correct {
                         self.key_stats.update_key(kt.key, kt.time_ms);
                     }
                 }
-                self.letter_unlock.update(&self.key_stats);
+                self.skill_tree.update(&self.key_stats);
             }
 
-            let complexity = scoring::compute_complexity(self.letter_unlock.unlocked_count());
+            let complexity = self.skill_tree.complexity();
             let score = scoring::compute_score(&result, complexity);
             self.profile.total_score += score;
             self.profile.total_drills += 1;
-            self.profile.unlocked_letters = self.letter_unlock.included.clone();
+            self.profile.skill_tree = self.skill_tree.progress.clone();
 
             let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
             if self.profile.last_practice_date.as_deref() != Some(&today) {
@@ -262,11 +356,11 @@ impl App {
         if let Some(ref store) = self.store {
             let _ = store.save_profile(&self.profile);
             let _ = store.save_key_stats(&KeyStatsData {
-                schema_version: 1,
+                schema_version: 2,
                 stats: self.key_stats.clone(),
             });
             let _ = store.save_drill_history(&DrillHistoryData {
-                schema_version: 1,
+                schema_version: 2,
                 drills: self.drill_history.clone(),
             });
         }
@@ -312,27 +406,27 @@ impl App {
         // Reset all derived state
         self.key_stats = KeyStatsStore::default();
         self.key_stats.target_cpm = self.config.target_cpm();
-        self.letter_unlock = LetterUnlock::new();
+        self.skill_tree = SkillTree::default();
         self.profile.total_score = 0.0;
         self.profile.total_drills = 0;
         self.profile.streak_days = 0;
         self.profile.best_streak = 0;
         self.profile.last_practice_date = None;
 
-        // Replay each remaining session oldest→newest
+        // Replay each remaining session oldest->newest
         for result in &self.drill_history {
-            // Only update adaptive progression for adaptive sessions
-            if result.drill_mode == "adaptive" {
+            // Only update skill tree for ranked sessions
+            if result.ranked {
                 for kt in &result.per_key_times {
                     if kt.correct {
                         self.key_stats.update_key(kt.key, kt.time_ms);
                     }
                 }
-                self.letter_unlock.update(&self.key_stats);
+                self.skill_tree.update(&self.key_stats);
             }
 
             // Compute score
-            let complexity = scoring::compute_complexity(self.letter_unlock.unlocked_count());
+            let complexity = self.skill_tree.complexity();
             let score = scoring::compute_score(result, complexity);
             self.profile.total_score += score;
             self.profile.total_drills += 1;
@@ -359,7 +453,24 @@ impl App {
             }
         }
 
-        self.profile.unlocked_letters = self.letter_unlock.included.clone();
+        self.profile.skill_tree = self.skill_tree.progress.clone();
+    }
+
+    pub fn go_to_skill_tree(&mut self) {
+        self.skill_tree_selected = 0;
+        self.screen = AppScreen::SkillTree;
+    }
+
+    pub fn start_branch_drill(&mut self, branch_id: BranchId) {
+        // Start the branch if it's Available
+        self.skill_tree.start_branch(branch_id);
+        self.profile.skill_tree = self.skill_tree.progress.clone();
+        self.save_data();
+
+        // Use adaptive mode with branch-specific scope
+        self.drill_mode = DrillMode::Adaptive;
+        self.drill_scope = DrillScope::Branch(branch_id);
+        self.start_drill();
     }
 
     pub fn go_to_settings(&mut self) {
@@ -444,4 +555,34 @@ impl App {
             _ => {}
         }
     }
+}
+
+/// Insert newlines at sentence boundaries (~60-80 chars per line).
+fn insert_line_breaks(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut col = 0;
+
+    for (i, ch) in text.chars().enumerate() {
+        result.push(ch);
+        col += 1;
+
+        // After sentence-ending punctuation + space, insert newline if past 60 chars
+        if col >= 60 && (ch == '.' || ch == '?' || ch == '!') {
+            // Check if next char is a space
+            let next = text.chars().nth(i + 1);
+            if next == Some(' ') {
+                result.push('\n');
+                col = 0;
+                // Skip the space (will be consumed by next iteration but we already broke the line)
+            }
+        } else if col >= 80 && ch == ' ' {
+            // Hard wrap at spaces if no sentence boundary found
+            // Replace the space we just pushed with a newline
+            result.pop();
+            result.push('\n');
+            col = 0;
+        }
+    }
+
+    result
 }

@@ -245,11 +245,11 @@ impl TextGenerator for CodeSyntaxGenerator {
             result.push(snippet.to_string());
         }
 
-        result.join(" ")
+        result.join("\n\n")
     }
 }
 
-/// Extract function-length snippets from raw source code
+/// Extract function-length snippets from raw source code, preserving whitespace.
 fn extract_code_snippets(source: &str) -> Vec<String> {
     let mut snippets = Vec::new();
     let lines: Vec<&str> = source.lines().collect();
@@ -285,11 +285,11 @@ fn extract_code_snippets(source: &str) -> Vec<String> {
             }
 
             if snippet_lines.len() >= 3 && snippet_lines.len() <= 30 {
-                let snippet = snippet_lines.join(" ");
-                // Normalize whitespace
-                let normalized: String = snippet.split_whitespace().collect::<Vec<_>>().join(" ");
-                if normalized.len() >= 20 && normalized.len() <= 500 {
-                    snippets.push(normalized);
+                // Preserve original newlines and indentation
+                let snippet = snippet_lines.join("\n");
+                let char_count = snippet.chars().filter(|c| !c.is_whitespace()).count();
+                if char_count >= 20 && snippet.len() <= 800 {
+                    snippets.push(snippet);
                 }
             }
 

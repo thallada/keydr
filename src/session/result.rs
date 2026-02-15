@@ -17,10 +17,16 @@ pub struct DrillResult {
     pub per_key_times: Vec<KeyTime>,
     #[serde(default = "default_drill_mode", alias = "lesson_mode")]
     pub drill_mode: String,
+    #[serde(default = "default_true")]
+    pub ranked: bool,
 }
 
 fn default_drill_mode() -> String {
     "adaptive".to_string()
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -31,7 +37,7 @@ pub struct KeyTime {
 }
 
 impl DrillResult {
-    pub fn from_drill(drill: &DrillState, events: &[KeystrokeEvent], drill_mode: &str) -> Self {
+    pub fn from_drill(drill: &DrillState, events: &[KeystrokeEvent], drill_mode: &str, ranked: bool) -> Self {
         let per_key_times: Vec<KeyTime> = events
             .windows(2)
             .map(|pair| {
@@ -63,6 +69,7 @@ impl DrillResult {
             timestamp: Utc::now(),
             per_key_times,
             drill_mode: drill_mode.to_string(),
+            ranked,
         }
     }
 }

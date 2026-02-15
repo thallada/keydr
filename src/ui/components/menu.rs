@@ -38,6 +38,11 @@ impl<'a> Menu<'a> {
                     description: "Type passages from books".to_string(),
                 },
                 MenuItem {
+                    key: "t".to_string(),
+                    label: "Skill Tree".to_string(),
+                    description: "View progression branches and launch drills".to_string(),
+                },
+                MenuItem {
                     key: "s".to_string(),
                     label: "Statistics".to_string(),
                     description: "View your typing statistics".to_string(),

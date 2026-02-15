@@ -1,14 +1,15 @@
 use serde::{Deserialize, Serialize};
 
 use crate::engine::key_stats::KeyStatsStore;
+use crate::engine::skill_tree::SkillTreeProgress;
 use crate::session::result::DrillResult;
 
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProfileData {
     pub schema_version: u32,
-    pub unlocked_letters: Vec<char>,
+    pub skill_tree: SkillTreeProgress,
     pub total_score: f64,
     #[serde(alias = "total_lessons")]
     pub total_drills: u32,
@@ -21,13 +22,20 @@ impl Default for ProfileData {
     fn default() -> Self {
         Self {
             schema_version: SCHEMA_VERSION,
-            unlocked_letters: Vec::new(),
+            skill_tree: SkillTreeProgress::default(),
             total_score: 0.0,
             total_drills: 0,
             streak_days: 0,
             best_streak: 0,
             last_practice_date: None,
         }
+    }
+}
+
+impl ProfileData {
+    /// Check if loaded data has a stale schema version and needs reset.
+    pub fn needs_reset(&self) -> bool {
+        self.schema_version != SCHEMA_VERSION
     }
 }
 

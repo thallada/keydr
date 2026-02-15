@@ -29,7 +29,9 @@ use ratatui::widgets::{Block, Paragraph, Widget};
 use ratatui::Terminal;
 
 use app::{App, AppScreen, DrillMode};
+use engine::skill_tree::DrillScope;
 use session::result::DrillResult;
+use ui::components::skill_tree::{SkillTreeWidget, selectable_branches};
 use event::{AppEvent, EventHandler};
 use ui::components::dashboard::Dashboard;
 use ui::components::keyboard_diagram::KeyboardDiagram;
@@ -160,6 +162,7 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         AppScreen::DrillResult => handle_result_key(app, key),
         AppScreen::StatsDashboard => handle_stats_key(app, key),
         AppScreen::Settings => handle_settings_key(app, key),
+        AppScreen::SkillTree => handle_skill_tree_key(app, key),
     }
 }
 
@@ -168,16 +171,20 @@ fn handle_menu_key(app: &mut App, key: KeyEvent) {
         KeyCode::Char('q') | KeyCode::Esc => app.should_quit = true,
         KeyCode::Char('1') => {
             app.drill_mode = DrillMode::Adaptive;
+            app.drill_scope = DrillScope::Global;
             app.start_drill();
         }
         KeyCode::Char('2') => {
             app.drill_mode = DrillMode::Code;
+            app.drill_scope = DrillScope::Global;
             app.start_drill();
         }
         KeyCode::Char('3') => {
             app.drill_mode = DrillMode::Passage;
+            app.drill_scope = DrillScope::Global;
             app.start_drill();
         }
+        KeyCode::Char('t') => app.go_to_skill_tree(),
         KeyCode::Char('s') => app.go_to_stats(),
         KeyCode::Char('c') => app.go_to_settings(),
         KeyCode::Up | KeyCode::Char('k') => app.menu.prev(),
@@ -185,18 +192,22 @@ fn handle_menu_key(app: &mut App, key: KeyEvent) {
         KeyCode::Enter => match app.menu.selected {
             0 => {
                 app.drill_mode = DrillMode::Adaptive;
+                app.drill_scope = DrillScope::Global;
                 app.start_drill();
             }
             1 => {
                 app.drill_mode = DrillMode::Code;
+                app.drill_scope = DrillScope::Global;
                 app.start_drill();
             }
             2 => {
                 app.drill_mode = DrillMode::Passage;
+                app.drill_scope = DrillScope::Global;
                 app.start_drill();
             }
-            3 => app.go_to_stats(),
-            4 => app.go_to_settings(),
+            3 => app.go_to_skill_tree(),
+            4 => app.go_to_stats(),
+            5 => app.go_to_settings(),
             _ => {}
         },
         _ => {}
@@ -204,13 +215,29 @@ fn handle_menu_key(app: &mut App, key: KeyEvent) {
 }
 
 fn handle_drill_key(app: &mut App, key: KeyEvent) {
+    // Route Enter/Tab as typed characters during active drills
+    if app.drill.is_some() {
+        match key.code {
+            KeyCode::Enter => {
+                app.type_char('\n');
+                return;
+            }
+            KeyCode::Tab => {
+                app.type_char('\t');
+                return;
+            }
+            KeyCode::BackTab => return, // Ignore Shift+Tab
+            _ => {}
+        }
+    }
+
     match key.code {
         KeyCode::Esc => {
             let has_progress = app.drill.as_ref().is_some_and(|d| d.cursor > 0);
             if has_progress && app.drill_mode != DrillMode::Adaptive {
                 // Non-adaptive: show result screen for partial drill
                 if let Some(ref drill) = app.drill {
-                    let result = DrillResult::from_drill(drill, &app.drill_events, app.drill_mode.as_str());
+                    let result = DrillResult::from_drill(drill, &app.drill_events, app.drill_mode.as_str(), app.drill_mode.is_ranked());
                     app.last_result = Some(result);
                 }
                 app.screen = AppScreen::DrillResult;
@@ -317,6 +344,33 @@ fn handle_settings_key(app: &mut App, key: KeyEvent) {
     }
 }
 
+fn handle_skill_tree_key(app: &mut App, key: KeyEvent) {
+    let branches = selectable_branches();
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => app.go_to_menu(),
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.skill_tree_selected = app.skill_tree_selected.saturating_sub(1);
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if app.skill_tree_selected + 1 < branches.len() {
+                app.skill_tree_selected += 1;
+            }
+        }
+        KeyCode::Enter => {
+            if app.skill_tree_selected < branches.len() {
+                let branch_id = branches[app.skill_tree_selected];
+                let status = app.skill_tree.branch_status(branch_id).clone();
+                if status == engine::skill_tree::BranchStatus::Available
+                    || status == engine::skill_tree::BranchStatus::InProgress
+                {
+                    app.start_branch_drill(branch_id);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 fn render(frame: &mut ratatui::Frame, app: &App) {
     let area = frame.area();
     let colors = &app.theme.colors;
@@ -330,6 +384,7 @@ fn render(frame: &mut ratatui::Frame, app: &App) {
         AppScreen::DrillResult => render_result(frame, app),
         AppScreen::StatsDashboard => render_stats(frame, app),
         AppScreen::Settings => render_settings(frame, app),
+        AppScreen::SkillTree => render_skill_tree(frame, app),
     }
 }
 
@@ -352,11 +407,11 @@ fn render_menu(frame: &mut ratatui::Frame, app: &App) {
         String::new()
     };
     let header_info = format!(
-        " Level {} | Score {:.0} | {}/{} letters{}",
+        " Level {} | Score {:.0} | {}/{} keys{}",
         crate::engine::scoring::level_from_score(app.profile.total_score),
         app.profile.total_score,
-        app.letter_unlock.unlocked_count(),
-        app.letter_unlock.total_letters(),
+        app.skill_tree.total_unlocked_count(),
+        app.skill_tree.total_unique_keys,
         streak_text,
     );
     let header = Paragraph::new(Line::from(vec![
@@ -381,7 +436,7 @@ fn render_menu(frame: &mut ratatui::Frame, app: &App) {
     frame.render_widget(&app.menu, menu_area);
 
     let footer = Paragraph::new(Line::from(vec![Span::styled(
-        " [1-3] Start  [s] Stats  [q] Quit ",
+        " [1-3] Start  [t] Skill Tree  [s] Stats  [q] Quit ",
         Style::default().fg(colors.text_pending()),
     )]));
     frame.render_widget(footer, layout[2]);
@@ -397,8 +452,8 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
 
         let mode_name = match app.drill_mode {
             DrillMode::Adaptive => "Adaptive",
-            DrillMode::Code => "Code",
-            DrillMode::Passage => "Passage",
+            DrillMode::Code => "Code (Unranked)",
+            DrillMode::Passage => "Passage (Unranked)",
         };
 
         // For medium/narrow: show compact stats in header
@@ -420,7 +475,8 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
             frame.render_widget(header, app_layout.header);
         } else {
             let header_title = format!(" {mode_name} Drill ");
-            let focus_text = if let Some(focused) = app.letter_unlock.focused {
+            let focused = app.skill_tree.focused_key(app.drill_scope, &app.key_stats);
+            let focus_text = if let Some(focused) = focused {
                 format!(" | Focus: '{focused}'")
             } else {
                 String::new()
@@ -466,9 +522,12 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
 
         let mut idx = 1;
         if show_progress {
+            let unlocked = app.skill_tree.total_unlocked_count() as f64;
+            let total = app.skill_tree.total_unique_keys as f64;
+            let progress_val = (unlocked / total).min(1.0);
             let progress = ProgressBar::new(
-                "Letter Progress",
-                app.letter_unlock.progress(),
+                "Key Progress",
+                progress_val,
                 app.theme,
             );
             frame.render_widget(progress, main_layout[idx]);
@@ -477,10 +536,12 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
 
         if show_kbd {
             let next_char = drill.target.get(drill.cursor).copied();
+            let unlocked_keys = app.skill_tree.unlocked_keys(app.drill_scope);
+            let focused = app.skill_tree.focused_key(app.drill_scope, &app.key_stats);
             let kbd = KeyboardDiagram::new(
-                app.letter_unlock.focused,
+                focused,
                 next_char,
-                &app.letter_unlock.included,
+                &unlocked_keys,
                 &app.depressed_keys,
                 app.theme,
             )
@@ -608,4 +669,16 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
         Style::default().fg(colors.accent()),
     )));
     footer.render(layout[3], frame.buffer_mut());
+}
+
+fn render_skill_tree(frame: &mut ratatui::Frame, app: &App) {
+    let area = frame.area();
+    let centered = ui::layout::centered_rect(70, 90, area);
+    let widget = SkillTreeWidget::new(
+        &app.skill_tree,
+        &app.key_stats,
+        app.skill_tree_selected,
+        app.theme,
+    );
+    frame.render_widget(widget, centered);
 }

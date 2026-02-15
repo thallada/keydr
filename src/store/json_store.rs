@@ -49,8 +49,17 @@ impl JsonStore {
         Ok(())
     }
 
-    pub fn load_profile(&self) -> ProfileData {
-        self.load("profile.json")
+    /// Load and deserialize profile. Returns None if file exists but
+    /// cannot be parsed (schema mismatch / corruption).
+    pub fn load_profile(&self) -> Option<ProfileData> {
+        let path = self.file_path("profile.json");
+        if path.exists() {
+            let content = fs::read_to_string(&path).ok()?;
+            serde_json::from_str(&content).ok()
+        } else {
+            // No file yet — return fresh default (not a schema mismatch)
+            Some(ProfileData::default())
+        }
     }
 
     pub fn save_profile(&self, data: &ProfileData) -> Result<()> {
