@@ -24,7 +24,13 @@ impl DiskCache {
 
     fn sanitize_key(key: &str) -> String {
         key.chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect()
     }
 }

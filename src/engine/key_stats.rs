@@ -48,8 +48,7 @@ impl KeyStatsStore {
         if stat.sample_count == 1 {
             stat.filtered_time_ms = time_ms;
         } else {
-            stat.filtered_time_ms =
-                EMA_ALPHA * time_ms + (1.0 - EMA_ALPHA) * stat.filtered_time_ms;
+            stat.filtered_time_ms = EMA_ALPHA * time_ms + (1.0 - EMA_ALPHA) * stat.filtered_time_ms;
         }
 
         stat.best_time_ms = stat.best_time_ms.min(stat.filtered_time_ms);
@@ -64,10 +63,7 @@ impl KeyStatsStore {
     }
 
     pub fn get_confidence(&self, key: char) -> f64 {
-        self.stats
-            .get(&key)
-            .map(|s| s.confidence)
-            .unwrap_or(0.0)
+        self.stats.get(&key).map(|s| s.confidence).unwrap_or(0.0)
     }
 
     #[allow(dead_code)]
@@ -104,7 +100,10 @@ mod tests {
         let conf = store.get_confidence('t');
         // At 175 CPM target, target_time = 60000/175 = 342.8ms
         // With 200ms typing time, confidence = 342.8/200 = 1.71
-        assert!(conf > 1.0, "confidence should be > 1.0 for fast typing, got {conf}");
+        assert!(
+            conf > 1.0,
+            "confidence should be > 1.0 for fast typing, got {conf}"
+        );
     }
 
     #[test]
@@ -115,6 +114,9 @@ mod tests {
         }
         let conf = store.get_confidence('a');
         // target_time = 342.8ms, typing at 1000ms -> conf = 342.8/1000 = 0.34
-        assert!(conf < 1.0, "confidence should be < 1.0 for slow typing, got {conf}");
+        assert!(
+            conf < 1.0,
+            "confidence should be < 1.0 for slow typing, got {conf}"
+        );
     }
 }

@@ -1,14 +1,15 @@
 use std::collections::HashSet;
 use std::time::Instant;
 
-use rand::rngs::SmallRng;
 use rand::SeedableRng;
+use rand::rngs::SmallRng;
 
 use crate::config::Config;
 use crate::engine::filter::CharFilter;
 use crate::engine::key_stats::KeyStatsStore;
 use crate::engine::scoring;
 use crate::engine::skill_tree::{BranchId, BranchStatus, DrillScope, SkillTree};
+use crate::generator::TextGenerator;
 use crate::generator::capitalize;
 use crate::generator::code_patterns;
 use crate::generator::code_syntax::CodeSyntaxGenerator;
@@ -17,14 +18,13 @@ use crate::generator::numbers;
 use crate::generator::passage::PassageGenerator;
 use crate::generator::phonetic::PhoneticGenerator;
 use crate::generator::punctuate;
-use crate::generator::TextGenerator;
 use crate::generator::transition_table::TransitionTable;
 
-use crate::session::input::{self, KeystrokeEvent};
 use crate::session::drill::DrillState;
+use crate::session::input::{self, KeystrokeEvent};
 use crate::session::result::DrillResult;
 use crate::store::json_store::JsonStore;
-use crate::store::schema::{KeyStatsData, DrillHistoryData, ProfileData};
+use crate::store::schema::{DrillHistoryData, KeyStatsData, ProfileData};
 use crate::ui::components::menu::Menu;
 use crate::ui::theme::Theme;
 
@@ -182,7 +182,8 @@ impl App {
                 let focused = self.skill_tree.focused_key(scope, &self.key_stats);
 
                 // Generate base lowercase text using only lowercase keys from scope
-                let lowercase_keys: Vec<char> = all_keys.iter()
+                let lowercase_keys: Vec<char> = all_keys
+                    .iter()
                     .copied()
                     .filter(|ch| ch.is_ascii_lowercase() || *ch == ' ')
                     .collect();
@@ -196,7 +197,8 @@ impl App {
                 let mut text = generator.generate(&filter, lowercase_focused, word_count);
 
                 // Apply capitalization if uppercase keys are in scope
-                let cap_keys: Vec<char> = all_keys.iter()
+                let cap_keys: Vec<char> = all_keys
+                    .iter()
                     .copied()
                     .filter(|ch| ch.is_ascii_uppercase())
                     .collect();
@@ -206,9 +208,15 @@ impl App {
                 }
 
                 // Apply punctuation if punctuation keys are in scope
-                let punct_keys: Vec<char> = all_keys.iter()
+                let punct_keys: Vec<char> = all_keys
+                    .iter()
                     .copied()
-                    .filter(|ch| matches!(ch, '.' | ',' | '\'' | ';' | ':' | '"' | '-' | '?' | '!' | '(' | ')'))
+                    .filter(|ch| {
+                        matches!(
+                            ch,
+                            '.' | ',' | '\'' | ';' | ':' | '"' | '-' | '?' | '!' | '(' | ')'
+                        )
+                    })
                     .collect();
                 if !punct_keys.is_empty() {
                     let mut rng = SmallRng::from_rng(&mut self.rng).unwrap();
@@ -216,7 +224,8 @@ impl App {
                 }
 
                 // Apply numbers if digit keys are in scope
-                let digit_keys: Vec<char> = all_keys.iter()
+                let digit_keys: Vec<char> = all_keys
+                    .iter()
                     .copied()
                     .filter(|ch| ch.is_ascii_digit())
                     .collect();
@@ -236,16 +245,44 @@ impl App {
                     ),
                 };
                 if code_active {
-                    let symbol_keys: Vec<char> = all_keys.iter()
+                    let symbol_keys: Vec<char> = all_keys
+                        .iter()
                         .copied()
-                        .filter(|ch| matches!(ch,
-                            '=' | '+' | '*' | '/' | '-' | '{' | '}' | '[' | ']' | '<' | '>' |
-                            '&' | '|' | '^' | '~' | '@' | '#' | '$' | '%' | '_' | '\\' | '`'
-                        ))
+                        .filter(|ch| {
+                            matches!(
+                                ch,
+                                '=' | '+'
+                                    | '*'
+                                    | '/'
+                                    | '-'
+                                    | '{'
+                                    | '}'
+                                    | '['
+                                    | ']'
+                                    | '<'
+                                    | '>'
+                                    | '&'
+                                    | '|'
+                                    | '^'
+                                    | '~'
+                                    | '@'
+                                    | '#'
+                                    | '$'
+                                    | '%'
+                                    | '_'
+                                    | '\\'
+                                    | '`'
+                            )
+                        })
                         .collect();
                     if !symbol_keys.is_empty() {
                         let mut rng = SmallRng::from_rng(&mut self.rng).unwrap();
-                        text = code_patterns::apply_code_symbols(&text, &symbol_keys, focused, &mut rng);
+                        text = code_patterns::apply_code_symbols(
+                            &text,
+                            &symbol_keys,
+                            focused,
+                            &mut rng,
+                        );
                     }
                 }
 
@@ -298,7 +335,12 @@ impl App {
     fn finish_drill(&mut self) {
         if let Some(ref drill) = self.drill {
             let ranked = self.drill_mode.is_ranked();
-            let result = DrillResult::from_drill(drill, &self.drill_events, self.drill_mode.as_str(), ranked);
+            let result = DrillResult::from_drill(
+                drill,
+                &self.drill_events,
+                self.drill_mode.as_str(),
+                ranked,
+            );
 
             if ranked {
                 for kt in &result.per_key_times {
@@ -329,8 +371,7 @@ impl App {
                 } else {
                     self.profile.streak_days = 1;
                 }
-                self.profile.best_streak =
-                    self.profile.best_streak.max(self.profile.streak_days);
+                self.profile.best_streak = self.profile.best_streak.max(self.profile.streak_days);
                 self.profile.last_practice_date = Some(today);
             }
 
@@ -447,8 +488,7 @@ impl App {
                 } else {
                     self.profile.streak_days = 1;
                 }
-                self.profile.best_streak =
-                    self.profile.best_streak.max(self.profile.streak_days);
+                self.profile.best_streak = self.profile.best_streak.max(self.profile.streak_days);
                 self.profile.last_practice_date = Some(day);
             }
         }

@@ -1,9 +1,9 @@
-use rand::rngs::SmallRng;
 use rand::Rng;
+use rand::rngs::SmallRng;
 
 use crate::engine::filter::CharFilter;
-use crate::generator::cache::{DiskCache, fetch_url};
 use crate::generator::TextGenerator;
+use crate::generator::cache::{DiskCache, fetch_url};
 
 const PASSAGES: &[&str] = &[
     // Classic literature & speeches
@@ -217,7 +217,9 @@ fn extract_paragraphs(text: &str) -> Vec<String> {
             .collect::<Vec<_>>()
             .join(" ")
             .chars()
-            .filter(|c| c.is_ascii_alphanumeric() || c.is_ascii_whitespace() || c.is_ascii_punctuation())
+            .filter(|c| {
+                c.is_ascii_alphanumeric() || c.is_ascii_whitespace() || c.is_ascii_punctuation()
+            })
             .collect::<String>()
             .to_lowercase();
 

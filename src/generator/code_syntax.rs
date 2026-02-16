@@ -1,9 +1,9 @@
-use rand::rngs::SmallRng;
 use rand::Rng;
+use rand::rngs::SmallRng;
 
 use crate::engine::filter::CharFilter;
-use crate::generator::cache::{DiskCache, fetch_url};
 use crate::generator::TextGenerator;
+use crate::generator::cache::{DiskCache, fetch_url};
 
 pub struct CodeSyntaxGenerator {
     rng: SmallRng,
@@ -49,9 +49,7 @@ impl CodeSyntaxGenerator {
                 "https://raw.githubusercontent.com/lodash/lodash/main/src/chunk.ts",
                 "https://raw.githubusercontent.com/expressjs/express/master/lib/router/index.js",
             ],
-            "go" => vec![
-                "https://raw.githubusercontent.com/golang/go/master/src/fmt/print.go",
-            ],
+            "go" => vec!["https://raw.githubusercontent.com/golang/go/master/src/fmt/print.go"],
             _ => vec![],
         };
 

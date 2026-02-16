@@ -47,8 +47,8 @@ impl Widget for ActivityHeatmap<'_> {
         let weeks_to_show = weeks_to_show.min(26);
         let start_date = today - chrono::Duration::weeks(weeks_to_show as i64);
         // Align to Monday
-        let start_date = start_date
-            - chrono::Duration::days(start_date.weekday().num_days_from_monday() as i64);
+        let start_date =
+            start_date - chrono::Duration::days(start_date.weekday().num_days_from_monday() as i64);
 
         // Day-of-week labels
         let day_labels = ["M", " ", "W", " ", "F", " ", "S"];

@@ -117,13 +117,29 @@ impl Widget for &Menu<'_> {
                     .collect::<Vec<_>>(),
             )
             .split(layout[2]);
+        let key_width = self
+            .items
+            .iter()
+            .map(|item| item.key.len())
+            .max()
+            .unwrap_or(1);
 
         for (i, item) in self.items.iter().enumerate() {
             let is_selected = i == self.selected;
             let indicator = if is_selected { ">" } else { " " };
 
-            let label_text = format!(" {indicator} [{key}] {label}", key = item.key, label = item.label);
-            let desc_text = format!("     {}", item.description);
+            let label_text = format!(
+                " {indicator} [{key:<key_width$}] {label}",
+                key = item.key,
+                key_width = key_width,
+                label = item.label
+            );
+            let desc_text = format!(
+                "   {:indent$}{}",
+                "",
+                item.description,
+                indent = key_width + 4
+            );
 
             let lines = vec![
                 Line::from(Span::styled(

@@ -21,28 +21,32 @@ use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
+use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget};
-use ratatui::Terminal;
 
 use app::{App, AppScreen, DrillMode};
 use engine::skill_tree::DrillScope;
-use session::result::DrillResult;
-use ui::components::skill_tree::{SkillTreeWidget, selectable_branches};
 use event::{AppEvent, EventHandler};
+use session::result::DrillResult;
 use ui::components::dashboard::Dashboard;
 use ui::components::keyboard_diagram::KeyboardDiagram;
 use ui::components::progress_bar::ProgressBar;
+use ui::components::skill_tree::{SkillTreeWidget, selectable_branches};
 use ui::components::stats_dashboard::StatsDashboard;
 use ui::components::stats_sidebar::StatsSidebar;
 use ui::components::typing_area::TypingArea;
 use ui::layout::AppLayout;
 
 #[derive(Parser)]
-#[command(name = "keydr", version, about = "Terminal typing tutor with adaptive learning")]
+#[command(
+    name = "keydr",
+    version,
+    about = "Terminal typing tutor with adaptive learning"
+)]
 struct Cli {
     #[arg(short, long, help = "Theme name")]
     theme: Option<String>,
@@ -237,7 +241,12 @@ fn handle_drill_key(app: &mut App, key: KeyEvent) {
             if has_progress && app.drill_mode != DrillMode::Adaptive {
                 // Non-adaptive: show result screen for partial drill
                 if let Some(ref drill) = app.drill {
-                    let result = DrillResult::from_drill(drill, &app.drill_events, app.drill_mode.as_str(), app.drill_mode.is_ranked());
+                    let result = DrillResult::from_drill(
+                        drill,
+                        &app.drill_events,
+                        app.drill_mode.as_str(),
+                        app.drill_mode.is_ranked(),
+                    );
                     app.last_result = Some(result);
                 }
                 app.screen = AppScreen::DrillResult;
@@ -283,8 +292,7 @@ fn handle_stats_key(app: &mut App, key: KeyEvent) {
             KeyCode::Char('j') | KeyCode::Down => {
                 if !app.drill_history.is_empty() {
                     let max_visible = app.drill_history.len().min(20) - 1;
-                    app.history_selected =
-                        (app.history_selected + 1).min(max_visible);
+                    app.history_selected = (app.history_selected + 1).min(max_visible);
                 }
             }
             KeyCode::Char('k') | KeyCode::Up => {
@@ -300,7 +308,11 @@ fn handle_stats_key(app: &mut App, key: KeyEvent) {
             KeyCode::Char('3') => app.stats_tab = 2,
             KeyCode::Tab => app.stats_tab = (app.stats_tab + 1) % 3,
             KeyCode::BackTab => {
-                app.stats_tab = if app.stats_tab == 0 { 2 } else { app.stats_tab - 1 }
+                app.stats_tab = if app.stats_tab == 0 {
+                    2
+                } else {
+                    app.stats_tab - 1
+                }
             }
             _ => {}
         }
@@ -313,7 +325,13 @@ fn handle_stats_key(app: &mut App, key: KeyEvent) {
         KeyCode::Char('2') => app.stats_tab = 1,
         KeyCode::Char('3') => app.stats_tab = 2,
         KeyCode::Tab => app.stats_tab = (app.stats_tab + 1) % 3,
-        KeyCode::BackTab => app.stats_tab = if app.stats_tab == 0 { 2 } else { app.stats_tab - 1 },
+        KeyCode::BackTab => {
+            app.stats_tab = if app.stats_tab == 0 {
+                2
+            } else {
+                app.stats_tab - 1
+            }
+        }
         _ => {}
     }
 }
@@ -461,9 +479,8 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
             let wpm = drill.wpm();
             let accuracy = drill.accuracy();
             let errors = drill.typo_count();
-            let header_text = format!(
-                " {mode_name} | WPM: {wpm:.0} | Acc: {accuracy:.1}% | Errors: {errors}"
-            );
+            let header_text =
+                format!(" {mode_name} | WPM: {wpm:.0} | Acc: {accuracy:.1}% | Errors: {errors}");
             let header = Paragraph::new(Line::from(Span::styled(
                 &*header_text,
                 Style::default()
@@ -525,11 +542,7 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
             let unlocked = app.skill_tree.total_unlocked_count() as f64;
             let total = app.skill_tree.total_unique_keys as f64;
             let progress_val = (unlocked / total).min(1.0);
-            let progress = ProgressBar::new(
-                "Key Progress",
-                progress_val,
-                app.theme,
-            );
+            let progress = ProgressBar::new("Key Progress", progress_val, app.theme);
             frame.render_widget(progress, main_layout[idx]);
             idx += 1;
         }
@@ -550,7 +563,12 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
         }
 
         if let Some(sidebar_area) = app_layout.sidebar {
-            let sidebar = StatsSidebar::new(drill, app.last_result.as_ref(), &app.drill_history, app.theme);
+            let sidebar = StatsSidebar::new(
+                drill,
+                app.last_result.as_ref(),
+                &app.drill_history,
+                app.theme,
+            );
             frame.render_widget(sidebar, sidebar_area);
         }
 
@@ -609,9 +627,15 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
         .unwrap_or("rust");
 
     let fields: Vec<(String, String)> = vec![
-        ("Target WPM".to_string(), format!("{}", app.config.target_wpm)),
+        (
+            "Target WPM".to_string(),
+            format!("{}", app.config.target_wpm),
+        ),
         ("Theme".to_string(), app.config.theme.clone()),
-        ("Word Count".to_string(), format!("{}", app.config.word_count)),
+        (
+            "Word Count".to_string(),
+            format!("{}", app.config.word_count),
+        ),
         ("Code Language".to_string(), current_lang.to_string()),
     ];
 
@@ -633,7 +657,12 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
 
     let field_layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints(fields.iter().map(|_| Constraint::Length(3)).collect::<Vec<_>>())
+        .constraints(
+            fields
+                .iter()
+                .map(|_| Constraint::Length(3))
+                .collect::<Vec<_>>(),
+        )
         .split(layout[1]);
 
     for (i, (label, value)) in fields.iter().enumerate() {
@@ -643,11 +672,17 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
         let label_text = format!("{indicator}{label}:");
         let value_text = format!("  < {value} >");
 
-        let label_style = Style::default().fg(if is_selected {
-            colors.accent()
-        } else {
-            colors.fg()
-        }).add_modifier(if is_selected { Modifier::BOLD } else { Modifier::empty() });
+        let label_style = Style::default()
+            .fg(if is_selected {
+                colors.accent()
+            } else {
+                colors.fg()
+            })
+            .add_modifier(if is_selected {
+                Modifier::BOLD
+            } else {
+                Modifier::empty()
+            });
 
         let value_style = Style::default().fg(if is_selected {
             colors.focused_key()

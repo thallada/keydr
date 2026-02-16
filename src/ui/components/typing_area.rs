@@ -4,8 +4,8 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget, Wrap};
 
-use crate::session::input::CharStatus;
 use crate::session::drill::DrillState;
+use crate::session::input::CharStatus;
 use crate::ui::theme::Theme;
 
 pub struct TypingArea<'a> {
@@ -78,6 +78,7 @@ impl Widget for TypingArea<'_> {
 
         for token in &tokens {
             let idx = token.target_idx;
+            let target_ch = self.drill.target[idx];
 
             let style = if idx < self.drill.cursor {
                 match &self.drill.input[idx] {
@@ -91,6 +92,7 @@ impl Widget for TypingArea<'_> {
                 Style::default()
                     .fg(colors.text_cursor_fg())
                     .bg(colors.text_cursor_bg())
+                    .add_modifier(Modifier::REVERSED | Modifier::BOLD)
             } else {
                 Style::default().fg(colors.text_pending())
             };
@@ -99,7 +101,6 @@ impl Widget for TypingArea<'_> {
             // but always show the token display for whitespace markers
             let display = if idx < self.drill.cursor {
                 if let CharStatus::Incorrect(actual) = &self.drill.input[idx] {
-                    let target_ch = self.drill.target[idx];
                     if target_ch == '\n' || target_ch == '\t' {
                         // Show the whitespace marker even when incorrect
                         token.display.clone()
@@ -109,6 +110,8 @@ impl Widget for TypingArea<'_> {
                 } else {
                     token.display.clone()
                 }
+            } else if idx == self.drill.cursor && target_ch == ' ' {
+                "\u{00b7}".to_string()
             } else {
                 token.display.clone()
             };
@@ -118,6 +121,16 @@ impl Widget for TypingArea<'_> {
             if token.is_line_break {
                 lines.push(Vec::new());
             }
+        }
+
+        // Keep cursor visible at end-of-input as an insertion marker.
+        if self.drill.cursor >= self.drill.target.len() {
+            lines.last_mut().unwrap().push(Span::styled(
+                "\u{258f}",
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
+            ));
         }
 
         let ratatui_lines: Vec<Line> = lines.into_iter().map(Line::from).collect();

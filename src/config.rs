@@ -22,7 +22,7 @@ fn default_target_wpm() -> u32 {
     35
 }
 fn default_theme() -> String {
-    "catppuccin-mocha".to_string()
+    "terminal-default".to_string()
 }
 fn default_keyboard_layout() -> String {
     "qwerty".to_string()

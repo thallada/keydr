@@ -83,10 +83,7 @@ impl Widget for StatsDashboard<'_> {
                 } else {
                     Style::default().fg(colors.text_pending())
                 };
-                vec![
-                    Span::styled(format!(" {label} "), style),
-                    Span::raw("  "),
-                ]
+                vec![Span::styled(format!(" {label} "), style), Span::raw("  ")]
             })
             .collect();
         Paragraph::new(Line::from(tab_spans)).render(layout[0], buf);
@@ -168,18 +165,13 @@ impl StatsDashboard<'_> {
             .constraints([
                 Constraint::Length(6), // summary stats bordered box
                 Constraint::Length(3), // progress bars
-                Constraint::Min(8),   // charts
+                Constraint::Min(8),    // charts
             ])
             .split(area);
 
         // Summary stats as bordered table
-        let avg_wpm =
-            self.history.iter().map(|r| r.wpm).sum::<f64>() / self.history.len() as f64;
-        let best_wpm = self
-            .history
-            .iter()
-            .map(|r| r.wpm)
-            .fold(0.0f64, f64::max);
+        let avg_wpm = self.history.iter().map(|r| r.wpm).sum::<f64>() / self.history.len() as f64;
+        let best_wpm = self.history.iter().map(|r| r.wpm).fold(0.0f64, f64::max);
         let avg_accuracy =
             self.history.iter().map(|r| r.accuracy).sum::<f64>() / self.history.len() as f64;
         let total_time: f64 = self.history.iter().map(|r| r.elapsed_secs).sum();
@@ -297,12 +289,27 @@ impl StatsDashboard<'_> {
         // Y-axis labels (max, mid, 0)
         let max_label = format!("{:.0}", max_wpm);
         let mid_label = format!("{:.0}", max_wpm / 2.0);
-        buf.set_string(inner.x, inner.y, &max_label, Style::default().fg(colors.text_pending()));
+        buf.set_string(
+            inner.x,
+            inner.y,
+            &max_label,
+            Style::default().fg(colors.text_pending()),
+        );
         if inner.height > 3 {
             let mid_y = inner.y + inner.height / 2;
-            buf.set_string(inner.x, mid_y, &mid_label, Style::default().fg(colors.text_pending()));
+            buf.set_string(
+                inner.x,
+                mid_y,
+                &mid_label,
+                Style::default().fg(colors.text_pending()),
+            );
         }
-        buf.set_string(inner.x, inner.y + inner.height - 1, "0", Style::default().fg(colors.text_pending()));
+        buf.set_string(
+            inner.x,
+            inner.y + inner.height - 1,
+            "0",
+            Style::default().fg(colors.text_pending()),
+        );
 
         let bar_chars = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
@@ -342,7 +349,12 @@ impl StatsDashboard<'_> {
             // WPM label on top row
             if bar_spacing >= 3 {
                 let label = format!("{wpm:.0}");
-                buf.set_string(x, inner.y, &label, Style::default().fg(colors.text_pending()));
+                buf.set_string(
+                    x,
+                    inner.y,
+                    &label,
+                    Style::default().fg(colors.text_pending()),
+                );
             }
         }
     }
@@ -412,8 +424,7 @@ impl StatsDashboard<'_> {
             ])
             .split(area);
 
-        let avg_wpm =
-            self.history.iter().map(|r| r.wpm).sum::<f64>() / self.history.len() as f64;
+        let avg_wpm = self.history.iter().map(|r| r.wpm).sum::<f64>() / self.history.len() as f64;
         let avg_accuracy =
             self.history.iter().map(|r| r.accuracy).sum::<f64>() / self.history.len() as f64;
 
@@ -454,7 +465,11 @@ impl StatsDashboard<'_> {
         );
 
         // Level progress
-        let total_score: f64 = self.history.iter().map(|r| r.wpm * r.accuracy / 100.0).sum();
+        let total_score: f64 = self
+            .history
+            .iter()
+            .map(|r| r.wpm * r.accuracy / 100.0)
+            .sum();
         let level = ((total_score / 100.0).sqrt() as u32).max(1);
         let next_level_score = ((level + 1) as f64).powi(2) * 100.0;
         let current_level_score = (level as f64).powi(2) * 100.0;
@@ -523,11 +538,7 @@ impl StatsDashboard<'_> {
                 " "
             };
 
-            let mode_str = if result.ranked {
-                ""
-            } else {
-                " (unranked)"
-            };
+            let mode_str = if result.ranked { "" } else { " (unranked)" };
             let row = format!(
                 " {wpm_indicator}{idx_str}  {wpm_str}  {raw_str}  {acc_str}  {time_str:>6}  {date_str}  {mode}{mode_str}",
                 mode = result.drill_mode,
@@ -656,7 +667,7 @@ impl StatsDashboard<'_> {
             .constraints([
                 Constraint::Length(12), // Activity heatmap
                 Constraint::Length(7),  // Keyboard accuracy heatmap
-                Constraint::Min(5),    // Slowest/Fastest/Stats
+                Constraint::Min(5),     // Slowest/Fastest/Stats
                 Constraint::Length(5),  // Overall stats
             ])
             .split(area);
@@ -738,12 +749,7 @@ impl StatsDashboard<'_> {
                 } else {
                     format!("{key}   ")
                 };
-                buf.set_string(
-                    x,
-                    y,
-                    &display,
-                    Style::default().fg(fg_color).bg(bg_color),
-                );
+                buf.set_string(x, y, &display, Style::default().fg(fg_color).bg(bg_color));
             }
         }
     }
@@ -793,12 +799,7 @@ impl StatsDashboard<'_> {
                 break;
             }
             let text = format!("  '{ch}'  {time:.0}ms");
-            buf.set_string(
-                inner.x,
-                y,
-                &text,
-                Style::default().fg(colors.error()),
-            );
+            buf.set_string(inner.x, y, &text, Style::default().fg(colors.error()));
         }
     }
 
@@ -826,12 +827,7 @@ impl StatsDashboard<'_> {
                 break;
             }
             let text = format!("  '{ch}'  {time:.0}ms");
-            buf.set_string(
-                inner.x,
-                y,
-                &text,
-                Style::default().fg(colors.success()),
-            );
+            buf.set_string(inner.x, y, &text, Style::default().fg(colors.success()));
         }
     }
 
@@ -953,12 +949,7 @@ fn render_text_bar(
     }
 
     // Label on first line
-    buf.set_string(
-        area.x,
-        area.y,
-        label,
-        Style::default().fg(fill_color),
-    );
+    buf.set_string(area.x, area.y, label, Style::default().fg(fill_color));
 
     // Bar on second line using ┃ filled / dim ┃ empty
     let bar_width = (area.width as usize).saturating_sub(4);

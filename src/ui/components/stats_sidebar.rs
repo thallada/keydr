@@ -22,7 +22,12 @@ impl<'a> StatsSidebar<'a> {
         history: &'a [DrillResult],
         theme: &'a Theme,
     ) -> Self {
-        Self { drill, last_result, history, theme }
+        Self {
+            drill,
+            last_result,
+            history,
+            theme,
+        }
     }
 }
 
@@ -159,12 +164,10 @@ impl Widget for StatsSidebar<'_> {
                 colors.text_pending()
             };
 
-            let mut lines = vec![
-                Line::from(vec![
-                    Span::styled("WPM: ", Style::default().fg(colors.fg())),
-                    Span::styled(wpm_str, Style::default().fg(colors.accent())),
-                ]),
-            ];
+            let mut lines = vec![Line::from(vec![
+                Span::styled("WPM: ", Style::default().fg(colors.fg())),
+                Span::styled(wpm_str, Style::default().fg(colors.accent())),
+            ])];
 
             if prior_count > 0 {
                 lines.push(Line::from(vec![

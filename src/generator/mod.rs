@@ -14,5 +14,5 @@ use crate::engine::filter::CharFilter;
 
 pub trait TextGenerator {
     fn generate(&mut self, filter: &CharFilter, focused: Option<char>, word_count: usize)
-        -> String;
+    -> String;
 }

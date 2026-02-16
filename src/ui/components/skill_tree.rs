@@ -6,8 +6,7 @@ use ratatui::widgets::{Block, Paragraph, Widget};
 
 use crate::engine::key_stats::KeyStatsStore;
 use crate::engine::skill_tree::{
-    BranchId, BranchStatus, DrillScope, SkillTree as SkillTreeEngine,
-    get_branch_definition,
+    BranchId, BranchStatus, DrillScope, SkillTree as SkillTreeEngine, get_branch_definition,
 };
 use crate::ui::theme::Theme;
 
@@ -88,7 +87,8 @@ impl Widget for SkillTreeWidget<'_> {
             let bp = self.skill_tree.branch_progress(branches[self.selected]);
             if *self.skill_tree.branch_status(branches[self.selected]) == BranchStatus::Locked {
                 " Complete a-z to unlock branches "
-            } else if bp.status == BranchStatus::Available || bp.status == BranchStatus::InProgress {
+            } else if bp.status == BranchStatus::Available || bp.status == BranchStatus::InProgress
+            {
                 " [Enter] Start Drill   [\u{2191}\u{2193}/jk] Navigate   [q] Back "
             } else {
                 " [\u{2191}\u{2193}/jk] Navigate   [q] Back "
@@ -113,22 +113,29 @@ impl SkillTreeWidget<'_> {
         // Root: Lowercase a-z
         let lowercase_bp = self.skill_tree.branch_progress(BranchId::Lowercase);
         let lowercase_def = get_branch_definition(BranchId::Lowercase);
-        let lowercase_total = lowercase_def.levels.iter().map(|l| l.keys.len()).sum::<usize>();
-        let lowercase_confident = self.skill_tree.branch_confident_keys(BranchId::Lowercase, self.key_stats);
+        let lowercase_total = lowercase_def
+            .levels
+            .iter()
+            .map(|l| l.keys.len())
+            .sum::<usize>();
+        let lowercase_confident = self
+            .skill_tree
+            .branch_confident_keys(BranchId::Lowercase, self.key_stats);
 
         let (prefix, style) = match lowercase_bp.status {
             BranchStatus::Complete => (
                 "\u{2605} ",
-                Style::default().fg(colors.text_correct()).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(colors.text_correct())
+                    .add_modifier(Modifier::BOLD),
             ),
             BranchStatus::InProgress => (
                 "\u{25b6} ",
-                Style::default().fg(colors.accent()).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
             ),
-            _ => (
-                "  ",
-                Style::default().fg(colors.text_pending()),
-            ),
+            _ => ("  ", Style::default().fg(colors.text_pending())),
         };
 
         let status_text = match lowercase_bp.status {
@@ -173,43 +180,56 @@ impl SkillTreeWidget<'_> {
             let bp = self.skill_tree.branch_progress(branch_id);
             let def = get_branch_definition(branch_id);
             let total_keys = def.levels.iter().map(|l| l.keys.len()).sum::<usize>();
-            let confident_keys = self.skill_tree.branch_confident_keys(branch_id, self.key_stats);
+            let confident_keys = self
+                .skill_tree
+                .branch_confident_keys(branch_id, self.key_stats);
             let is_selected = i == self.selected;
 
             let (prefix, style) = match bp.status {
                 BranchStatus::Complete => (
                     "\u{2605} ",
                     if is_selected {
-                        Style::default().fg(colors.text_correct()).add_modifier(Modifier::BOLD | Modifier::REVERSED)
+                        Style::default()
+                            .fg(colors.text_correct())
+                            .add_modifier(Modifier::BOLD | Modifier::REVERSED)
                     } else {
-                        Style::default().fg(colors.text_correct()).add_modifier(Modifier::BOLD)
+                        Style::default()
+                            .fg(colors.text_correct())
+                            .add_modifier(Modifier::BOLD)
                     },
                 ),
                 BranchStatus::InProgress => (
                     "\u{25b6} ",
                     if is_selected {
-                        Style::default().fg(colors.accent()).add_modifier(Modifier::BOLD | Modifier::REVERSED)
+                        Style::default()
+                            .fg(colors.accent())
+                            .add_modifier(Modifier::BOLD | Modifier::REVERSED)
                     } else {
-                        Style::default().fg(colors.accent()).add_modifier(Modifier::BOLD)
+                        Style::default()
+                            .fg(colors.accent())
+                            .add_modifier(Modifier::BOLD)
                     },
                 ),
                 BranchStatus::Available => (
                     "  ",
                     if is_selected {
-                        Style::default().fg(colors.fg()).add_modifier(Modifier::BOLD | Modifier::REVERSED)
+                        Style::default()
+                            .fg(colors.fg())
+                            .add_modifier(Modifier::BOLD | Modifier::REVERSED)
                     } else {
                         Style::default().fg(colors.fg())
                     },
                 ),
-                BranchStatus::Locked => (
-                    "  ",
-                    Style::default().fg(colors.text_pending()),
-                ),
+                BranchStatus::Locked => ("  ", Style::default().fg(colors.text_pending())),
             };
 
             let status_text = match bp.status {
                 BranchStatus::Complete => format!("COMPLETE  {confident_keys}/{total_keys} keys"),
-                BranchStatus::InProgress => format!("Lvl {}/{} {confident_keys}/{total_keys} keys", bp.current_level + 1, def.levels.len()),
+                BranchStatus::InProgress => format!(
+                    "Lvl {}/{} {confident_keys}/{total_keys} keys",
+                    bp.current_level + 1,
+                    def.levels.len()
+                ),
                 BranchStatus::Available => format!("Available  0/{total_keys} keys"),
                 BranchStatus::Locked => format!("Locked  0/{total_keys} keys"),
             };
@@ -218,7 +238,10 @@ impl SkillTreeWidget<'_> {
 
             lines.push(Line::from(vec![
                 Span::styled(format!("{sel_indicator}{prefix}{}", def.name), style),
-                Span::styled(format!("  {status_text}"), Style::default().fg(colors.text_pending())),
+                Span::styled(
+                    format!("  {status_text}"),
+                    Style::default().fg(colors.text_pending()),
+                ),
             ]));
 
             let pct = if total_keys > 0 {
@@ -251,14 +274,18 @@ impl SkillTreeWidget<'_> {
 
         // Branch title with level info
         let level_text = match bp.status {
-            BranchStatus::InProgress => format!("Level {}/{}", bp.current_level + 1, def.levels.len()),
+            BranchStatus::InProgress => {
+                format!("Level {}/{}", bp.current_level + 1, def.levels.len())
+            }
             BranchStatus::Complete => format!("Level {}/{}", def.levels.len(), def.levels.len()),
             _ => format!("Level 0/{}", def.levels.len()),
         };
         lines.push(Line::from(vec![
             Span::styled(
                 format!("  {}", def.name),
-                Style::default().fg(colors.accent()).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 format!("  {level_text}"),
@@ -267,16 +294,19 @@ impl SkillTreeWidget<'_> {
         ]));
 
         // Per-level key breakdown
-        let focused = self.skill_tree.focused_key(DrillScope::Branch(branch_id), self.key_stats);
+        let focused = self
+            .skill_tree
+            .focused_key(DrillScope::Branch(branch_id), self.key_stats);
 
         for (level_idx, level) in def.levels.iter().enumerate() {
-            let level_status = if bp.status == BranchStatus::Complete || level_idx < bp.current_level {
-                "complete"
-            } else if bp.status == BranchStatus::InProgress && level_idx == bp.current_level {
-                "in progress"
-            } else {
-                "locked"
-            };
+            let level_status =
+                if bp.status == BranchStatus::Complete || level_idx < bp.current_level {
+                    "complete"
+                } else if bp.status == BranchStatus::InProgress && level_idx == bp.current_level {
+                    "in progress"
+                } else {
+                    "locked"
+                };
 
             let mut key_spans: Vec<Span> = Vec::new();
             key_spans.push(Span::styled(
@@ -324,7 +354,9 @@ impl SkillTreeWidget<'_> {
         // Average confidence
         let total_keys = def.levels.iter().map(|l| l.keys.len()).sum::<usize>();
         let avg_conf = if total_keys > 0 {
-            let sum: f64 = def.levels.iter()
+            let sum: f64 = def
+                .levels
+                .iter()
                 .flat_map(|l| l.keys.iter())
                 .map(|&ch| self.key_stats.get_confidence(ch).min(1.0))
                 .sum();
@@ -334,7 +366,11 @@ impl SkillTreeWidget<'_> {
         };
 
         lines.push(Line::from(Span::styled(
-            format!("  Avg Confidence: {} {:.0}%", progress_bar_str(avg_conf, 20), avg_conf * 100.0),
+            format!(
+                "  Avg Confidence: {} {:.0}%",
+                progress_bar_str(avg_conf, 20),
+                avg_conf * 100.0
+            ),
             Style::default().fg(colors.text_pending()),
         )));
 
@@ -346,9 +382,5 @@ impl SkillTreeWidget<'_> {
 fn progress_bar_str(pct: f64, width: usize) -> String {
     let filled = (pct * width as f64).round() as usize;
     let empty = width.saturating_sub(filled);
-    format!(
-        "{}{}",
-        "\u{2588}".repeat(filled),
-        "\u{2591}".repeat(empty),
-    )
+    format!("{}{}", "\u{2588}".repeat(filled), "\u{2591}".repeat(empty),)
 }

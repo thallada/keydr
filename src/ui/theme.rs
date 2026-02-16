@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 #[folder = "assets/themes/"]
 struct ThemeAssets;
 
+const TERMINAL_DEFAULT_THEME: &str = "terminal-default";
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Theme {
     pub name: String,
@@ -42,7 +44,10 @@ impl Theme {
     pub fn load(name: &str) -> Option<Self> {
         // Try user themes dir
         if let Some(config_dir) = dirs::config_dir() {
-            let user_theme_path = config_dir.join("keydr").join("themes").join(format!("{name}.toml"));
+            let user_theme_path = config_dir
+                .join("keydr")
+                .join("themes")
+                .join(format!("{name}.toml"));
             if let Ok(content) = fs::read_to_string(&user_theme_path) {
                 if let Ok(theme) = toml::from_str::<Theme>(&content) {
                     return Some(theme);
@@ -64,17 +69,20 @@ impl Theme {
     }
 
     pub fn available_themes() -> Vec<String> {
-        ThemeAssets::iter()
-            .filter_map(|f| {
-                f.strip_suffix(".toml").map(|n| n.to_string())
-            })
-            .collect()
+        let mut themes: Vec<String> = ThemeAssets::iter()
+            .filter_map(|f| f.strip_suffix(".toml").map(|n| n.to_string()))
+            .collect();
+        themes.sort_unstable();
+        if let Some(idx) = themes.iter().position(|t| t == TERMINAL_DEFAULT_THEME) {
+            themes.swap(0, idx);
+        }
+        themes
     }
 }
 
 impl Default for Theme {
     fn default() -> Self {
-        Self::load("catppuccin-mocha").unwrap_or_else(|| Self {
+        Self::load(TERMINAL_DEFAULT_THEME).unwrap_or_else(|| Self {
             name: "default".to_string(),
             colors: ThemeColors::default(),
         })
@@ -109,9 +117,10 @@ impl Default for ThemeColors {
 }
 
 impl ThemeColors {
-    pub fn parse_color(hex: &str) -> Color {
-        let hex = hex.trim_start_matches('#');
-        if hex.len() == 6 {
+    pub fn parse_color(value: &str) -> Color {
+        let value = value.trim();
+        let hex = value.trim_start_matches('#');
+        if hex.len() == 6 && value.starts_with('#') {
             if let (Ok(r), Ok(g), Ok(b)) = (
                 u8::from_str_radix(&hex[0..2], 16),
                 u8::from_str_radix(&hex[2..4], 16),
@@ -120,27 +129,87 @@ impl ThemeColors {
                 return Color::Rgb(r, g, b);
             }
         }
-        Color::White
+
+        match value.to_ascii_lowercase().as_str() {
+            "reset" | "default" | "none" => Color::Reset,
+            "black" => Color::Black,
+            "red" => Color::Red,
+            "green" => Color::Green,
+            "yellow" => Color::Yellow,
+            "blue" => Color::Blue,
+            "magenta" => Color::Magenta,
+            "cyan" => Color::Cyan,
+            "gray" | "grey" => Color::Gray,
+            "darkgray" | "darkgrey" => Color::DarkGray,
+            "lightred" | "brightred" => Color::LightRed,
+            "lightgreen" | "brightgreen" => Color::LightGreen,
+            "lightyellow" | "brightyellow" => Color::LightYellow,
+            "lightblue" | "brightblue" => Color::LightBlue,
+            "lightmagenta" | "brightmagenta" => Color::LightMagenta,
+            "lightcyan" | "brightcyan" => Color::LightCyan,
+            "white" | "lightwhite" | "brightwhite" => Color::White,
+            _ => Color::White,
+        }
     }
 
-    pub fn bg(&self) -> Color { Self::parse_color(&self.bg) }
-    pub fn fg(&self) -> Color { Self::parse_color(&self.fg) }
-    pub fn text_correct(&self) -> Color { Self::parse_color(&self.text_correct) }
-    pub fn text_incorrect(&self) -> Color { Self::parse_color(&self.text_incorrect) }
-    pub fn text_incorrect_bg(&self) -> Color { Self::parse_color(&self.text_incorrect_bg) }
-    pub fn text_pending(&self) -> Color { Self::parse_color(&self.text_pending) }
-    pub fn text_cursor_bg(&self) -> Color { Self::parse_color(&self.text_cursor_bg) }
-    pub fn text_cursor_fg(&self) -> Color { Self::parse_color(&self.text_cursor_fg) }
-    pub fn focused_key(&self) -> Color { Self::parse_color(&self.focused_key) }
-    pub fn accent(&self) -> Color { Self::parse_color(&self.accent) }
-    pub fn accent_dim(&self) -> Color { Self::parse_color(&self.accent_dim) }
-    pub fn border(&self) -> Color { Self::parse_color(&self.border) }
-    pub fn border_focused(&self) -> Color { Self::parse_color(&self.border_focused) }
-    pub fn header_bg(&self) -> Color { Self::parse_color(&self.header_bg) }
-    pub fn header_fg(&self) -> Color { Self::parse_color(&self.header_fg) }
-    pub fn bar_filled(&self) -> Color { Self::parse_color(&self.bar_filled) }
-    pub fn bar_empty(&self) -> Color { Self::parse_color(&self.bar_empty) }
-    pub fn error(&self) -> Color { Self::parse_color(&self.error) }
-    pub fn warning(&self) -> Color { Self::parse_color(&self.warning) }
-    pub fn success(&self) -> Color { Self::parse_color(&self.success) }
+    pub fn bg(&self) -> Color {
+        Self::parse_color(&self.bg)
+    }
+    pub fn fg(&self) -> Color {
+        Self::parse_color(&self.fg)
+    }
+    pub fn text_correct(&self) -> Color {
+        Self::parse_color(&self.text_correct)
+    }
+    pub fn text_incorrect(&self) -> Color {
+        Self::parse_color(&self.text_incorrect)
+    }
+    pub fn text_incorrect_bg(&self) -> Color {
+        Self::parse_color(&self.text_incorrect_bg)
+    }
+    pub fn text_pending(&self) -> Color {
+        Self::parse_color(&self.text_pending)
+    }
+    pub fn text_cursor_bg(&self) -> Color {
+        Self::parse_color(&self.text_cursor_bg)
+    }
+    pub fn text_cursor_fg(&self) -> Color {
+        Self::parse_color(&self.text_cursor_fg)
+    }
+    pub fn focused_key(&self) -> Color {
+        Self::parse_color(&self.focused_key)
+    }
+    pub fn accent(&self) -> Color {
+        Self::parse_color(&self.accent)
+    }
+    pub fn accent_dim(&self) -> Color {
+        Self::parse_color(&self.accent_dim)
+    }
+    pub fn border(&self) -> Color {
+        Self::parse_color(&self.border)
+    }
+    pub fn border_focused(&self) -> Color {
+        Self::parse_color(&self.border_focused)
+    }
+    pub fn header_bg(&self) -> Color {
+        Self::parse_color(&self.header_bg)
+    }
+    pub fn header_fg(&self) -> Color {
+        Self::parse_color(&self.header_fg)
+    }
+    pub fn bar_filled(&self) -> Color {
+        Self::parse_color(&self.bar_filled)
+    }
+    pub fn bar_empty(&self) -> Color {
+        Self::parse_color(&self.bar_empty)
+    }
+    pub fn error(&self) -> Color {
+        Self::parse_color(&self.error)
+    }
+    pub fn warning(&self) -> Color {
+        Self::parse_color(&self.warning)
+    }
+    pub fn success(&self) -> Color {
+        Self::parse_color(&self.success)
+    }
 }

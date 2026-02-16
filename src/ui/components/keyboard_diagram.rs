@@ -91,11 +91,7 @@ impl Widget for KeyboardDiagram<'_> {
             return;
         }
 
-        let offsets: &[u16] = if self.compact {
-            &[0, 1, 3]
-        } else {
-            &[1, 3, 5]
-        };
+        let offsets: &[u16] = if self.compact { &[0, 1, 3] } else { &[1, 3, 5] };
 
         for (row_idx, row) in ROWS.iter().enumerate() {
             let y = inner.y + row_idx as u16;
@@ -128,21 +124,13 @@ impl Widget for KeyboardDiagram<'_> {
                         .bg(bg)
                         .add_modifier(Modifier::BOLD)
                 } else if is_next {
-                    Style::default()
-                        .fg(colors.bg())
-                        .bg(colors.accent())
+                    Style::default().fg(colors.bg()).bg(colors.accent())
                 } else if is_focused {
-                    Style::default()
-                        .fg(colors.bg())
-                        .bg(colors.focused_key())
+                    Style::default().fg(colors.bg()).bg(colors.focused_key())
                 } else if is_unlocked {
-                    Style::default()
-                        .fg(colors.fg())
-                        .bg(finger_color(key))
+                    Style::default().fg(colors.fg()).bg(finger_color(key))
                 } else {
-                    Style::default()
-                        .fg(colors.text_pending())
-                        .bg(colors.bg())
+                    Style::default().fg(colors.text_pending()).bg(colors.bg())
                 };
 
                 let display = if self.compact {

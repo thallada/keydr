@@ -13,8 +13,6 @@ impl CharFilter {
 
     #[allow(dead_code)]
     pub fn filter_text(&self, text: &str) -> String {
-        text.chars()
-            .filter(|&ch| self.is_allowed(ch))
-            .collect()
+        text.chars().filter(|&ch| self.is_allowed(ch)).collect()
     }
 }

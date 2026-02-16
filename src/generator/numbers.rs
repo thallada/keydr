@@ -1,5 +1,5 @@
-use rand::rngs::SmallRng;
 use rand::Rng;
+use rand::rngs::SmallRng;
 
 /// Post-processing pass that inserts number expressions into text.
 /// Only uses digits from `unlocked_digits`.
@@ -127,6 +127,9 @@ mod tests {
         let digits = ['1', '2', '3', '4', '5'];
         let text = "a b c d e f g h i j k l m n o p q r s t";
         let result = apply_numbers(text, &digits, false, None, &mut rng);
-        assert!(!result.contains('.'), "Should not contain dot when has_dot=false: {result}");
+        assert!(
+            !result.contains('.'),
+            "Should not contain dot when has_dot=false: {result}"
+        );
     }
 }

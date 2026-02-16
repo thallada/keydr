@@ -1,10 +1,10 @@
-use rand::rngs::SmallRng;
 use rand::Rng;
+use rand::rngs::SmallRng;
 
 use crate::engine::filter::CharFilter;
+use crate::generator::TextGenerator;
 use crate::generator::dictionary::Dictionary;
 use crate::generator::transition_table::TransitionTable;
-use crate::generator::TextGenerator;
 
 const MIN_WORD_LEN: usize = 3;
 const MAX_WORD_LEN: usize = 10;
@@ -149,7 +149,8 @@ impl PhoneticGenerator {
                     if space_weight > 0.0 {
                         let boost = 1.3f64.powi(word.len() as i32 - MIN_WORD_LEN as i32);
                         let total: f64 = probs.iter().map(|(_, w)| w).sum();
-                        let space_prob = (space_weight * boost) / (total + space_weight * (boost - 1.0));
+                        let space_prob =
+                            (space_weight * boost) / (total + space_weight * (boost - 1.0));
                         if self.rng.gen_bool(space_prob.min(0.85)) {
                             break;
                         }
@@ -164,11 +165,8 @@ impl PhoneticGenerator {
 
             // Get next character from transition table
             if let Some(probs) = self.table.segment(&prefix) {
-                let non_space: Vec<(char, f64)> = probs
-                    .iter()
-                    .filter(|(ch, _)| *ch != ' ')
-                    .copied()
-                    .collect();
+                let non_space: Vec<(char, f64)> =
+                    probs.iter().filter(|(ch, _)| *ch != ' ').copied().collect();
                 if let Some(next) = Self::pick_weighted_from(&mut self.rng, &non_space, filter) {
                     word.push(next);
                 } else {

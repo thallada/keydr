@@ -78,8 +78,8 @@ pub struct BranchDefinition {
 const LOWERCASE_LEVELS: &[LevelDefinition] = &[LevelDefinition {
     name: "Frequency Order",
     keys: &[
-        'e', 't', 'a', 'o', 'i', 'n', 's', 'h', 'r', 'd', 'l', 'c', 'u', 'm', 'w', 'f', 'g',
-        'y', 'p', 'b', 'v', 'k', 'j', 'x', 'q', 'z',
+        'e', 't', 'a', 'o', 'i', 'n', 's', 'h', 'r', 'd', 'l', 'c', 'u', 'm', 'w', 'f', 'g', 'y',
+        'p', 'b', 'v', 'k', 'j', 'x', 'q', 'z',
     ],
 }];
 
@@ -293,10 +293,7 @@ impl SkillTree {
             status: BranchStatus::Locked,
             current_level: 0,
         };
-        self.progress
-            .branches
-            .get(id.to_key())
-            .unwrap_or(&DEFAULT)
+        self.progress.branches.get(id.to_key()).unwrap_or(&DEFAULT)
     }
 
     pub fn branch_progress_mut(&mut self, id: BranchId) -> &mut BranchProgress {
@@ -663,8 +660,14 @@ mod tests {
     #[test]
     fn test_initial_state() {
         let tree = SkillTree::default();
-        assert_eq!(*tree.branch_status(BranchId::Lowercase), BranchStatus::InProgress);
-        assert_eq!(*tree.branch_status(BranchId::Capitals), BranchStatus::Locked);
+        assert_eq!(
+            *tree.branch_status(BranchId::Lowercase),
+            BranchStatus::InProgress
+        );
+        assert_eq!(
+            *tree.branch_status(BranchId::Capitals),
+            BranchStatus::Locked
+        );
         assert_eq!(*tree.branch_status(BranchId::Numbers), BranchStatus::Locked);
     }
 
@@ -711,12 +714,30 @@ mod tests {
             tree.update(&stats);
         }
 
-        assert_eq!(*tree.branch_status(BranchId::Lowercase), BranchStatus::Complete);
-        assert_eq!(*tree.branch_status(BranchId::Capitals), BranchStatus::Available);
-        assert_eq!(*tree.branch_status(BranchId::Numbers), BranchStatus::Available);
-        assert_eq!(*tree.branch_status(BranchId::ProsePunctuation), BranchStatus::Available);
-        assert_eq!(*tree.branch_status(BranchId::Whitespace), BranchStatus::Available);
-        assert_eq!(*tree.branch_status(BranchId::CodeSymbols), BranchStatus::Available);
+        assert_eq!(
+            *tree.branch_status(BranchId::Lowercase),
+            BranchStatus::Complete
+        );
+        assert_eq!(
+            *tree.branch_status(BranchId::Capitals),
+            BranchStatus::Available
+        );
+        assert_eq!(
+            *tree.branch_status(BranchId::Numbers),
+            BranchStatus::Available
+        );
+        assert_eq!(
+            *tree.branch_status(BranchId::ProsePunctuation),
+            BranchStatus::Available
+        );
+        assert_eq!(
+            *tree.branch_status(BranchId::Whitespace),
+            BranchStatus::Available
+        );
+        assert_eq!(
+            *tree.branch_status(BranchId::CodeSymbols),
+            BranchStatus::Available
+        );
     }
 
     #[test]
@@ -726,7 +747,10 @@ mod tests {
         tree.branch_progress_mut(BranchId::Capitals).status = BranchStatus::Available;
 
         tree.start_branch(BranchId::Capitals);
-        assert_eq!(*tree.branch_status(BranchId::Capitals), BranchStatus::InProgress);
+        assert_eq!(
+            *tree.branch_status(BranchId::Capitals),
+            BranchStatus::InProgress
+        );
         assert_eq!(tree.branch_progress(BranchId::Capitals).current_level, 0);
     }
 
@@ -745,7 +769,10 @@ mod tests {
         tree.update(&stats);
 
         assert_eq!(tree.branch_progress(BranchId::Capitals).current_level, 1);
-        assert_eq!(*tree.branch_status(BranchId::Capitals), BranchStatus::InProgress);
+        assert_eq!(
+            *tree.branch_status(BranchId::Capitals),
+            BranchStatus::InProgress
+        );
     }
 
     #[test]
@@ -766,7 +793,10 @@ mod tests {
             tree.update(&stats);
         }
 
-        assert_eq!(*tree.branch_status(BranchId::Capitals), BranchStatus::Complete);
+        assert_eq!(
+            *tree.branch_status(BranchId::Capitals),
+            BranchStatus::Complete
+        );
     }
 
     #[test]

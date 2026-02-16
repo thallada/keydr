@@ -23,11 +23,7 @@ impl Dictionary {
         self.words.clone()
     }
 
-    pub fn find_matching(
-        &self,
-        filter: &CharFilter,
-        focused: Option<char>,
-    ) -> Vec<&str> {
+    pub fn find_matching(&self, filter: &CharFilter, focused: Option<char>) -> Vec<&str> {
         let mut matching: Vec<&str> = self
             .words
             .iter()

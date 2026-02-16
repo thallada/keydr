@@ -3,9 +3,9 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use anyhow::Result;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
-use crate::store::schema::{KeyStatsData, DrillHistoryData, ProfileData};
+use crate::store::schema::{DrillHistoryData, KeyStatsData, ProfileData};
 
 pub struct JsonStore {
     base_dir: PathBuf,

@@ -1,5 +1,5 @@
-use rand::rngs::SmallRng;
 use rand::Rng;
+use rand::rngs::SmallRng;
 
 /// Post-processing pass that capitalizes words in generated text.
 /// Only capitalizes using letters from `unlocked_capitals`.
@@ -39,11 +39,16 @@ pub fn apply_capitalization(
 
         // Capitalize word starts: boosted for focused key, ~12% for others
         if ch.is_ascii_lowercase() && !at_sentence_start {
-            let is_word_start = i == 0 || text.as_bytes().get(i - 1).map(|&b| b as char) == Some(' ');
+            let is_word_start =
+                i == 0 || text.as_bytes().get(i - 1).map(|&b| b as char) == Some(' ');
             if is_word_start {
                 let upper = ch.to_ascii_uppercase();
                 if unlocked_capitals.contains(&upper) {
-                    let prob = if focused_upper == Some(upper) { 0.40 } else { 0.12 };
+                    let prob = if focused_upper == Some(upper) {
+                        0.40
+                    } else {
+                        0.12
+                    };
                     if rng.gen_bool(prob) {
                         result.push(upper);
                         continue;

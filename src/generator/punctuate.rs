@@ -1,5 +1,5 @@
-use rand::rngs::SmallRng;
 use rand::Rng;
+use rand::rngs::SmallRng;
 
 /// Post-processing pass that inserts punctuation into generated text.
 /// Only uses punctuation chars from `unlocked_punct`.
@@ -41,25 +41,41 @@ pub fn apply_punctuation(
         let mut w = word.to_string();
 
         // Contractions (~8% of words, boosted if apostrophe is focused)
-        let apostrophe_prob = if focused_punct == Some('\'') { 0.30 } else { 0.08 };
+        let apostrophe_prob = if focused_punct == Some('\'') {
+            0.30
+        } else {
+            0.08
+        };
         if has_apostrophe && w.len() >= 3 && rng.gen_bool(apostrophe_prob) {
             w = make_contraction(&w, rng);
         }
 
         // Compound words with dash (~5% of words, boosted if dash is focused)
-        let dash_prob = if focused_punct == Some('-') { 0.25 } else { 0.05 };
+        let dash_prob = if focused_punct == Some('-') {
+            0.25
+        } else {
+            0.05
+        };
         if has_dash && i + 1 < words.len() && rng.gen_bool(dash_prob) {
             w.push('-');
         }
 
         // Sentence ending punctuation
         words_since_period += 1;
-        let end_sentence = words_since_period >= 8 && rng.gen_bool(0.15)
-            || words_since_period >= 12;
+        let end_sentence =
+            words_since_period >= 8 && rng.gen_bool(0.15) || words_since_period >= 12;
 
         if end_sentence && i < words.len() - 1 {
-            let q_prob = if focused_punct == Some('?') { 0.40 } else { 0.15 };
-            let excl_prob = if focused_punct == Some('!') { 0.40 } else { 0.10 };
+            let q_prob = if focused_punct == Some('?') {
+                0.40
+            } else {
+                0.15
+            };
+            let excl_prob = if focused_punct == Some('!') {
+                0.40
+            } else {
+                0.10
+            };
             if has_question && rng.gen_bool(q_prob) {
                 w.push('?');
             } else if has_exclaim && rng.gen_bool(excl_prob) {
@@ -72,34 +88,62 @@ pub fn apply_punctuation(
         } else {
             // Comma after clause (~every 4-6 words)
             words_since_comma += 1;
-            let comma_prob = if focused_punct == Some(',') { 0.40 } else { 0.20 };
-            if has_comma && words_since_comma >= 4 && rng.gen_bool(comma_prob) && i < words.len() - 1 {
+            let comma_prob = if focused_punct == Some(',') {
+                0.40
+            } else {
+                0.20
+            };
+            if has_comma
+                && words_since_comma >= 4
+                && rng.gen_bool(comma_prob)
+                && i < words.len() - 1
+            {
                 w.push(',');
                 words_since_comma = 0;
             }
 
             // Semicolon between clauses (rare, boosted if focused)
-            let semi_prob = if focused_punct == Some(';') { 0.25 } else { 0.05 };
-            if has_semicolon && words_since_comma >= 5 && rng.gen_bool(semi_prob) && i < words.len() - 1 {
+            let semi_prob = if focused_punct == Some(';') {
+                0.25
+            } else {
+                0.05
+            };
+            if has_semicolon
+                && words_since_comma >= 5
+                && rng.gen_bool(semi_prob)
+                && i < words.len() - 1
+            {
                 w.push(';');
                 words_since_comma = 0;
             }
 
             // Colon before list-like content (rare, boosted if focused)
-            let colon_prob = if focused_punct == Some(':') { 0.20 } else { 0.03 };
+            let colon_prob = if focused_punct == Some(':') {
+                0.20
+            } else {
+                0.03
+            };
             if has_colon && rng.gen_bool(colon_prob) && i < words.len() - 1 {
                 w.push(':');
             }
         }
 
         // Quoted phrases (~5% chance to start a quote, boosted if focused)
-        let quote_prob = if focused_punct == Some('"') { 0.20 } else { 0.04 };
+        let quote_prob = if focused_punct == Some('"') {
+            0.20
+        } else {
+            0.04
+        };
         if has_quote && rng.gen_bool(quote_prob) && i + 2 < words.len() {
             w = format!("\"{w}");
         }
 
         // Parenthetical asides (rare, boosted if focused)
-        let paren_prob = if matches!(focused_punct, Some('(' | ')')) { 0.15 } else { 0.03 };
+        let paren_prob = if matches!(focused_punct, Some('(' | ')')) {
+            0.15
+        } else {
+            0.03
+        };
         if has_open_paren && has_close_paren && rng.gen_bool(paren_prob) && i + 2 < words.len() {
             w = format!("({w}");
         }
@@ -122,9 +166,15 @@ pub fn apply_punctuation(
     let mut open_parens = 0i32;
     for w in &result {
         for ch in w.chars() {
-            if ch == '"' { open_quotes += 1; }
-            if ch == '(' { open_parens += 1; }
-            if ch == ')' { open_parens -= 1; }
+            if ch == '"' {
+                open_quotes += 1;
+            }
+            if ch == '(' {
+                open_parens += 1;
+            }
+            if ch == ')' {
+                open_parens -= 1;
+            }
         }
     }
     if let Some(last) = result.last_mut() {

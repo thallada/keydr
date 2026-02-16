@@ -1,8 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::session::input::KeystrokeEvent;
 use crate::session::drill::DrillState;
+use crate::session::input::KeystrokeEvent;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DrillResult {
@@ -37,7 +37,12 @@ pub struct KeyTime {
 }
 
 impl DrillResult {
-    pub fn from_drill(drill: &DrillState, events: &[KeystrokeEvent], drill_mode: &str, ranked: bool) -> Self {
+    pub fn from_drill(
+        drill: &DrillState,
+        events: &[KeystrokeEvent],
+        drill_mode: &str,
+        ranked: bool,
+    ) -> Self {
         let per_key_times: Vec<KeyTime> = events
             .windows(2)
             .map(|pair| {

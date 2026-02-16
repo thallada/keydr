@@ -54,8 +54,7 @@ impl Widget for Dashboard<'_> {
                 Style::default().fg(colors.text_pending()),
             ));
         }
-        let title = Paragraph::new(Line::from(title_spans))
-            .alignment(Alignment::Center);
+        let title = Paragraph::new(Line::from(title_spans)).alignment(Alignment::Center);
         title.render(layout[0], buf);
 
         let wpm_text = format!("{:.0} WPM", self.result.wpm);

@@ -1,5 +1,5 @@
-use rand::rngs::SmallRng;
 use rand::Rng;
+use rand::rngs::SmallRng;
 
 /// Post-processing pass that inserts code-like expressions into text.
 /// Only uses symbols from `unlocked_symbols`.
@@ -51,35 +51,47 @@ fn generate_code_expr(
         let w = word.to_string();
         let idx = patterns.len();
         patterns.push(Box::new(move |_| format!("{w} = val")));
-        if focused_symbol == Some('=') { focused_patterns.push(idx); }
+        if focused_symbol == Some('=') {
+            focused_patterns.push(idx);
+        }
     }
     if has('+') {
         let w = word.to_string();
         let idx = patterns.len();
         patterns.push(Box::new(move |_| format!("{w} + num")));
-        if focused_symbol == Some('+') { focused_patterns.push(idx); }
+        if focused_symbol == Some('+') {
+            focused_patterns.push(idx);
+        }
     }
     if has('*') {
         let w = word.to_string();
         let idx = patterns.len();
         patterns.push(Box::new(move |_| format!("{w} * cnt")));
-        if focused_symbol == Some('*') { focused_patterns.push(idx); }
+        if focused_symbol == Some('*') {
+            focused_patterns.push(idx);
+        }
     }
     if has('/') {
         let w = word.to_string();
         let idx = patterns.len();
         patterns.push(Box::new(move |_| format!("{w} / max")));
-        if focused_symbol == Some('/') { focused_patterns.push(idx); }
+        if focused_symbol == Some('/') {
+            focused_patterns.push(idx);
+        }
     }
     if has('-') {
         let w = word.to_string();
         let idx = patterns.len();
         patterns.push(Box::new(move |_| format!("{w} - one")));
-        if focused_symbol == Some('-') { focused_patterns.push(idx); }
+        if focused_symbol == Some('-') {
+            focused_patterns.push(idx);
+        }
         let w = word.to_string();
         let idx = patterns.len();
         patterns.push(Box::new(move |_| format!("-{w}")));
-        if focused_symbol == Some('-') { focused_patterns.push(idx); }
+        if focused_symbol == Some('-') {
+            focused_patterns.push(idx);
+        }
     }
     if has('=') && has('+') {
         let w = word.to_string();
@@ -89,7 +101,9 @@ fn generate_code_expr(
         let w = word.to_string();
         let idx = patterns.len();
         patterns.push(Box::new(move |_| format!("{w} -= one")));
-        if focused_symbol == Some('-') { focused_patterns.push(idx); }
+        if focused_symbol == Some('-') {
+            focused_patterns.push(idx);
+        }
     }
     if has('=') && has('=') {
         let w = word.to_string();
@@ -101,19 +115,25 @@ fn generate_code_expr(
         let w = word.to_string();
         let idx = patterns.len();
         patterns.push(Box::new(move |_| format!("{{ {w} }}")));
-        if matches!(focused_symbol, Some('{') | Some('}')) { focused_patterns.push(idx); }
+        if matches!(focused_symbol, Some('{') | Some('}')) {
+            focused_patterns.push(idx);
+        }
     }
     if has('[') && has(']') {
         let w = word.to_string();
         let idx = patterns.len();
         patterns.push(Box::new(move |_| format!("{w}[idx]")));
-        if matches!(focused_symbol, Some('[') | Some(']')) { focused_patterns.push(idx); }
+        if matches!(focused_symbol, Some('[') | Some(']')) {
+            focused_patterns.push(idx);
+        }
     }
     if has('<') && has('>') {
         let w = word.to_string();
         let idx = patterns.len();
         patterns.push(Box::new(move |_| format!("Vec<{w}>")));
-        if matches!(focused_symbol, Some('<') | Some('>')) { focused_patterns.push(idx); }
+        if matches!(focused_symbol, Some('<') | Some('>')) {
+            focused_patterns.push(idx);
+        }
     }
 
     // Logic patterns
@@ -121,19 +141,25 @@ fn generate_code_expr(
         let w = word.to_string();
         let idx = patterns.len();
         patterns.push(Box::new(move |_| format!("&{w}")));
-        if focused_symbol == Some('&') { focused_patterns.push(idx); }
+        if focused_symbol == Some('&') {
+            focused_patterns.push(idx);
+        }
     }
     if has('|') {
         let w = word.to_string();
         let idx = patterns.len();
         patterns.push(Box::new(move |_| format!("{w} | nil")));
-        if focused_symbol == Some('|') { focused_patterns.push(idx); }
+        if focused_symbol == Some('|') {
+            focused_patterns.push(idx);
+        }
     }
     if has('!') {
         let w = word.to_string();
         let idx = patterns.len();
         patterns.push(Box::new(move |_| format!("!{w}")));
-        if focused_symbol == Some('!') { focused_patterns.push(idx); }
+        if focused_symbol == Some('!') {
+            focused_patterns.push(idx);
+        }
     }
 
     // Special patterns
@@ -141,31 +167,41 @@ fn generate_code_expr(
         let w = word.to_string();
         let idx = patterns.len();
         patterns.push(Box::new(move |_| format!("@{w}")));
-        if focused_symbol == Some('@') { focused_patterns.push(idx); }
+        if focused_symbol == Some('@') {
+            focused_patterns.push(idx);
+        }
     }
     if has('#') {
         let w = word.to_string();
         let idx = patterns.len();
         patterns.push(Box::new(move |_| format!("#{w}")));
-        if focused_symbol == Some('#') { focused_patterns.push(idx); }
+        if focused_symbol == Some('#') {
+            focused_patterns.push(idx);
+        }
     }
     if has('_') {
         let w = word.to_string();
         let idx = patterns.len();
         patterns.push(Box::new(move |_| format!("{w}_val")));
-        if focused_symbol == Some('_') { focused_patterns.push(idx); }
+        if focused_symbol == Some('_') {
+            focused_patterns.push(idx);
+        }
     }
     if has('$') {
         let w = word.to_string();
         let idx = patterns.len();
         patterns.push(Box::new(move |_| format!("${w}")));
-        if focused_symbol == Some('$') { focused_patterns.push(idx); }
+        if focused_symbol == Some('$') {
+            focused_patterns.push(idx);
+        }
     }
     if has('\\') {
         let w = word.to_string();
         let idx = patterns.len();
         patterns.push(Box::new(move |_| format!("\\{w}")));
-        if focused_symbol == Some('\\') { focused_patterns.push(idx); }
+        if focused_symbol == Some('\\') {
+            focused_patterns.push(idx);
+        }
     }
 
     if patterns.is_empty() {
