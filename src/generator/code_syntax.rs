@@ -9,6 +9,7 @@ pub struct CodeSyntaxGenerator {
     rng: SmallRng,
     language: String,
     fetched_snippets: Vec<String>,
+    last_source: String,
 }
 
 impl CodeSyntaxGenerator {
@@ -17,9 +18,14 @@ impl CodeSyntaxGenerator {
             rng,
             language: language.to_string(),
             fetched_snippets: Vec::new(),
+            last_source: "Built-in snippets".to_string(),
         };
         generator.load_cached_snippets();
         generator
+    }
+
+    pub fn last_source(&self) -> &str {
+        &self.last_source
     }
 
     fn load_cached_snippets(&mut self) {
@@ -80,120 +86,119 @@ impl CodeSyntaxGenerator {
 
     fn rust_snippets() -> Vec<&'static str> {
         vec![
-            "fn main() { println!(\"hello\"); }",
-            "let mut x = 0; x += 1;",
-            "for i in 0..10 { println!(\"{}\", i); }",
-            "if x > 0 { return true; }",
-            "match val { Some(x) => x, None => 0 }",
-            "struct Point { x: f64, y: f64 }",
-            "impl Point { fn new(x: f64, y: f64) -> Self { Self { x, y } } }",
+            "fn main() {\n    println!(\"hello\");\n}",
+            "let mut x = 0;\nx += 1;",
+            "for i in 0..10 {\n    println!(\"{}\", i);\n}",
+            "if x > 0 {\n    return true;\n}",
+            "match val {\n    Some(x) => x,\n    None => 0,\n}",
+            "struct Point {\n    x: f64,\n    y: f64,\n}",
+            "impl Point {\n    fn new(x: f64, y: f64) -> Self {\n        Self { x, y }\n    }\n}",
             "let v: Vec<i32> = vec![1, 2, 3];",
-            "fn add(a: i32, b: i32) -> i32 { a + b }",
+            "fn add(a: i32, b: i32) -> i32 {\n    a + b\n}",
             "use std::collections::HashMap;",
-            "pub fn process(input: &str) -> Result<String, Error> { Ok(input.to_string()) }",
-            "let result = items.iter().filter(|x| x > &0).map(|x| x * 2).collect::<Vec<_>>();",
-            "enum Color { Red, Green, Blue }",
-            "trait Display { fn show(&self) -> String; }",
-            "while let Some(item) = stack.pop() { process(item); }",
-            "#[derive(Debug, Clone)] struct Config { name: String, value: i32 }",
-            "let handle = std::thread::spawn(|| { println!(\"thread\"); });",
-            "let mut map = HashMap::new(); map.insert(\"key\", 42);",
-            "fn factorial(n: u64) -> u64 { if n <= 1 { 1 } else { n * factorial(n - 1) } }",
-            "impl Iterator for Counter { type Item = u32; fn next(&mut self) -> Option<Self::Item> { None } }",
-            "async fn fetch(url: &str) -> Result<String> { let body = reqwest::get(url).await?.text().await?; Ok(body) }",
-            "let closure = |x: i32, y: i32| -> i32 { x + y };",
-            "mod tests { use super::*; #[test] fn it_works() { assert_eq!(2 + 2, 4); } }",
-            "pub struct Builder { name: Option<String> } impl Builder { pub fn name(mut self, n: &str) -> Self { self.name = Some(n.into()); self } }",
-            "use std::sync::{Arc, Mutex}; let data = Arc::new(Mutex::new(vec![1, 2, 3]));",
-            "if let Ok(value) = \"42\".parse::<i32>() { println!(\"parsed: {}\", value); }",
-            "fn longest<'a>(x: &'a str, y: &'a str) -> &'a str { if x.len() > y.len() { x } else { y } }",
+            "pub fn process(input: &str) -> Result<String, Error> {\n    Ok(input.to_string())\n}",
+            "let result = items\n    .iter()\n    .filter(|x| x > &0)\n    .map(|x| x * 2)\n    .collect::<Vec<_>>();",
+            "enum Color {\n    Red,\n    Green,\n    Blue,\n}",
+            "trait Display {\n    fn show(&self) -> String;\n}",
+            "while let Some(item) = stack.pop() {\n    process(item);\n}",
+            "#[derive(Debug, Clone)]\nstruct Config {\n    name: String,\n    value: i32,\n}",
+            "let handle = std::thread::spawn(|| {\n    println!(\"thread\");\n});",
+            "let mut map = HashMap::new();\nmap.insert(\"key\", 42);",
+            "fn factorial(n: u64) -> u64 {\n    if n <= 1 {\n        1\n    } else {\n        n * factorial(n - 1)\n    }\n}",
+            "impl Iterator for Counter {\n    type Item = u32;\n\n    fn next(&mut self) -> Option<Self::Item> {\n        None\n    }\n}",
+            "async fn fetch(url: &str) -> Result<String> {\n    let body = reqwest::get(url)\n        .await?\n        .text()\n        .await?;\n    Ok(body)\n}",
+            "let closure = |x: i32, y: i32| -> i32 {\n    x + y\n};",
+            "#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn it_works() {\n        assert_eq!(2 + 2, 4);\n    }\n}",
+            "pub struct Builder {\n    name: Option<String>,\n}\n\nimpl Builder {\n    pub fn name(mut self, n: &str) -> Self {\n        self.name = Some(n.into());\n        self\n    }\n}",
+            "use std::sync::{Arc, Mutex};\nlet data = Arc::new(Mutex::new(vec![1, 2, 3]));",
+            "if let Ok(value) = \"42\".parse::<i32>() {\n    println!(\"parsed: {}\", value);\n}",
+            "fn longest<'a>(x: &'a str, y: &'a str) -> &'a str {\n    if x.len() > y.len() {\n        x\n    } else {\n        y\n    }\n}",
             "type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;",
-            "macro_rules! vec_of_strings { ($($x:expr),*) => { vec![$($x.to_string()),*] }; }",
-            "let (tx, rx) = std::sync::mpsc::channel(); tx.send(42).unwrap();",
+            "macro_rules! vec_of_strings {\n    ($($x:expr),*) => {\n        vec![$($x.to_string()),*]\n    };\n}",
+            "let (tx, rx) = std::sync::mpsc::channel();\ntx.send(42).unwrap();",
         ]
     }
 
     fn python_snippets() -> Vec<&'static str> {
         vec![
-            "def main(): print(\"hello\")",
-            "for i in range(10): print(i)",
-            "if x > 0: return True",
-            "class Point: def __init__(self, x, y): self.x = x",
-            "import os; path = os.path.join(\"a\", \"b\")",
-            "result = [x * 2 for x in items if x > 0]",
-            "with open(\"file.txt\") as f: data = f.read()",
-            "def add(a: int, b: int) -> int: return a + b",
-            "try: result = process(data) except ValueError as e: print(e)",
+            "def main():\n    print(\"hello\")",
+            "for i in range(10):\n    print(i)",
+            "if x > 0:\n    return True",
+            "class Point:\n    def __init__(self, x, y):\n        self.x = x\n        self.y = y",
+            "import os\npath = os.path.join(\"a\", \"b\")",
+            "result = [\n    x * 2\n    for x in items\n    if x > 0\n]",
+            "with open(\"file.txt\") as f:\n    data = f.read()",
+            "def add(a: int, b: int) -> int:\n    return a + b",
+            "try:\n    result = process(data)\nexcept ValueError as e:\n    print(e)",
             "from collections import defaultdict",
             "lambda x: x * 2 + 1",
-            "dict_comp = {k: v for k, v in pairs.items()}",
-            "async def fetch(url): async with aiohttp.ClientSession() as session: return await session.get(url)",
-            "def fibonacci(n): return n if n <= 1 else fibonacci(n-1) + fibonacci(n-2)",
-            "@property def name(self): return self._name",
-            "from dataclasses import dataclass; @dataclass class Config: name: str; value: int = 0",
+            "dict_comp = {\n    k: v\n    for k, v in pairs.items()\n}",
+            "async def fetch(url):\n    async with aiohttp.ClientSession() as session:\n        return await session.get(url)",
+            "def fibonacci(n):\n    if n <= 1:\n        return n\n    return fibonacci(n-1) + fibonacci(n-2)",
+            "@property\ndef name(self):\n    return self._name",
+            "from dataclasses import dataclass\n\n@dataclass\nclass Config:\n    name: str\n    value: int = 0",
             "yield from range(10)",
-            "sorted(items, key=lambda x: x.name, reverse=True)",
+            "sorted(\n    items,\n    key=lambda x: x.name,\n    reverse=True,\n)",
             "from typing import Optional, List, Dict",
-            "with contextlib.suppress(FileNotFoundError): os.remove(\"temp.txt\")",
-            "class Meta(type): def __new__(cls, name, bases, attrs): return super().__new__(cls, name, bases, attrs)",
-            "from functools import lru_cache; @lru_cache(maxsize=128) def expensive(n): return sum(range(n))",
-            "from pathlib import Path; files = list(Path(\".\").glob(\"**/*.py\"))",
-            "assert isinstance(result, dict), f\"Expected dict, got {type(result)}\"",
-            "values = {*set_a, *set_b}; merged = {**dict_a, **dict_b}",
+            "with contextlib.suppress(FileNotFoundError):\n    os.remove(\"temp.txt\")",
+            "class Meta(type):\n    def __new__(cls, name, bases, attrs):\n        return super().__new__(\n            cls, name, bases, attrs\n        )",
+            "from functools import lru_cache\n\n@lru_cache(maxsize=128)\ndef expensive(n):\n    return sum(range(n))",
+            "from pathlib import Path\nfiles = list(Path(\".\").glob(\"**/*.py\"))",
+            "assert isinstance(result, dict), \\\n    f\"Expected dict, got {type(result)}\"",
+            "values = {*set_a, *set_b}\nmerged = {**dict_a, **dict_b}",
         ]
     }
 
     fn javascript_snippets() -> Vec<&'static str> {
         vec![
-            "const x = 42; console.log(x);",
-            "function add(a, b) { return a + b; }",
-            "const arr = [1, 2, 3].map(x => x * 2);",
-            "if (x > 0) { return true; }",
-            "for (let i = 0; i < 10; i++) { console.log(i); }",
-            "class Point { constructor(x, y) { this.x = x; this.y = y; } }",
+            "const x = 42;\nconsole.log(x);",
+            "function add(a, b) {\n    return a + b;\n}",
+            "const arr = [1, 2, 3].map(\n    x => x * 2\n);",
+            "if (x > 0) {\n    return true;\n}",
+            "for (let i = 0; i < 10; i++) {\n    console.log(i);\n}",
+            "class Point {\n    constructor(x, y) {\n        this.x = x;\n        this.y = y;\n    }\n}",
             "const { name, age } = person;",
-            "async function fetch(url) { const res = await get(url); return res.json(); }",
-            "const obj = { ...defaults, ...overrides };",
-            "try { parse(data); } catch (e) { console.error(e); }",
-            "export default function handler(req, res) { res.send(\"ok\"); }",
-            "const result = items.filter(x => x > 0).reduce((a, b) => a + b, 0);",
-            "const promise = new Promise((resolve, reject) => { setTimeout(resolve, 1000); });",
+            "async function fetch(url) {\n    const res = await get(url);\n    return res.json();\n}",
+            "const obj = {\n    ...defaults,\n    ...overrides,\n};",
+            "try {\n    parse(data);\n} catch (e) {\n    console.error(e);\n}",
+            "export default function handler(req, res) {\n    res.send(\"ok\");\n}",
+            "const result = items\n    .filter(x => x > 0)\n    .reduce((a, b) => a + b, 0);",
+            "const promise = new Promise(\n    (resolve, reject) => {\n        setTimeout(resolve, 1000);\n    }\n);",
             "const [first, ...rest] = array;",
-            "class EventEmitter { constructor() { this.listeners = new Map(); } }",
-            "const proxy = new Proxy(target, { get(obj, prop) { return obj[prop]; } });",
-            "for await (const chunk of stream) { process(chunk); }",
-            "const memoize = (fn) => { const cache = new Map(); return (...args) => cache.get(args) ?? fn(...args); };",
-            "import { useState, useEffect } from 'react'; const [state, setState] = useState(null);",
-            "const pipe = (...fns) => (x) => fns.reduce((v, f) => f(v), x);",
-            "Object.entries(obj).forEach(([key, value]) => { console.log(key, value); });",
-            "const debounce = (fn, ms) => { let timer; return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); }; };",
-            "const observable = new Observable(subscriber => { subscriber.next(1); subscriber.complete(); });",
-            "Symbol.iterator",
+            "class EventEmitter {\n    constructor() {\n        this.listeners = new Map();\n    }\n}",
+            "const proxy = new Proxy(target, {\n    get(obj, prop) {\n        return obj[prop];\n    }\n});",
+            "for await (const chunk of stream) {\n    process(chunk);\n}",
+            "const memoize = (fn) => {\n    const cache = new Map();\n    return (...args) => {\n        return cache.get(args) ?? fn(...args);\n    };\n};",
+            "import { useState, useEffect } from 'react';\nconst [state, setState] = useState(null);",
+            "const pipe = (...fns) => (x) =>\n    fns.reduce((v, f) => f(v), x);",
+            "Object.entries(obj).forEach(\n    ([key, value]) => {\n        console.log(key, value);\n    }\n);",
+            "const debounce = (fn, ms) => {\n    let timer;\n    return (...args) => {\n        clearTimeout(timer);\n        timer = setTimeout(\n            () => fn(...args),\n            ms\n        );\n    };\n};",
+            "const observable = new Observable(\n    subscriber => {\n        subscriber.next(1);\n        subscriber.complete();\n    }\n);",
         ]
     }
 
     fn go_snippets() -> Vec<&'static str> {
         vec![
-            "func main() { fmt.Println(\"hello\") }",
-            "for i := 0; i < 10; i++ { fmt.Println(i) }",
-            "if err != nil { return err }",
-            "type Point struct { X float64; Y float64 }",
-            "func add(a, b int) int { return a + b }",
+            "func main() {\n\tfmt.Println(\"hello\")\n}",
+            "for i := 0; i < 10; i++ {\n\tfmt.Println(i)\n}",
+            "if err != nil {\n\treturn err\n}",
+            "type Point struct {\n\tX float64\n\tY float64\n}",
+            "func add(a, b int) int {\n\treturn a + b\n}",
             "import \"fmt\"",
             "result := make([]int, 0, 10)",
-            "switch val { case 1: return \"one\" default: return \"other\" }",
-            "go func() { ch <- result }()",
+            "switch val {\ncase 1:\n\treturn \"one\"\ndefault:\n\treturn \"other\"\n}",
+            "go func() {\n\tch <- result\n}()",
             "defer file.Close()",
-            "type Reader interface { Read(p []byte) (n int, err error) }",
-            "ctx, cancel := context.WithTimeout(context.Background(), time.Second)",
-            "var wg sync.WaitGroup; wg.Add(1); go func() { defer wg.Done() }()",
-            "func (p *Point) Distance() float64 { return math.Sqrt(p.X*p.X + p.Y*p.Y) }",
-            "select { case msg := <-ch: process(msg) case <-time.After(time.Second): timeout() }",
+            "type Reader interface {\n\tRead(p []byte) (n int, err error)\n}",
+            "ctx, cancel := context.WithTimeout(\n\tcontext.Background(),\n\ttime.Second,\n)",
+            "var wg sync.WaitGroup\nwg.Add(1)\ngo func() {\n\tdefer wg.Done()\n}()",
+            "func (p *Point) Distance() float64 {\n\treturn math.Sqrt(p.X*p.X + p.Y*p.Y)\n}",
+            "select {\ncase msg := <-ch:\n\tprocess(msg)\ncase <-time.After(time.Second):\n\ttimeout()\n}",
             "json.NewEncoder(w).Encode(response)",
-            "http.HandleFunc(\"/api\", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(\"ok\")) })",
-            "func Map[T, U any](s []T, f func(T) U) []U { r := make([]U, len(s)); for i, v := range s { r[i] = f(v) }; return r }",
-            "var once sync.Once; once.Do(func() { initialize() })",
-            "buf := bytes.NewBuffer(nil); buf.WriteString(\"hello\")",
+            "http.HandleFunc(\"/api\",\n\tfunc(w http.ResponseWriter, r *http.Request) {\n\t\tw.Write([]byte(\"ok\"))\n\t},\n)",
+            "func Map[T, U any](s []T, f func(T) U) []U {\n\tr := make([]U, len(s))\n\tfor i, v := range s {\n\t\tr[i] = f(v)\n\t}\n\treturn r\n}",
+            "var once sync.Once\nonce.Do(func() {\n\tinitialize()\n})",
+            "buf := bytes.NewBuffer(nil)\nbuf.WriteString(\"hello\")",
         ]
     }
 
@@ -224,6 +229,7 @@ impl TextGenerator for CodeSyntaxGenerator {
         let mut result = Vec::new();
         let target_words = word_count;
         let mut current_words = 0;
+        let mut used_fetched = false;
 
         let total_available = embedded.len() + self.fetched_snippets.len();
 
@@ -234,6 +240,7 @@ impl TextGenerator for CodeSyntaxGenerator {
                 embedded[idx]
             } else if !self.fetched_snippets.is_empty() {
                 let f_idx = (idx - embedded.len()) % self.fetched_snippets.len();
+                used_fetched = true;
                 &self.fetched_snippets[f_idx]
             } else {
                 embedded[idx % embedded.len()]
@@ -242,6 +249,12 @@ impl TextGenerator for CodeSyntaxGenerator {
             current_words += snippet.split_whitespace().count();
             result.push(snippet.to_string());
         }
+
+        self.last_source = if used_fetched {
+            format!("GitHub source cache ({})", self.language)
+        } else {
+            format!("Built-in snippets ({})", self.language)
+        };
 
         result.join("\n\n")
     }
@@ -286,7 +299,9 @@ fn extract_code_snippets(source: &str) -> Vec<String> {
                 // Preserve original newlines and indentation
                 let snippet = snippet_lines.join("\n");
                 let char_count = snippet.chars().filter(|c| !c.is_whitespace()).count();
-                if char_count >= 20 && snippet.len() <= 800 {
+                // Require at least one newline (reject single-line snippets)
+                let has_newline = snippet.contains('\n');
+                if char_count >= 20 && snippet.len() <= 800 && has_newline {
                     snippets.push(snippet);
                 }
             }

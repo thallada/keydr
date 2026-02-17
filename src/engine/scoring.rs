@@ -7,6 +7,7 @@ pub fn compute_score(result: &DrillResult, complexity: f64) -> f64 {
     (speed * complexity) / (errors + 1.0) * (length / 50.0)
 }
 
+#[allow(dead_code)]
 pub fn compute_complexity(unlocked_count: usize, total_keys: usize) -> f64 {
     (unlocked_count as f64 / total_keys as f64).max(0.1)
 }

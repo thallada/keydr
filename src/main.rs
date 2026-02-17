@@ -23,7 +23,7 @@ use crossterm::terminal::{
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget};
@@ -34,8 +34,7 @@ use event::{AppEvent, EventHandler};
 use session::result::DrillResult;
 use ui::components::dashboard::Dashboard;
 use ui::components::keyboard_diagram::KeyboardDiagram;
-use ui::components::progress_bar::ProgressBar;
-use ui::components::skill_tree::{SkillTreeWidget, selectable_branches};
+use ui::components::skill_tree::{SkillTreeWidget, detail_line_count, selectable_branches};
 use ui::components::stats_dashboard::StatsDashboard;
 use ui::components::stats_sidebar::StatsSidebar;
 use ui::components::typing_area::TypingArea;
@@ -87,6 +86,7 @@ fn main() -> Result<()> {
 
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
+    terminal.hide_cursor()?;
 
     let events = EventHandler::new(Duration::from_millis(100));
 
@@ -124,6 +124,10 @@ fn run_app(
                         app.depressed_keys.clear();
                         app.last_key_time = None;
                     }
+                    // Clear shift_held after 200ms as fallback
+                    if last.elapsed() > Duration::from_millis(200) && app.shift_held {
+                        app.shift_held = false;
+                    }
                 }
             }
             AppEvent::Resize(_, _) => {}
@@ -136,18 +140,21 @@ fn run_app(
 }
 
 fn handle_key(app: &mut App, key: KeyEvent) {
-    // Track depressed keys for keyboard diagram
+    // Track depressed keys and shift state for keyboard diagram
     match (&key.code, key.kind) {
         (KeyCode::Char(ch), KeyEventKind::Press) => {
             app.depressed_keys.insert(ch.to_ascii_lowercase());
             app.last_key_time = Some(Instant::now());
+            app.shift_held = key.modifiers.contains(KeyModifiers::SHIFT);
         }
         (KeyCode::Char(ch), KeyEventKind::Release) => {
             app.depressed_keys.remove(&ch.to_ascii_lowercase());
             return; // Don't process Release events as input
         }
         (_, KeyEventKind::Release) => return,
-        _ => {}
+        _ => {
+            app.shift_held = key.modifiers.contains(KeyModifiers::SHIFT);
+        }
     }
 
     // Only process Press events — ignore Repeat to avoid inflating input
@@ -167,6 +174,7 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         AppScreen::StatsDashboard => handle_stats_key(app, key),
         AppScreen::Settings => handle_settings_key(app, key),
         AppScreen::SkillTree => handle_skill_tree_key(app, key),
+        AppScreen::CodeLanguageSelect => handle_code_language_key(app, key),
     }
 }
 
@@ -179,9 +187,7 @@ fn handle_menu_key(app: &mut App, key: KeyEvent) {
             app.start_drill();
         }
         KeyCode::Char('2') => {
-            app.drill_mode = DrillMode::Code;
-            app.drill_scope = DrillScope::Global;
-            app.start_drill();
+            app.go_to_code_language_select();
         }
         KeyCode::Char('3') => {
             app.drill_mode = DrillMode::Passage;
@@ -200,9 +206,7 @@ fn handle_menu_key(app: &mut App, key: KeyEvent) {
                 app.start_drill();
             }
             1 => {
-                app.drill_mode = DrillMode::Code;
-                app.drill_scope = DrillScope::Global;
-                app.start_drill();
+                app.go_to_code_language_select();
             }
             2 => {
                 app.drill_mode = DrillMode::Passage;
@@ -270,6 +274,8 @@ fn handle_result_key(app: &mut App, key: KeyEvent) {
 }
 
 fn handle_stats_key(app: &mut App, key: KeyEvent) {
+    const STATS_TAB_COUNT: usize = 5;
+
     // Confirmation dialog takes priority
     if app.history_confirm_delete {
         match key.code {
@@ -306,10 +312,12 @@ fn handle_stats_key(app: &mut App, key: KeyEvent) {
             KeyCode::Char('1') => app.stats_tab = 0,
             KeyCode::Char('2') => {} // already on history
             KeyCode::Char('3') => app.stats_tab = 2,
-            KeyCode::Tab => app.stats_tab = (app.stats_tab + 1) % 3,
+            KeyCode::Char('4') => app.stats_tab = 3,
+            KeyCode::Char('5') => app.stats_tab = 4,
+            KeyCode::Tab => app.stats_tab = (app.stats_tab + 1) % STATS_TAB_COUNT,
             KeyCode::BackTab => {
                 app.stats_tab = if app.stats_tab == 0 {
-                    2
+                    STATS_TAB_COUNT - 1
                 } else {
                     app.stats_tab - 1
                 }
@@ -324,10 +332,12 @@ fn handle_stats_key(app: &mut App, key: KeyEvent) {
         KeyCode::Char('1') => app.stats_tab = 0,
         KeyCode::Char('2') => app.stats_tab = 1,
         KeyCode::Char('3') => app.stats_tab = 2,
-        KeyCode::Tab => app.stats_tab = (app.stats_tab + 1) % 3,
+        KeyCode::Char('4') => app.stats_tab = 3,
+        KeyCode::Char('5') => app.stats_tab = 4,
+        KeyCode::Tab => app.stats_tab = (app.stats_tab + 1) % STATS_TAB_COUNT,
         KeyCode::BackTab => {
             app.stats_tab = if app.stats_tab == 0 {
-                2
+                STATS_TAB_COUNT - 1
             } else {
                 app.stats_tab - 1
             }
@@ -362,17 +372,96 @@ fn handle_settings_key(app: &mut App, key: KeyEvent) {
     }
 }
 
+fn handle_code_language_key(app: &mut App, key: KeyEvent) {
+    const LANGS: &[&str] = &["rust", "python", "javascript", "go", "all"];
+
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => app.go_to_menu(),
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.code_language_selected = app.code_language_selected.saturating_sub(1);
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if app.code_language_selected + 1 < LANGS.len() {
+                app.code_language_selected += 1;
+            }
+        }
+        KeyCode::Char('1') => {
+            app.code_language_selected = 0;
+            start_code_drill(app, LANGS);
+        }
+        KeyCode::Char('2') => {
+            app.code_language_selected = 1;
+            start_code_drill(app, LANGS);
+        }
+        KeyCode::Char('3') => {
+            app.code_language_selected = 2;
+            start_code_drill(app, LANGS);
+        }
+        KeyCode::Char('4') => {
+            app.code_language_selected = 3;
+            start_code_drill(app, LANGS);
+        }
+        KeyCode::Char('5') => {
+            app.code_language_selected = 4;
+            start_code_drill(app, LANGS);
+        }
+        KeyCode::Enter => {
+            start_code_drill(app, LANGS);
+        }
+        _ => {}
+    }
+}
+
+fn start_code_drill(app: &mut App, langs: &[&str]) {
+    if app.code_language_selected < langs.len() {
+        app.config.code_language = langs[app.code_language_selected].to_string();
+        let _ = app.config.save();
+        app.drill_mode = DrillMode::Code;
+        app.drill_scope = DrillScope::Global;
+        app.start_drill();
+    }
+}
+
 fn handle_skill_tree_key(app: &mut App, key: KeyEvent) {
+    const DETAIL_SCROLL_STEP: usize = 10;
+    let max_scroll = skill_tree_detail_max_scroll(app);
+    app.skill_tree_detail_scroll = app.skill_tree_detail_scroll.min(max_scroll);
     let branches = selectable_branches();
     match key.code {
         KeyCode::Esc | KeyCode::Char('q') => app.go_to_menu(),
         KeyCode::Up | KeyCode::Char('k') => {
             app.skill_tree_selected = app.skill_tree_selected.saturating_sub(1);
+            app.skill_tree_detail_scroll = 0;
         }
         KeyCode::Down | KeyCode::Char('j') => {
             if app.skill_tree_selected + 1 < branches.len() {
                 app.skill_tree_selected += 1;
+                app.skill_tree_detail_scroll = 0;
             }
+        }
+        KeyCode::PageUp => {
+            app.skill_tree_detail_scroll = app
+                .skill_tree_detail_scroll
+                .saturating_sub(DETAIL_SCROLL_STEP);
+        }
+        KeyCode::PageDown => {
+            let max_scroll = skill_tree_detail_max_scroll(app);
+            app.skill_tree_detail_scroll = app
+                .skill_tree_detail_scroll
+                .saturating_add(DETAIL_SCROLL_STEP)
+                .min(max_scroll);
+        }
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.skill_tree_detail_scroll = app
+                .skill_tree_detail_scroll
+                .saturating_sub(DETAIL_SCROLL_STEP);
+        }
+        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            let max_scroll = skill_tree_detail_max_scroll(app);
+            app.skill_tree_detail_scroll = app
+                .skill_tree_detail_scroll
+                .saturating_add(DETAIL_SCROLL_STEP)
+                .min(max_scroll);
         }
         KeyCode::Enter => {
             if app.skill_tree_selected < branches.len() {
@@ -389,6 +478,37 @@ fn handle_skill_tree_key(app: &mut App, key: KeyEvent) {
     }
 }
 
+fn skill_tree_detail_max_scroll(app: &App) -> usize {
+    let (w, h) = crossterm::terminal::size().unwrap_or((120, 40));
+    let screen = Rect::new(0, 0, w, h);
+    let centered = ui::layout::centered_rect(70, 90, screen);
+    let inner = Rect::new(
+        centered.x.saturating_add(1),
+        centered.y.saturating_add(1),
+        centered.width.saturating_sub(2),
+        centered.height.saturating_sub(2),
+    );
+
+    let branches = selectable_branches();
+    if branches.is_empty() {
+        return 0;
+    }
+    let branch_list_height = branches.len() as u16 * 2 + 1;
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(branch_list_height.min(inner.height.saturating_sub(6))),
+            Constraint::Length(1),
+            Constraint::Min(4),
+            Constraint::Length(2),
+        ])
+        .split(inner);
+    let detail_height = layout.get(2).map(|r| r.height as usize).unwrap_or(0);
+    let selected = app.skill_tree_selected.min(branches.len().saturating_sub(1));
+    let total_lines = detail_line_count(branches[selected]);
+    total_lines.saturating_sub(detail_height)
+}
+
 fn render(frame: &mut ratatui::Frame, app: &App) {
     let area = frame.area();
     let colors = &app.theme.colors;
@@ -403,6 +523,7 @@ fn render(frame: &mut ratatui::Frame, app: &App) {
         AppScreen::StatsDashboard => render_stats(frame, app),
         AppScreen::Settings => render_settings(frame, app),
         AppScreen::SkillTree => render_skill_tree(frame, app),
+        AppScreen::CodeLanguageSelect => render_code_language_select(frame, app),
     }
 }
 
@@ -454,7 +575,7 @@ fn render_menu(frame: &mut ratatui::Frame, app: &App) {
     frame.render_widget(&app.menu, menu_area);
 
     let footer = Paragraph::new(Line::from(vec![Span::styled(
-        " [1-3] Start  [t] Skill Tree  [s] Stats  [q] Quit ",
+        " [1-3] Start  [t] Skill Tree  [s] Stats  [c] Settings  [q] Quit ",
         Style::default().fg(colors.text_pending()),
     )]));
     frame.render_widget(footer, layout[2]);
@@ -492,9 +613,13 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
             frame.render_widget(header, app_layout.header);
         } else {
             let header_title = format!(" {mode_name} Drill ");
-            let focused = app.skill_tree.focused_key(app.drill_scope, &app.key_stats);
-            let focus_text = if let Some(focused) = focused {
-                format!(" | Focus: '{focused}'")
+            let focus_text = if app.drill_mode == DrillMode::Adaptive {
+                let focused = app.skill_tree.focused_key(app.drill_scope, &app.key_stats);
+                if let Some(focused) = focused {
+                    format!(" | Focus: '{focused}'")
+                } else {
+                    String::new()
+                }
             } else {
                 String::new()
             };
@@ -521,12 +646,46 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
         let show_kbd = tier.show_keyboard(area.height);
         let show_progress = tier.show_progress_bar(area.height);
 
+        // Compute active branch count for progress area height
+        let active_branches: Vec<engine::skill_tree::BranchId> =
+            engine::skill_tree::BranchId::all()
+                .iter()
+                .copied()
+                .filter(|&id| {
+                    matches!(
+                        app.skill_tree.branch_status(id),
+                        engine::skill_tree::BranchStatus::InProgress
+                            | engine::skill_tree::BranchStatus::Complete
+                    )
+                })
+                .collect();
+
+        let progress_height = if show_progress && area.height >= 25 {
+            (active_branches.len().min(6) as u16 + 1).max(2) // +1 for overall line
+        } else if show_progress && area.height >= 20 {
+            2 // active branch + overall
+        } else if show_progress {
+            1 // active branch only
+        } else {
+            0
+        };
+
+        let kbd_height = if show_kbd {
+            if tier.compact_keyboard() {
+                5 // 3 rows + 2 border
+            } else {
+                7 // 4 rows + 2 border + 1 label space
+            }
+        } else {
+            0
+        };
+
         let mut constraints: Vec<Constraint> = vec![Constraint::Min(5)];
-        if show_progress {
-            constraints.push(Constraint::Length(3));
+        if progress_height > 0 {
+            constraints.push(Constraint::Length(progress_height));
         }
         if show_kbd {
-            constraints.push(Constraint::Length(5));
+            constraints.push(Constraint::Length(kbd_height));
         }
 
         let main_layout = Layout::default()
@@ -538,12 +697,30 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
         frame.render_widget(typing, main_layout[0]);
 
         let mut idx = 1;
-        if show_progress {
-            let unlocked = app.skill_tree.total_unlocked_count() as f64;
-            let total = app.skill_tree.total_unique_keys as f64;
-            let progress_val = (unlocked / total).min(1.0);
-            let progress = ProgressBar::new("Key Progress", progress_val, app.theme);
-            frame.render_widget(progress, main_layout[idx]);
+        if progress_height > 0 {
+            if app.drill_mode == DrillMode::Adaptive {
+                let progress_widget = ui::components::branch_progress_list::BranchProgressList {
+                    skill_tree: &app.skill_tree,
+                    key_stats: &app.key_stats,
+                    drill_scope: app.drill_scope,
+                    active_branches: &active_branches,
+                    theme: app.theme,
+                    height: progress_height,
+                };
+                frame.render_widget(progress_widget, main_layout[idx]);
+            } else {
+                let source = app.drill_source_info.as_deref().unwrap_or("unknown source");
+                let label = if app.drill_mode == DrillMode::Code {
+                    " Code source "
+                } else {
+                    " Passage source "
+                };
+                let source_info = Paragraph::new(Line::from(vec![
+                    Span::styled(label, Style::default().fg(colors.accent()).add_modifier(Modifier::BOLD)),
+                    Span::styled(source, Style::default().fg(colors.text_pending())),
+                ]));
+                frame.render_widget(source_info, main_layout[idx]);
+            }
             idx += 1;
         }
 
@@ -551,14 +728,18 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
             let next_char = drill.target.get(drill.cursor).copied();
             let unlocked_keys = app.skill_tree.unlocked_keys(app.drill_scope);
             let focused = app.skill_tree.focused_key(app.drill_scope, &app.key_stats);
+            let kbd_height = if tier.compact_keyboard() { 5 } else { 7 };
+            let _ = kbd_height; // Height managed by constraints
             let kbd = KeyboardDiagram::new(
                 focused,
                 next_char,
                 &unlocked_keys,
                 &app.depressed_keys,
                 app.theme,
+                &app.keyboard_model,
             )
-            .compact(tier.compact_keyboard());
+            .compact(tier.compact_keyboard())
+            .shift_held(app.shift_held);
             frame.render_widget(kbd, main_layout[idx]);
         }
 
@@ -600,6 +781,7 @@ fn render_stats(frame: &mut ratatui::Frame, app: &App) {
         app.theme,
         app.history_selected,
         app.history_confirm_delete,
+        &app.keyboard_model,
     );
     frame.render_widget(dashboard, area);
 }
@@ -618,13 +800,8 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
     block.render(centered, frame.buffer_mut());
 
     let available_themes = ui::theme::Theme::available_themes();
-    let languages_all = ["rust", "python", "javascript", "go"];
-    let current_lang = app
-        .config
-        .code_languages
-        .first()
-        .map(|s| s.as_str())
-        .unwrap_or("rust");
+    let languages_all = ["rust", "python", "javascript", "go", "all"];
+    let current_lang = &app.config.code_language;
 
     let fields: Vec<(String, String)> = vec![
         (
@@ -636,7 +813,7 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
             "Word Count".to_string(),
             format!("{}", app.config.word_count),
         ),
-        ("Code Language".to_string(), current_lang.to_string()),
+        ("Code Language".to_string(), current_lang.clone()),
     ];
 
     let layout = Layout::default()
@@ -706,6 +883,54 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
     footer.render(layout[3], frame.buffer_mut());
 }
 
+fn render_code_language_select(frame: &mut ratatui::Frame, app: &App) {
+    let area = frame.area();
+    let colors = &app.theme.colors;
+    let centered = ui::layout::centered_rect(40, 50, area);
+
+    let block = Block::bordered()
+        .title(" Select Code Language ")
+        .border_style(Style::default().fg(colors.accent()))
+        .style(Style::default().bg(colors.bg()));
+    let inner = block.inner(centered);
+    block.render(centered, frame.buffer_mut());
+
+    let langs = ["Rust", "Python", "JavaScript", "Go", "All (random)"];
+    let lang_keys = ["rust", "python", "javascript", "go", "all"];
+
+    let mut lines: Vec<Line> = Vec::new();
+    lines.push(Line::from(""));
+
+    for (i, &lang) in langs.iter().enumerate() {
+        let is_selected = i == app.code_language_selected;
+        let is_current = lang_keys[i] == app.config.code_language;
+
+        let indicator = if is_selected { " > " } else { "   " };
+        let current_marker = if is_current { " (current)" } else { "" };
+
+        let style = if is_selected {
+            Style::default()
+                .fg(colors.accent())
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(colors.fg())
+        };
+
+        lines.push(Line::from(Span::styled(
+            format!("{indicator}[{}] {lang}{current_marker}", i + 1),
+            style,
+        )));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  [1-5] Select  [Enter] Confirm  [ESC] Back",
+        Style::default().fg(colors.text_pending()),
+    )));
+
+    Paragraph::new(lines).render(inner, frame.buffer_mut());
+}
+
 fn render_skill_tree(frame: &mut ratatui::Frame, app: &App) {
     let area = frame.area();
     let centered = ui::layout::centered_rect(70, 90, area);
@@ -713,6 +938,7 @@ fn render_skill_tree(frame: &mut ratatui::Frame, app: &App) {
         &app.skill_tree,
         &app.key_stats,
         app.skill_tree_selected,
+        app.skill_tree_detail_scroll,
         app.theme,
     );
     frame.render_widget(widget, centered);

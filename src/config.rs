@@ -12,10 +12,10 @@ pub struct Config {
     pub theme: String,
     #[serde(default = "default_keyboard_layout")]
     pub keyboard_layout: String,
-    #[serde(default = "default_code_languages")]
-    pub code_languages: Vec<String>,
     #[serde(default = "default_word_count")]
     pub word_count: usize,
+    #[serde(default = "default_code_language")]
+    pub code_language: String,
 }
 
 fn default_target_wpm() -> u32 {
@@ -27,11 +27,11 @@ fn default_theme() -> String {
 fn default_keyboard_layout() -> String {
     "qwerty".to_string()
 }
-fn default_code_languages() -> Vec<String> {
-    vec!["rust".to_string()]
-}
 fn default_word_count() -> usize {
     20
+}
+fn default_code_language() -> String {
+    "rust".to_string()
 }
 
 impl Default for Config {
@@ -40,8 +40,8 @@ impl Default for Config {
             target_wpm: default_target_wpm(),
             theme: default_theme(),
             keyboard_layout: default_keyboard_layout(),
-            code_languages: default_code_languages(),
             word_count: default_word_count(),
+            code_language: default_code_language(),
         }
     }
 }

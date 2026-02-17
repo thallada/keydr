@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::time::Instant;
 
+use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
 
@@ -19,6 +20,7 @@ use crate::generator::passage::PassageGenerator;
 use crate::generator::phonetic::PhoneticGenerator;
 use crate::generator::punctuate;
 use crate::generator::transition_table::TransitionTable;
+use crate::keyboard::model::KeyboardModel;
 
 use crate::session::drill::DrillState;
 use crate::session::input::{self, KeystrokeEvent};
@@ -36,6 +38,7 @@ pub enum AppScreen {
     StatsDashboard,
     Settings,
     SkillTree,
+    CodeLanguageSelect,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,6 +85,11 @@ pub struct App {
     pub history_selected: usize,
     pub history_confirm_delete: bool,
     pub skill_tree_selected: usize,
+    pub skill_tree_detail_scroll: usize,
+    pub drill_source_info: Option<String>,
+    pub code_language_selected: usize,
+    pub shift_held: bool,
+    pub keyboard_model: KeyboardModel,
     rng: SmallRng,
     transition_table: TransitionTable,
     #[allow(dead_code)]
@@ -132,6 +140,7 @@ impl App {
 
         let dictionary = Dictionary::load();
         let transition_table = TransitionTable::build_from_words(&dictionary.words_list());
+        let keyboard_model = KeyboardModel::from_name(&config.keyboard_layout);
 
         let mut app = Self {
             screen: AppScreen::Menu,
@@ -156,6 +165,11 @@ impl App {
             history_selected: 0,
             history_confirm_delete: false,
             skill_tree_selected: 0,
+            skill_tree_detail_scroll: 0,
+            drill_source_info: None,
+            code_language_selected: 0,
+            shift_held: false,
+            keyboard_model,
             rng: SmallRng::from_entropy(),
             transition_table,
             dictionary,
@@ -165,13 +179,14 @@ impl App {
     }
 
     pub fn start_drill(&mut self) {
-        let text = self.generate_text();
+        let (text, source_info) = self.generate_text();
         self.drill = Some(DrillState::new(&text));
+        self.drill_source_info = source_info;
         self.drill_events.clear();
         self.screen = AppScreen::Drill;
     }
 
-    fn generate_text(&mut self) -> String {
+    fn generate_text(&mut self) -> (String, Option<String>) {
         let word_count = self.config.word_count;
         let mode = self.drill_mode;
 
@@ -291,25 +306,28 @@ impl App {
                     text = insert_line_breaks(&text);
                 }
 
-                text
+                (text, None)
             }
             DrillMode::Code => {
                 let filter = CharFilter::new(('a'..='z').collect());
-                let lang = self
-                    .config
-                    .code_languages
-                    .first()
-                    .cloned()
-                    .unwrap_or_else(|| "rust".to_string());
+                let lang = if self.config.code_language == "all" {
+                    let langs = ["rust", "python", "javascript", "go"];
+                    let idx = self.rng.gen_range(0..langs.len());
+                    langs[idx].to_string()
+                } else {
+                    self.config.code_language.clone()
+                };
                 let rng = SmallRng::from_rng(&mut self.rng).unwrap();
                 let mut generator = CodeSyntaxGenerator::new(rng, &lang);
-                generator.generate(&filter, None, word_count)
+                let text = generator.generate(&filter, None, word_count);
+                (text, Some(generator.last_source().to_string()))
             }
             DrillMode::Passage => {
                 let filter = CharFilter::new(('a'..='z').collect());
                 let rng = SmallRng::from_rng(&mut self.rng).unwrap();
                 let mut generator = PassageGenerator::new(rng);
-                generator.generate(&filter, None, word_count)
+                let text = generator.generate(&filter, None, word_count);
+                (text, Some(generator.last_source().to_string()))
             }
         }
     }
@@ -414,6 +432,7 @@ impl App {
     pub fn go_to_menu(&mut self) {
         self.screen = AppScreen::Menu;
         self.drill = None;
+        self.drill_source_info = None;
         self.drill_events.clear();
     }
 
@@ -498,6 +517,7 @@ impl App {
 
     pub fn go_to_skill_tree(&mut self) {
         self.skill_tree_selected = 0;
+        self.skill_tree_detail_scroll = 0;
         self.screen = AppScreen::SkillTree;
     }
 
@@ -511,6 +531,15 @@ impl App {
         self.drill_mode = DrillMode::Adaptive;
         self.drill_scope = DrillScope::Branch(branch_id);
         self.start_drill();
+    }
+
+    pub fn go_to_code_language_select(&mut self) {
+        let langs = ["rust", "python", "javascript", "go", "all"];
+        self.code_language_selected = langs
+            .iter()
+            .position(|&l| l == self.config.code_language)
+            .unwrap_or(0);
+        self.screen = AppScreen::CodeLanguageSelect;
     }
 
     pub fn go_to_settings(&mut self) {
@@ -542,16 +571,13 @@ impl App {
                 self.config.word_count = (self.config.word_count + 5).min(100);
             }
             3 => {
-                let langs = ["rust", "python", "javascript", "go"];
-                let current = self
-                    .config
-                    .code_languages
-                    .first()
-                    .map(|s| s.as_str())
-                    .unwrap_or("rust");
-                let idx = langs.iter().position(|&l| l == current).unwrap_or(0);
+                let langs = ["rust", "python", "javascript", "go", "all"];
+                let idx = langs
+                    .iter()
+                    .position(|&l| l == self.config.code_language)
+                    .unwrap_or(0);
                 let next = (idx + 1) % langs.len();
-                self.config.code_languages = vec![langs[next].to_string()];
+                self.config.code_language = langs[next].to_string();
             }
             _ => {}
         }
@@ -581,16 +607,13 @@ impl App {
                 self.config.word_count = self.config.word_count.saturating_sub(5).max(5);
             }
             3 => {
-                let langs = ["rust", "python", "javascript", "go"];
-                let current = self
-                    .config
-                    .code_languages
-                    .first()
-                    .map(|s| s.as_str())
-                    .unwrap_or("rust");
-                let idx = langs.iter().position(|&l| l == current).unwrap_or(0);
+                let langs = ["rust", "python", "javascript", "go", "all"];
+                let idx = langs
+                    .iter()
+                    .position(|&l| l == self.config.code_language)
+                    .unwrap_or(0);
                 let next = if idx == 0 { langs.len() - 1 } else { idx - 1 };
-                self.config.code_languages = vec![langs[next].to_string()];
+                self.config.code_language = langs[next].to_string();
             }
             _ => {}
         }

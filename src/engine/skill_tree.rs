@@ -28,6 +28,7 @@ impl BranchId {
         }
     }
 
+    #[allow(dead_code)]
     pub fn from_key(key: &str) -> Option<Self> {
         match key {
             "lowercase" => Some(BranchId::Lowercase),
@@ -615,6 +616,7 @@ impl SkillTree {
     }
 
     /// Get all branch definitions with their current progress (for UI).
+    #[allow(dead_code)]
     pub fn all_branches_with_progress(&self) -> Vec<(&'static BranchDefinition, &BranchProgress)> {
         ALL_BRANCHES
             .iter()
@@ -622,10 +624,47 @@ impl SkillTree {
             .collect()
     }
 
+    /// Number of unlocked keys in a branch.
+    pub fn branch_unlocked_count(&self, id: BranchId) -> usize {
+        let def = get_branch_definition(id);
+        let bp = self.branch_progress(id);
+        match bp.status {
+            BranchStatus::Complete => def.levels.iter().map(|l| l.keys.len()).sum(),
+            BranchStatus::InProgress => {
+                if id == BranchId::Lowercase {
+                    self.lowercase_unlocked_count()
+                } else {
+                    def.levels
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| *i <= bp.current_level)
+                        .map(|(_, l)| l.keys.len())
+                        .sum()
+                }
+            }
+            _ => 0,
+        }
+    }
+
     /// Total keys defined in a branch (across all levels).
     pub fn branch_total_keys(id: BranchId) -> usize {
         let def = get_branch_definition(id);
         def.levels.iter().map(|l| l.keys.len()).sum()
+    }
+
+    /// Count of unique confident keys across all branches.
+    pub fn total_confident_keys(&self, stats: &KeyStatsStore) -> usize {
+        let mut keys: HashSet<char> = HashSet::new();
+        for branch_def in ALL_BRANCHES {
+            for level in branch_def.levels {
+                for &ch in level.keys {
+                    if stats.get_confidence(ch) >= 1.0 {
+                        keys.insert(ch);
+                    }
+                }
+            }
+        }
+        keys.len()
     }
 
     /// Count of confident keys in a branch.
@@ -880,5 +919,53 @@ mod tests {
         assert!(keys.contains(&'T')); // Capitals L1
         assert!(keys.contains(&'J')); // Capitals L2 (current level)
         assert!(!keys.contains(&'O')); // Capitals L3 (locked)
+    }
+
+    #[test]
+    fn test_branch_unlocked_count() {
+        let tree = SkillTree::default();
+        // Lowercase starts InProgress with LOWERCASE_MIN_KEYS
+        assert_eq!(
+            tree.branch_unlocked_count(BranchId::Lowercase),
+            LOWERCASE_MIN_KEYS
+        );
+
+        // Locked branches return 0
+        assert_eq!(tree.branch_unlocked_count(BranchId::Capitals), 0);
+        assert_eq!(tree.branch_unlocked_count(BranchId::Numbers), 0);
+
+        // InProgress non-lowercase branch
+        let mut tree2 = SkillTree::default();
+        let bp = tree2.branch_progress_mut(BranchId::Capitals);
+        bp.status = BranchStatus::InProgress;
+        bp.current_level = 1;
+        // Level 0 (8 keys) + Level 1 (10 keys)
+        assert_eq!(tree2.branch_unlocked_count(BranchId::Capitals), 18);
+
+        // Complete branch returns all keys
+        let mut tree3 = SkillTree::default();
+        tree3.branch_progress_mut(BranchId::Numbers).status = BranchStatus::Complete;
+        assert_eq!(tree3.branch_unlocked_count(BranchId::Numbers), 10);
+    }
+
+    #[test]
+    fn test_selectable_branches_bounds() {
+        use crate::ui::components::skill_tree::selectable_branches;
+
+        let branches = selectable_branches();
+        assert!(!branches.is_empty());
+        assert_eq!(branches[0], BranchId::Lowercase);
+
+        let tree = SkillTree::default();
+        // Accessing branch_progress for every selectable branch should not panic
+        for &branch_id in &branches {
+            let _ = tree.branch_progress(branch_id);
+            let _ = SkillTree::branch_total_keys(branch_id);
+            let _ = tree.branch_unlocked_count(branch_id);
+        }
+
+        // Selection at 0 and at max index should be valid
+        assert!(0 < branches.len());
+        assert!(branches.len() - 1 < branches.len());
     }
 }

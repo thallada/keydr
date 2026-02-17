@@ -3,8 +3,10 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget};
+use std::collections::BTreeSet;
 
 use crate::engine::key_stats::KeyStatsStore;
+use crate::keyboard::model::KeyboardModel;
 use crate::session::result::DrillResult;
 use crate::ui::components::activity_heatmap::ActivityHeatmap;
 use crate::ui::theme::Theme;
@@ -17,6 +19,7 @@ pub struct StatsDashboard<'a> {
     pub theme: &'a Theme,
     pub history_selected: usize,
     pub history_confirm_delete: bool,
+    pub keyboard_model: &'a KeyboardModel,
 }
 
 impl<'a> StatsDashboard<'a> {
@@ -28,6 +31,7 @@ impl<'a> StatsDashboard<'a> {
         theme: &'a Theme,
         history_selected: usize,
         history_confirm_delete: bool,
+        keyboard_model: &'a KeyboardModel,
     ) -> Self {
         Self {
             history,
@@ -37,6 +41,7 @@ impl<'a> StatsDashboard<'a> {
             theme,
             history_selected,
             history_confirm_delete,
+            keyboard_model,
         }
     }
 }
@@ -71,7 +76,13 @@ impl Widget for StatsDashboard<'_> {
             .split(inner);
 
         // Tab header
-        let tabs = ["[1] Dashboard", "[2] History", "[3] Keystrokes"];
+        let tabs = [
+            "[1] Dashboard",
+            "[2] History",
+            "[3] Activity",
+            "[4] Accuracy",
+            "[5] Timing",
+        ];
         let tab_spans: Vec<Span> = tabs
             .iter()
             .enumerate()
@@ -88,29 +99,14 @@ impl Widget for StatsDashboard<'_> {
             .collect();
         Paragraph::new(Line::from(tab_spans)).render(layout[0], buf);
 
-        // Tab content — wide mode shows two panels side by side
-        let is_wide = area.width > 170;
-        if is_wide {
-            let panels = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-                .split(layout[1]);
-
-            // Left panel: active tab, Right panel: next tab
-            let left_tab = self.active_tab;
-            let right_tab = (self.active_tab + 1) % 3;
-
-            self.render_tab(left_tab, panels[0], buf);
-            self.render_tab(right_tab, panels[1], buf);
-        } else {
-            self.render_tab(self.active_tab, layout[1], buf);
-        }
+        // Render only one tab at a time so each tab gets full breathing room.
+        self.render_tab(self.active_tab, layout[1], buf);
 
         // Footer
         let footer_text = if self.active_tab == 1 {
-            "  [ESC] Back  [Tab] Next tab  [j/k] Navigate  [x] Delete"
+            "  [ESC] Back  [Tab] Next tab  [1-5] Switch tab  [j/k] Navigate  [x] Delete"
         } else {
-            "  [ESC] Back  [Tab] Next tab  [1/2/3] Switch tab"
+            "  [ESC] Back  [Tab] Next tab  [1-5] Switch tab"
         };
         let footer = Paragraph::new(Line::from(Span::styled(
             footer_text,
@@ -152,9 +148,51 @@ impl StatsDashboard<'_> {
         match tab {
             0 => self.render_dashboard_tab(area, buf),
             1 => self.render_history_tab(area, buf),
-            2 => self.render_keystrokes_tab(area, buf),
+            2 => self.render_activity_tab(area, buf),
+            3 => self.render_accuracy_tab(area, buf),
+            4 => self.render_timing_tab(area, buf),
             _ => {}
         }
+    }
+
+    fn render_activity_tab(&self, area: Rect, buf: &mut Buffer) {
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(9), Constraint::Length(4)])
+            .split(area);
+        ActivityHeatmap::new(self.history, self.theme).render(layout[0], buf);
+        self.render_activity_stats(layout[1], buf);
+    }
+
+    fn render_accuracy_tab(&self, area: Rect, buf: &mut Buffer) {
+        let kbd_height: u16 = if area.width >= 96 { 10 } else { 8 };
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(kbd_height), Constraint::Min(6)])
+            .split(area);
+        self.render_keyboard_heatmap(layout[0], buf);
+        let lists = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(layout[1]);
+        self.render_worst_accuracy_keys(lists[0], buf);
+        self.render_best_accuracy_keys(lists[1], buf);
+    }
+
+    fn render_timing_tab(&self, area: Rect, buf: &mut Buffer) {
+        let kbd_height: u16 = if area.width >= 96 { 10 } else { 8 };
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(kbd_height), Constraint::Min(6)])
+            .split(area);
+        self.render_keyboard_timing(layout[0], buf);
+
+        let lists = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(layout[1]);
+        self.render_slowest_keys(lists[0], buf);
+        self.render_fastest_keys(lists[1], buf);
     }
 
     fn render_dashboard_tab(&self, area: Rect, buf: &mut Buffer) {
@@ -183,8 +221,13 @@ impl StatsDashboard<'_> {
         let time_str = format_duration(total_time);
 
         let summary_block = Block::bordered()
-            .title(" Summary ")
-            .border_style(Style::default().fg(colors.border()));
+            .title(Line::from(Span::styled(
+                " Summary ",
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
+            )))
+            .border_style(Style::default().fg(colors.accent()));
         let summary_inner = summary_block.inner(layout[0]);
         summary_block.render(layout[0], buf);
 
@@ -243,8 +286,13 @@ impl StatsDashboard<'_> {
 
         let target_label = format!(" WPM per Drill (Last 20, Target: {}) ", self.target_wpm);
         let block = Block::bordered()
-            .title(target_label)
-            .border_style(Style::default().fg(colors.border()));
+            .title(Line::from(Span::styled(
+                target_label,
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
+            )))
+            .border_style(Style::default().fg(colors.accent()));
         let inner = block.inner(area);
         block.render(area, buf);
 
@@ -376,8 +424,13 @@ impl StatsDashboard<'_> {
 
         if data.is_empty() {
             let block = Block::bordered()
-                .title(" Accuracy % (Last 50 Drills) ")
-                .border_style(Style::default().fg(colors.border()));
+                .title(Line::from(Span::styled(
+                    " Accuracy % (Last 50 Drills) ",
+                    Style::default()
+                        .fg(colors.accent())
+                        .add_modifier(Modifier::BOLD),
+                )))
+                .border_style(Style::default().fg(colors.accent()));
             block.render(area, buf);
             return;
         }
@@ -393,8 +446,13 @@ impl StatsDashboard<'_> {
         let chart = Chart::new(vec![dataset])
             .block(
                 Block::bordered()
-                    .title(" Accuracy % (Last 50 Drills) ")
-                    .border_style(Style::default().fg(colors.border())),
+                    .title(Line::from(Span::styled(
+                        " Accuracy % (Last 50 Drills) ",
+                        Style::default()
+                            .fg(colors.accent())
+                            .add_modifier(Modifier::BOLD),
+                    )))
+                    .border_style(Style::default().fg(colors.accent())),
             )
             .x_axis(
                 Axis::default()
@@ -406,6 +464,11 @@ impl StatsDashboard<'_> {
                 Axis::default()
                     .title("Accuracy %")
                     .style(Style::default().fg(colors.text_pending()))
+                    .labels(vec![
+                        Span::styled("80", Style::default().fg(colors.text_pending())),
+                        Span::styled("90", Style::default().fg(colors.text_pending())),
+                        Span::styled("100", Style::default().fg(colors.text_pending())),
+                    ])
                     .bounds([80.0, 100.0]),
             );
 
@@ -490,17 +553,17 @@ impl StatsDashboard<'_> {
     fn render_history_tab(&self, area: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
 
-        let layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Min(10), Constraint::Length(8)])
-            .split(area);
-
         // Recent tests bordered table
         let table_block = Block::bordered()
-            .title(" Recent Sessions ")
-            .border_style(Style::default().fg(colors.border()));
-        let table_inner = table_block.inner(layout[0]);
-        table_block.render(layout[0], buf);
+            .title(Line::from(Span::styled(
+                " Recent Sessions ",
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
+            )))
+            .border_style(Style::default().fg(colors.accent()));
+        let table_inner = table_block.inner(area);
+        table_block.render(area, buf);
 
         let header = Line::from(vec![Span::styled(
             "   #     WPM    Raw    Acc%    Time      Date       Mode",
@@ -566,190 +629,88 @@ impl StatsDashboard<'_> {
         }
 
         Paragraph::new(lines).render(table_inner, buf);
-
-        // Per-key speed distribution
-        self.render_per_key_speed(layout[1], buf);
-    }
-
-    fn render_per_key_speed(&self, area: Rect, buf: &mut Buffer) {
-        let colors = &self.theme.colors;
-
-        let block = Block::bordered()
-            .title(" Avg Key Time by Character ")
-            .border_style(Style::default().fg(colors.border()));
-        let inner = block.inner(area);
-        block.render(area, buf);
-
-        let columns_per_row: usize = 13;
-        let col_width: u16 = 4;
-        let row_height: u16 = 3;
-
-        if inner.width < columns_per_row as u16 * col_width || inner.height < row_height {
-            return;
-        }
-
-        let letters: Vec<char> = ('a'..='z').collect();
-        let row_count = if inner.height >= row_height * 2 { 2 } else { 1 };
-        let max_time = letters
-            .iter()
-            .filter_map(|&ch| self.key_stats.stats.get(&ch))
-            .map(|s| s.filtered_time_ms)
-            .fold(0.0f64, f64::max)
-            .max(1.0);
-
-        let bar_chars = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-
-        for (i, &ch) in letters.iter().take(columns_per_row * row_count).enumerate() {
-            let row = i / columns_per_row;
-            let col = i % columns_per_row;
-            let x = inner.x + (col as u16 * col_width);
-            let y = inner.y + row as u16 * row_height;
-
-            if x + col_width > inner.x + inner.width || y + 2 >= inner.y + inner.height {
-                break;
-            }
-
-            let time = self
-                .key_stats
-                .stats
-                .get(&ch)
-                .map(|s| s.filtered_time_ms)
-                .unwrap_or(0.0);
-
-            let ratio = time / max_time;
-            let color = if ratio < 0.3 {
-                colors.success()
-            } else if ratio < 0.6 {
-                colors.accent()
-            } else {
-                colors.error()
-            };
-
-            // Letter label
-            buf.set_string(x, y, &ch.to_string(), Style::default().fg(color));
-
-            // Bar indicator
-            let bar_char = if time > 0.0 {
-                let idx = ((ratio * 7.0).round() as usize).min(7);
-                bar_chars[idx]
-            } else {
-                ' '
-            };
-            buf.set_string(x, y + 1, &bar_char.to_string(), Style::default().fg(color));
-
-            // Time label on row 3, render seconds when value exceeds 999ms.
-            if time > 0.0 {
-                let time_label = if time > 999.0 {
-                    format!("({:.0}s)", time / 1000.0)
-                } else {
-                    format!("{time:.0}")
-                };
-                let label = if time_label.len() > col_width as usize {
-                    let start = time_label.len() - col_width as usize;
-                    &time_label[start..]
-                } else {
-                    &time_label
-                };
-                let label_x = x + col_width.saturating_sub(label.len() as u16);
-                buf.set_string(
-                    label_x,
-                    y + 2,
-                    label,
-                    Style::default().fg(colors.text_pending()),
-                );
-            }
-        }
-    }
-
-    fn render_keystrokes_tab(&self, area: Rect, buf: &mut Buffer) {
-        let layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(12), // Activity heatmap
-                Constraint::Length(7),  // Keyboard accuracy heatmap
-                Constraint::Min(5),     // Slowest/Fastest/Stats
-                Constraint::Length(5),  // Overall stats
-            ])
-            .split(area);
-
-        // Activity heatmap
-        let heatmap = ActivityHeatmap::new(self.history, self.theme);
-        heatmap.render(layout[0], buf);
-
-        // Keyboard accuracy heatmap with percentages
-        self.render_keyboard_heatmap(layout[1], buf);
-
-        // Slowest/Fastest/Worst keys
-        let key_layout = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(33),
-                Constraint::Percentage(34),
-                Constraint::Percentage(33),
-            ])
-            .split(layout[2]);
-
-        self.render_slowest_keys(key_layout[0], buf);
-        self.render_fastest_keys(key_layout[1], buf);
-        self.render_worst_accuracy_keys(key_layout[2], buf);
-
-        // Overall stats
-        self.render_overall_stats(layout[3], buf);
     }
 
     fn render_keyboard_heatmap(&self, area: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
 
         let block = Block::bordered()
-            .title(" Keyboard Accuracy % ")
-            .border_style(Style::default().fg(colors.border()));
+            .title(Line::from(Span::styled(
+                " Keyboard Accuracy % ",
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
+            )))
+            .border_style(Style::default().fg(colors.accent()));
         let inner = block.inner(area);
         block.render(area, buf);
 
-        if inner.height < 3 || inner.width < 50 {
+        if inner.height < 3 {
             return;
         }
 
-        let rows: &[&[char]] = &[
-            &['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
-            &['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
-            &['z', 'x', 'c', 'v', 'b', 'n', 'm'],
-        ];
-        let offsets: &[u16] = &[1, 3, 5];
-        let key_width: u16 = 5; // wider to fit accuracy %
+        let (key_width, key_step) = if inner.width >= required_kbd_width(5, 6) {
+            (5, 6)
+        } else if inner.width >= required_kbd_width(4, 5) {
+            (4, 5)
+        } else {
+            return;
+        };
+        let show_shifted = inner.height >= 6;
+        let all_rows = &self.keyboard_model.rows;
+        let offsets: &[u16] = &[0, 2, 3, 4];
 
-        for (row_idx, row) in rows.iter().enumerate() {
-            let y = inner.y + row_idx as u16;
-            if y >= inner.y + inner.height {
+        for (row_idx, row) in all_rows.iter().enumerate() {
+            let base_y = if show_shifted {
+                inner.y + row_idx as u16 * 2 + 1 // shifted on top, base below
+            } else {
+                inner.y + row_idx as u16
+            };
+
+            if base_y >= inner.y + inner.height {
                 break;
             }
 
             let offset = offsets.get(row_idx).copied().unwrap_or(0);
 
-            for (col_idx, &key) in row.iter().enumerate() {
-                let x = inner.x + offset + col_idx as u16 * key_width;
+            // Shifted row (dimmer)
+            if show_shifted {
+                let shifted_y = base_y - 1;
+                if shifted_y >= inner.y {
+                    for (col_idx, physical_key) in row.iter().enumerate() {
+                        let x = inner.x + offset + col_idx as u16 * key_step;
+                        if x + key_width > inner.x + inner.width {
+                            break;
+                        }
+
+                        let key = physical_key.shifted;
+                        let accuracy = self.get_key_accuracy(key);
+                        let fg_color = accuracy_color(accuracy, colors);
+
+                        let display = format_accuracy_cell(key, accuracy, key_width);
+                        buf.set_string(
+                            x,
+                            shifted_y,
+                            &display,
+                            Style::default().fg(fg_color).add_modifier(Modifier::DIM),
+                        );
+                    }
+                }
+            }
+
+            // Base row
+            for (col_idx, physical_key) in row.iter().enumerate() {
+                let x = inner.x + offset + col_idx as u16 * key_step;
                 if x + key_width > inner.x + inner.width {
                     break;
                 }
 
+                let key = physical_key.base;
                 let accuracy = self.get_key_accuracy(key);
-                let (fg_color, bg_color) = if accuracy <= 0.0 {
-                    (colors.text_pending(), colors.bg())
-                } else if accuracy >= 98.0 {
-                    (colors.success(), colors.bg())
-                } else if accuracy >= 90.0 {
-                    (colors.warning(), colors.bg())
-                } else {
-                    (colors.error(), colors.bg())
-                };
+                let fg_color = accuracy_color(accuracy, colors);
 
-                let display = if accuracy > 0.0 {
-                    let pct = accuracy.round() as u32;
-                    format!("{key}{pct:>3}")
-                } else {
-                    format!("{key}   ")
-                };
-                buf.set_string(x, y, &display, Style::default().fg(fg_color).bg(bg_color));
+                let display = format_accuracy_cell(key, accuracy, key_width);
+                buf.set_string(x, base_y, &display, Style::default().fg(fg_color));
             }
         }
     }
@@ -775,12 +736,106 @@ impl StatsDashboard<'_> {
         correct as f64 / total as f64 * 100.0
     }
 
+    fn get_key_time_ms(&self, key: char) -> f64 {
+        self.key_stats
+            .stats
+            .get(&key)
+            .filter(|s| s.sample_count > 0)
+            .map(|s| s.filtered_time_ms)
+            .unwrap_or(0.0)
+    }
+
+    fn render_keyboard_timing(&self, area: Rect, buf: &mut Buffer) {
+        let colors = &self.theme.colors;
+
+        let block = Block::bordered()
+            .title(Line::from(Span::styled(
+                " Keyboard Timing (ms) ",
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
+            )))
+            .border_style(Style::default().fg(colors.accent()));
+        let inner = block.inner(area);
+        block.render(area, buf);
+
+        if inner.height < 3 {
+            return;
+        }
+
+        let (key_width, key_step) = if inner.width >= required_kbd_width(5, 6) {
+            (5, 6)
+        } else if inner.width >= required_kbd_width(4, 5) {
+            (4, 5)
+        } else {
+            return;
+        };
+        let show_shifted = inner.height >= 6;
+        let all_rows = &self.keyboard_model.rows;
+        let offsets: &[u16] = &[0, 2, 3, 4];
+
+        for (row_idx, row) in all_rows.iter().enumerate() {
+            let base_y = if show_shifted {
+                inner.y + row_idx as u16 * 2 + 1
+            } else {
+                inner.y + row_idx as u16
+            };
+
+            if base_y >= inner.y + inner.height {
+                break;
+            }
+
+            let offset = offsets.get(row_idx).copied().unwrap_or(0);
+
+            if show_shifted {
+                let shifted_y = base_y - 1;
+                if shifted_y >= inner.y {
+                    for (col_idx, physical_key) in row.iter().enumerate() {
+                        let x = inner.x + offset + col_idx as u16 * key_step;
+                        if x + key_width > inner.x + inner.width {
+                            break;
+                        }
+
+                        let key = physical_key.shifted;
+                        let time_ms = self.get_key_time_ms(key);
+                        let fg_color = timing_color(time_ms, colors);
+                        let display = format_timing_cell(key, time_ms, key_width);
+                        buf.set_string(
+                            x,
+                            shifted_y,
+                            &display,
+                            Style::default().fg(fg_color).add_modifier(Modifier::DIM),
+                        );
+                    }
+                }
+            }
+
+            for (col_idx, physical_key) in row.iter().enumerate() {
+                let x = inner.x + offset + col_idx as u16 * key_step;
+                if x + key_width > inner.x + inner.width {
+                    break;
+                }
+
+                let key = physical_key.base;
+                let time_ms = self.get_key_time_ms(key);
+                let fg_color = timing_color(time_ms, colors);
+                let display = format_timing_cell(key, time_ms, key_width);
+                buf.set_string(x, base_y, &display, Style::default().fg(fg_color));
+            }
+        }
+    }
+
     fn render_slowest_keys(&self, area: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
 
         let block = Block::bordered()
-            .title(" Slowest Keys (ms) ")
-            .border_style(Style::default().fg(colors.border()));
+            .title(Line::from(Span::styled(
+                " Slowest Keys (ms) ",
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
+            )))
+            .border_style(Style::default().fg(colors.accent()));
         let inner = block.inner(area);
         block.render(area, buf);
 
@@ -793,13 +848,27 @@ impl StatsDashboard<'_> {
             .collect();
         key_times.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
-        for (i, (ch, time)) in key_times.iter().take(5).enumerate() {
+        let max_time = key_times.first().map(|(_, t)| *t).unwrap_or(1.0);
+
+        for (i, (ch, time)) in key_times.iter().take(inner.height as usize).enumerate() {
             let y = inner.y + i as u16;
             if y >= inner.y + inner.height {
                 break;
             }
-            let text = format!("  '{ch}'  {time:.0}ms");
-            buf.set_string(inner.x, y, &text, Style::default().fg(colors.error()));
+            let label = format!(" {ch} {time:>4.0}ms ");
+            let label_len = label.len() as u16;
+            buf.set_string(inner.x, y, &label, Style::default().fg(colors.error()));
+            let bar_space = inner.width.saturating_sub(label_len) as usize;
+            if bar_space > 0 {
+                let filled = ((time / max_time) * bar_space as f64).round() as usize;
+                let bar = "\u{2588}".repeat(filled.min(bar_space));
+                buf.set_string(
+                    inner.x + label_len,
+                    y,
+                    &bar,
+                    Style::default().fg(colors.error()),
+                );
+            }
         }
     }
 
@@ -807,8 +876,13 @@ impl StatsDashboard<'_> {
         let colors = &self.theme.colors;
 
         let block = Block::bordered()
-            .title(" Fastest Keys (ms) ")
-            .border_style(Style::default().fg(colors.border()));
+            .title(Line::from(Span::styled(
+                " Fastest Keys (ms) ",
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
+            )))
+            .border_style(Style::default().fg(colors.accent()));
         let inner = block.inner(area);
         block.render(area, buf);
 
@@ -821,13 +895,27 @@ impl StatsDashboard<'_> {
             .collect();
         key_times.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 
-        for (i, (ch, time)) in key_times.iter().take(5).enumerate() {
+        let max_time = key_times.last().map(|(_, t)| *t).unwrap_or(1.0);
+
+        for (i, (ch, time)) in key_times.iter().take(inner.height as usize).enumerate() {
             let y = inner.y + i as u16;
             if y >= inner.y + inner.height {
                 break;
             }
-            let text = format!("  '{ch}'  {time:.0}ms");
-            buf.set_string(inner.x, y, &text, Style::default().fg(colors.success()));
+            let label = format!(" {ch} {time:>4.0}ms ");
+            let label_len = label.len() as u16;
+            buf.set_string(inner.x, y, &label, Style::default().fg(colors.success()));
+            let bar_space = inner.width.saturating_sub(label_len) as usize;
+            if bar_space > 0 && max_time > 0.0 {
+                let filled = ((time / max_time) * bar_space as f64).round() as usize;
+                let bar = "\u{2588}".repeat(filled.min(bar_space));
+                buf.set_string(
+                    inner.x + label_len,
+                    y,
+                    &bar,
+                    Style::default().fg(colors.success()),
+                );
+            }
         }
     }
 
@@ -835,29 +923,32 @@ impl StatsDashboard<'_> {
         let colors = &self.theme.colors;
 
         let block = Block::bordered()
-            .title(" Worst Accuracy Keys (%) ")
-            .border_style(Style::default().fg(colors.border()));
+            .title(Line::from(Span::styled(
+                " Worst Accuracy (%) ",
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
+            )))
+            .border_style(Style::default().fg(colors.accent()));
         let inner = block.inner(area);
         block.render(area, buf);
 
-        // Compute accuracy for each key
-        let mut key_accuracies: Vec<(char, f64, usize)> = ('a'..='z')
+        // Collect all keys from keyboard model
+        let mut all_keys = std::collections::HashSet::new();
+        for row in &self.keyboard_model.rows {
+            for pk in row {
+                all_keys.insert(pk.base);
+                all_keys.insert(pk.shifted);
+            }
+        }
+
+        let mut key_accuracies: Vec<(char, f64)> = all_keys
+            .into_iter()
             .filter_map(|ch| {
-                let mut correct = 0usize;
-                let mut total = 0usize;
-                for result in self.history {
-                    for kt in &result.per_key_times {
-                        if kt.key == ch {
-                            total += 1;
-                            if kt.correct {
-                                correct += 1;
-                            }
-                        }
-                    }
-                }
-                if total >= 5 {
-                    let acc = correct as f64 / total as f64 * 100.0;
-                    Some((ch, acc, total))
+                let accuracy = self.get_key_accuracy(ch);
+                // Only include keys with enough data and imperfect accuracy
+                if accuracy > 0.0 && accuracy < 100.0 {
+                    Some((ch, accuracy))
                 } else {
                     None
                 }
@@ -870,69 +961,241 @@ impl StatsDashboard<'_> {
             buf.set_string(
                 inner.x,
                 inner.y,
-                "  Not enough data",
+                " Not enough data",
                 Style::default().fg(colors.text_pending()),
             );
             return;
         }
 
-        for (i, (ch, acc, _total)) in key_accuracies.iter().take(5).enumerate() {
+        for (i, (ch, acc)) in key_accuracies
+            .iter()
+            .take(inner.height as usize)
+            .enumerate()
+        {
             let y = inner.y + i as u16;
             if y >= inner.y + inner.height {
                 break;
             }
-            let badge = format!("  '{ch}'  {acc:.1}%");
+            let label = format!(" {ch} {acc:>5.1}% ");
+            let label_len = label.len() as u16;
             let color = if *acc >= 95.0 {
                 colors.warning()
             } else {
                 colors.error()
             };
-            buf.set_string(inner.x, y, &badge, Style::default().fg(color));
+            buf.set_string(inner.x, y, &label, Style::default().fg(color));
+            let bar_space = inner.width.saturating_sub(label_len) as usize;
+            if bar_space > 0 {
+                let filled = ((acc / 100.0) * bar_space as f64).round() as usize;
+                let bar = "\u{2588}".repeat(filled.min(bar_space));
+                buf.set_string(inner.x + label_len, y, &bar, Style::default().fg(color));
+            }
         }
     }
 
-    fn render_overall_stats(&self, area: Rect, buf: &mut Buffer) {
+    fn render_best_accuracy_keys(&self, area: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
 
         let block = Block::bordered()
-            .title(" Overall Totals ")
-            .border_style(Style::default().fg(colors.border()));
+            .title(Line::from(Span::styled(
+                " Best Accuracy (%) ",
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
+            )))
+            .border_style(Style::default().fg(colors.accent()));
         let inner = block.inner(area);
         block.render(area, buf);
 
-        let total_chars: usize = self.history.iter().map(|r| r.total_chars).sum();
-        let total_correct: usize = self.history.iter().map(|r| r.correct).sum();
-        let total_incorrect: usize = self.history.iter().map(|r| r.incorrect).sum();
-        let total_time: f64 = self.history.iter().map(|r| r.elapsed_secs).sum();
+        let mut all_keys = std::collections::HashSet::new();
+        for row in &self.keyboard_model.rows {
+            for pk in row {
+                all_keys.insert(pk.base);
+                all_keys.insert(pk.shifted);
+            }
+        }
+
+        let mut key_accuracies: Vec<(char, f64)> = all_keys
+            .into_iter()
+            .filter_map(|ch| {
+                let accuracy = self.get_key_accuracy(ch);
+                if accuracy > 0.0 {
+                    Some((ch, accuracy))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        key_accuracies.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+        if key_accuracies.is_empty() {
+            buf.set_string(
+                inner.x,
+                inner.y,
+                " Not enough data",
+                Style::default().fg(colors.text_pending()),
+            );
+            return;
+        }
+
+        for (i, (ch, acc)) in key_accuracies
+            .iter()
+            .take(inner.height as usize)
+            .enumerate()
+        {
+            let y = inner.y + i as u16;
+            if y >= inner.y + inner.height {
+                break;
+            }
+            let label = format!(" {ch} {acc:>5.1}% ");
+            let label_len = label.len() as u16;
+            let color = if *acc >= 98.0 {
+                colors.success()
+            } else {
+                colors.warning()
+            };
+            buf.set_string(inner.x, y, &label, Style::default().fg(color));
+            let bar_space = inner.width.saturating_sub(label_len) as usize;
+            if bar_space > 0 {
+                let filled = ((acc / 100.0) * bar_space as f64).round() as usize;
+                let bar = "\u{2588}".repeat(filled.min(bar_space));
+                buf.set_string(inner.x + label_len, y, &bar, Style::default().fg(color));
+            }
+        }
+    }
+
+    fn render_activity_stats(&self, area: Rect, buf: &mut Buffer) {
+        let colors = &self.theme.colors;
+        let block = Block::bordered()
+            .title(Line::from(Span::styled(
+                " Streaks ",
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
+            )))
+            .border_style(Style::default().fg(colors.accent()));
+        let inner = block.inner(area);
+        block.render(area, buf);
+
+        let mut active_days: BTreeSet<chrono::NaiveDate> = BTreeSet::new();
+        for r in self.history {
+            active_days.insert(r.timestamp.date_naive());
+        }
+        let (current_streak, best_streak) = compute_streaks(&active_days);
+        let active_days_count = active_days.len();
 
         let lines = vec![Line::from(vec![
-            Span::styled("  Characters: ", Style::default().fg(colors.fg())),
+            Span::styled("  Current: ", Style::default().fg(colors.fg())),
             Span::styled(
-                format!("{total_chars}"),
-                Style::default().fg(colors.accent()),
+                format!("{current_streak}d"),
+                Style::default()
+                    .fg(colors.success())
+                    .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("    Correct: ", Style::default().fg(colors.fg())),
+            Span::styled("    Best: ", Style::default().fg(colors.fg())),
             Span::styled(
-                format!("{total_correct}"),
-                Style::default().fg(colors.success()),
+                format!("{best_streak}d"),
+                Style::default().fg(colors.accent()).add_modifier(Modifier::BOLD),
             ),
-            Span::styled("    Errors: ", Style::default().fg(colors.fg())),
+            Span::styled("    Active Days: ", Style::default().fg(colors.fg())),
             Span::styled(
-                format!("{total_incorrect}"),
-                Style::default().fg(if total_incorrect > 0 {
-                    colors.error()
-                } else {
-                    colors.success()
-                }),
-            ),
-            Span::styled("    Time: ", Style::default().fg(colors.fg())),
-            Span::styled(
-                format_duration(total_time),
+                format!("{active_days_count}"),
                 Style::default().fg(colors.text_pending()),
             ),
         ])];
-
         Paragraph::new(lines).render(inner, buf);
+    }
+
+}
+
+fn accuracy_color(accuracy: f64, colors: &crate::ui::theme::ThemeColors) -> ratatui::style::Color {
+    if accuracy <= 0.0 {
+        colors.text_pending()
+    } else if accuracy >= 98.0 {
+        colors.success()
+    } else if accuracy >= 90.0 {
+        colors.warning()
+    } else {
+        colors.error()
+    }
+}
+
+fn format_accuracy_cell(key: char, accuracy: f64, key_width: u16) -> String {
+    if accuracy > 0.0 {
+        let pct = accuracy.round() as u32;
+        if key_width >= 5 {
+            format!("{key}{pct:>3}")
+        } else {
+            format!("{key}{pct:>2}")
+        }
+    } else if key_width >= 5 {
+        format!("{key}   ")
+    } else {
+        format!("{key}  ")
+    }
+}
+
+fn timing_color(time_ms: f64, colors: &crate::ui::theme::ThemeColors) -> ratatui::style::Color {
+    if time_ms <= 0.0 {
+        colors.text_pending()
+    } else if time_ms <= 200.0 {
+        colors.success()
+    } else if time_ms <= 400.0 {
+        colors.warning()
+    } else {
+        colors.error()
+    }
+}
+
+fn required_kbd_width(key_width: u16, key_step: u16) -> u16 {
+    let max_offset: u16 = 4;
+    max_offset + 12 * key_step + key_width
+}
+
+fn compute_streaks(active_days: &BTreeSet<chrono::NaiveDate>) -> (usize, usize) {
+    if active_days.is_empty() {
+        return (0, 0);
+    }
+
+    let mut best = 1usize;
+    let mut run = 1usize;
+    let mut prev = None;
+    for &day in active_days {
+        if let Some(p) = prev {
+            if day.signed_duration_since(p).num_days() == 1 {
+                run += 1;
+            } else {
+                run = 1;
+            }
+            best = best.max(run);
+        }
+        prev = Some(day);
+    }
+
+    let today = chrono::Utc::now().date_naive();
+    let mut current = 0usize;
+    let mut cursor = today;
+    while active_days.contains(&cursor) {
+        current += 1;
+        cursor -= chrono::Duration::days(1);
+    }
+
+    (current, best)
+}
+
+fn format_timing_cell(key: char, time_ms: f64, key_width: u16) -> String {
+    if time_ms > 0.0 {
+        let ms = time_ms.round() as u32;
+        if key_width >= 5 {
+            format!("{key}{ms:>4}")
+        } else {
+            format!("{key}{:>3}", ms.min(999))
+        }
+    } else if key_width >= 5 {
+        format!("{key}    ")
+    } else {
+        format!("{key}   ")
     }
 }
 

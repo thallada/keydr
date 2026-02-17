@@ -95,20 +95,24 @@ const GUTENBERG_IDS: &[(u32, &str)] = &[
 ];
 
 pub struct PassageGenerator {
-    current_idx: usize,
     fetched_passages: Vec<String>,
     rng: SmallRng,
+    last_source: String,
 }
 
 impl PassageGenerator {
     pub fn new(rng: SmallRng) -> Self {
         let mut generator = Self {
-            current_idx: 0,
             fetched_passages: Vec::new(),
             rng,
+            last_source: "Built-in passage library".to_string(),
         };
         generator.load_cached_passages();
         generator
+    }
+
+    pub fn last_source(&self) -> &str {
+        &self.last_source
     }
 
     fn load_cached_passages(&mut self) {
@@ -158,26 +162,27 @@ impl TextGenerator for PassageGenerator {
         _focused: Option<char>,
         _word_count: usize,
     ) -> String {
-        // Try to fetch a new Gutenberg book in the background (first few calls)
-        if self.fetched_passages.len() < 50 && self.current_idx < 3 {
+        // Opportunistically fetch Gutenberg passages for source variety.
+        if self.fetched_passages.len() < 50 && self.rng.gen_bool(0.35) {
             self.try_fetch_gutenberg();
         }
 
         let total_passages = PASSAGES.len() + self.fetched_passages.len();
 
         if total_passages == 0 {
-            self.current_idx += 1;
+            self.last_source = "Built-in passage library".to_string();
             return PASSAGES[0].to_string();
         }
 
-        // Mix embedded and fetched passages
-        let idx = self.current_idx % total_passages;
-        self.current_idx += 1;
+        // Randomly mix embedded and fetched passages.
+        let idx = self.rng.gen_range(0..total_passages);
 
         if idx < PASSAGES.len() {
+            self.last_source = "Built-in passage library".to_string();
             PASSAGES[idx].to_string()
         } else {
             let fetched_idx = idx - PASSAGES.len();
+            self.last_source = "Project Gutenberg (cached)".to_string();
             self.fetched_passages[fetched_idx % self.fetched_passages.len()].clone()
         }
     }

@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use chrono::{Datelike, NaiveDate, Utc};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Widget};
 
 use crate::session::result::DrillResult;
@@ -25,8 +26,13 @@ impl Widget for ActivityHeatmap<'_> {
         let colors = &self.theme.colors;
 
         let block = Block::bordered()
-            .title(" Daily Activity (Sessions per Day) ")
-            .border_style(Style::default().fg(colors.border()));
+            .title(Line::from(Span::styled(
+                " Daily Activity (Sessions per Day) ",
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
+            )))
+            .border_style(Style::default().fg(colors.accent()));
         let inner = block.inner(area);
         block.render(area, buf);
 
@@ -42,10 +48,11 @@ impl Widget for ActivityHeatmap<'_> {
         }
 
         let today = Utc::now().date_naive();
+        let end_date = today;
         // Show ~26 weeks (half a year)
         let weeks_to_show = ((inner.width as usize).saturating_sub(3)) / 2;
         let weeks_to_show = weeks_to_show.min(26);
-        let start_date = today - chrono::Duration::weeks(weeks_to_show as i64);
+        let start_date = end_date - chrono::Duration::weeks(weeks_to_show as i64);
         // Align to Monday
         let start_date =
             start_date - chrono::Duration::days(start_date.weekday().num_days_from_monday() as i64);
@@ -71,7 +78,7 @@ impl Widget for ActivityHeatmap<'_> {
         // Month labels
         let mut last_month = 0u32;
 
-        while current_date <= today {
+        while current_date <= end_date {
             let x = inner.x + 2 + col * 2;
             if x + 1 >= inner.x + inner.width {
                 break;
@@ -110,7 +117,7 @@ impl Widget for ActivityHeatmap<'_> {
             // Render 7 days in this week column
             for day_offset in 0..7u16 {
                 let date = current_date + chrono::Duration::days(day_offset as i64);
-                if date > today {
+                if date > end_date {
                     break;
                 }
                 let y = inner.y + 1 + day_offset;
