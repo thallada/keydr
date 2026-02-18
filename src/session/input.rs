@@ -27,7 +27,13 @@ pub fn process_char(drill: &mut DrillState, ch: char) -> Option<KeystrokeEvent> 
     }
 
     let expected = drill.target[drill.cursor];
-    let correct = ch == expected;
+    let tab_indent_len = if ch == '\t' {
+        tab_indent_completion_len(drill)
+    } else {
+        0
+    };
+    let tab_as_indent = tab_indent_len > 0;
+    let correct = ch == expected || tab_as_indent;
 
     let event = KeystrokeEvent {
         expected,
@@ -36,9 +42,16 @@ pub fn process_char(drill: &mut DrillState, ch: char) -> Option<KeystrokeEvent> 
         correct,
     };
 
-    if correct {
+    if tab_as_indent {
+        apply_tab_indent(drill, tab_indent_len);
+    } else if correct {
         drill.input.push(CharStatus::Correct);
         drill.cursor += 1;
+        // IDE-like behavior: when Enter is correctly typed, auto-consume
+        // indentation whitespace on the next line.
+        if ch == '\n' {
+            apply_auto_indent_after_newline(drill);
+        }
     } else if ch == '\n' {
         apply_newline_span(drill, ch);
     } else if ch == '\t' {
@@ -54,6 +67,63 @@ pub fn process_char(drill: &mut DrillState, ch: char) -> Option<KeystrokeEvent> 
     }
 
     Some(event)
+}
+
+fn tab_indent_completion_len(drill: &DrillState) -> usize {
+    if drill.cursor >= drill.target.len() {
+        return 0;
+    }
+
+    // Only treat Tab as indentation if cursor is in leading whitespace
+    // for the current line.
+    let line_start = drill.target[..drill.cursor]
+        .iter()
+        .rposition(|&c| c == '\n')
+        .map(|idx| idx + 1)
+        .unwrap_or(0);
+    if drill.target[line_start..drill.cursor]
+        .iter()
+        .any(|&c| c != ' ' && c != '\t')
+    {
+        return 0;
+    }
+
+    let line_end = drill.target[drill.cursor..]
+        .iter()
+        .position(|&c| c == '\n')
+        .map(|offset| drill.cursor + offset)
+        .unwrap_or(drill.target.len());
+
+    let mut end = drill.cursor;
+    while end < line_end {
+        let c = drill.target[end];
+        if c == ' ' || c == '\t' {
+            end += 1;
+        } else {
+            break;
+        }
+    }
+
+    end.saturating_sub(drill.cursor)
+}
+
+fn apply_tab_indent(drill: &mut DrillState, len: usize) {
+    for _ in 0..len {
+        drill.input.push(CharStatus::Correct);
+    }
+    drill.cursor = drill.cursor.saturating_add(len);
+}
+
+fn apply_auto_indent_after_newline(drill: &mut DrillState) {
+    while drill.cursor < drill.target.len() {
+        let c = drill.target[drill.cursor];
+        if c == ' ' || c == '\t' {
+            drill.input.push(CharStatus::Correct);
+            drill.cursor += 1;
+        } else {
+            break;
+        }
+    }
 }
 
 pub fn process_backspace(drill: &mut DrillState) {

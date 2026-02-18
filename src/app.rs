@@ -16,7 +16,11 @@ use crate::engine::skill_tree::{BranchId, BranchStatus, DrillScope, SkillTree};
 use crate::generator::TextGenerator;
 use crate::generator::capitalize;
 use crate::generator::code_patterns;
-use crate::generator::code_syntax::CodeSyntaxGenerator;
+use crate::generator::code_syntax::{
+    CodeSyntaxGenerator, build_code_download_queue, code_language_options,
+    download_code_repo_to_cache_with_progress, is_language_cached, language_by_key,
+    languages_with_content,
+};
 use crate::generator::dictionary::Dictionary;
 use crate::generator::numbers;
 use crate::generator::passage::{
@@ -48,6 +52,8 @@ pub enum AppScreen {
     PassageBookSelect,
     PassageIntro,
     PassageDownloadProgress,
+    CodeIntro,
+    CodeDownloadProgress,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,7 +69,13 @@ pub enum PassageDownloadCompleteAction {
     ReturnToSettings,
 }
 
-struct PassageDownloadJob {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CodeDownloadCompleteAction {
+    StartCodeDrill,
+    ReturnToSettings,
+}
+
+struct DownloadJob {
     downloaded_bytes: Arc<AtomicU64>,
     total_bytes: Arc<AtomicU64>,
     done: Arc<AtomicBool>,
@@ -112,6 +124,7 @@ pub struct App {
     pub skill_tree_detail_scroll: usize,
     pub drill_source_info: Option<String>,
     pub code_language_selected: usize,
+    pub code_language_scroll: usize,
     pub passage_book_selected: usize,
     pub passage_intro_selected: usize,
     pub passage_intro_downloads_enabled: bool,
@@ -126,18 +139,37 @@ pub struct App {
     pub passage_download_queue: Vec<usize>,
     pub passage_drill_selection_override: Option<String>,
     pub passage_download_action: PassageDownloadCompleteAction,
+    pub code_intro_selected: usize,
+    pub code_intro_downloads_enabled: bool,
+    pub code_intro_download_dir: String,
+    pub code_intro_snippets_per_repo: usize,
+    pub code_intro_downloading: bool,
+    pub code_intro_download_total: usize,
+    pub code_intro_downloaded: usize,
+    pub code_intro_current_repo: String,
+    pub code_intro_download_bytes: u64,
+    pub code_intro_download_bytes_total: u64,
+    pub code_download_queue: Vec<(String, usize)>,
+    pub code_drill_language_override: Option<String>,
+    pub code_download_attempted: bool,
+    pub code_download_action: CodeDownloadCompleteAction,
     pub shift_held: bool,
     pub keyboard_model: KeyboardModel,
     rng: SmallRng,
     transition_table: TransitionTable,
     #[allow(dead_code)]
     dictionary: Dictionary,
-    passage_download_job: Option<PassageDownloadJob>,
+    passage_download_job: Option<DownloadJob>,
+    code_download_job: Option<DownloadJob>,
 }
 
 impl App {
     pub fn new() -> Self {
-        let config = Config::load().unwrap_or_default();
+        let mut config = Config::load().unwrap_or_default();
+
+        // Normalize code_language: reset to default if not a valid option
+        let valid_keys: Vec<&str> = code_language_options().iter().map(|(k, _)| *k).collect();
+        config.normalize_code_language(&valid_keys);
         let loaded_theme = Theme::load(&config.theme).unwrap_or_default();
         let theme: &'static Theme = Box::leak(Box::new(loaded_theme));
         let menu = Menu::new(theme);
@@ -183,6 +215,9 @@ impl App {
         let intro_downloads_enabled = config.passage_downloads_enabled;
         let intro_download_dir = config.passage_download_dir.clone();
         let intro_paragraph_limit = config.passage_paragraphs_per_book;
+        let code_intro_downloads_enabled = config.code_downloads_enabled;
+        let code_intro_download_dir = config.code_download_dir.clone();
+        let code_intro_snippets_per_repo = config.code_snippets_per_repo;
 
         let mut app = Self {
             screen: AppScreen::Menu,
@@ -211,6 +246,7 @@ impl App {
             skill_tree_detail_scroll: 0,
             drill_source_info: None,
             code_language_selected: 0,
+            code_language_scroll: 0,
             passage_book_selected: 0,
             passage_intro_selected: 0,
             passage_intro_downloads_enabled: intro_downloads_enabled,
@@ -225,12 +261,27 @@ impl App {
             passage_download_queue: Vec::new(),
             passage_drill_selection_override: None,
             passage_download_action: PassageDownloadCompleteAction::StartPassageDrill,
+            code_intro_selected: 0,
+            code_intro_downloads_enabled,
+            code_intro_download_dir,
+            code_intro_snippets_per_repo,
+            code_intro_downloading: false,
+            code_intro_download_total: 0,
+            code_intro_downloaded: 0,
+            code_intro_current_repo: String::new(),
+            code_intro_download_bytes: 0,
+            code_intro_download_bytes_total: 0,
+            code_download_queue: Vec::new(),
+            code_drill_language_override: None,
+            code_download_attempted: false,
+            code_download_action: CodeDownloadCompleteAction::StartCodeDrill,
             shift_held: false,
             keyboard_model,
             rng: SmallRng::from_entropy(),
             transition_table,
             dictionary,
             passage_download_job: None,
+            code_download_job: None,
         };
         app.start_drill();
         app
@@ -368,15 +419,17 @@ impl App {
             }
             DrillMode::Code => {
                 let filter = CharFilter::new(('a'..='z').collect());
-                let lang = if self.config.code_language == "all" {
-                    let langs = ["rust", "python", "javascript", "go"];
-                    let idx = self.rng.gen_range(0..langs.len());
-                    langs[idx].to_string()
-                } else {
-                    self.config.code_language.clone()
-                };
+                let lang = self
+                    .code_drill_language_override
+                    .clone()
+                    .unwrap_or_else(|| self.config.code_language.clone());
                 let rng = SmallRng::from_rng(&mut self.rng).unwrap();
-                let mut generator = CodeSyntaxGenerator::new(rng, &lang);
+                let mut generator = CodeSyntaxGenerator::new(
+                    rng,
+                    &lang,
+                    &self.config.code_download_dir,
+                );
+                self.code_drill_language_override = None;
                 let text = generator.generate(&filter, None, word_count);
                 (text, Some(generator.last_source().to_string()))
             }
@@ -648,11 +701,13 @@ impl App {
     }
 
     pub fn go_to_code_language_select(&mut self) {
-        let langs = ["rust", "python", "javascript", "go", "all"];
-        self.code_language_selected = langs
+        let options = code_language_options();
+        self.code_language_selected = options
             .iter()
-            .position(|&l| l == self.config.code_language)
+            .position(|(k, _)| *k == self.config.code_language)
             .unwrap_or(0);
+        // Center the selected item in the viewport (rough estimate of 15 visible rows)
+        self.code_language_scroll = self.code_language_selected.saturating_sub(7);
         self.screen = AppScreen::CodeLanguageSelect;
     }
 
@@ -687,6 +742,215 @@ impl App {
         self.passage_download_job = None;
         self.passage_download_action = PassageDownloadCompleteAction::StartPassageDrill;
         self.screen = AppScreen::PassageIntro;
+    }
+
+    pub fn go_to_code_intro(&mut self) {
+        self.code_intro_selected = 0;
+        self.code_intro_downloads_enabled = self.config.code_downloads_enabled;
+        self.code_intro_download_dir = self.config.code_download_dir.clone();
+        self.code_intro_snippets_per_repo = self.config.code_snippets_per_repo;
+        self.code_intro_downloading = false;
+        self.code_intro_download_total = 0;
+        self.code_intro_downloaded = 0;
+        self.code_intro_current_repo.clear();
+        self.code_intro_download_bytes = 0;
+        self.code_intro_download_bytes_total = 0;
+        self.code_download_queue.clear();
+        self.code_download_job = None;
+        self.code_download_action = CodeDownloadCompleteAction::StartCodeDrill;
+        self.code_download_attempted = false;
+        self.screen = AppScreen::CodeIntro;
+    }
+
+    pub fn start_code_drill(&mut self) {
+        // Step 1: Resolve concrete language (never download with "all" selected)
+        if self.code_drill_language_override.is_none() {
+            let chosen = if self.config.code_language == "all" {
+                let available = languages_with_content(&self.config.code_download_dir);
+                if available.is_empty() {
+                    "rust".to_string()
+                } else {
+                    let idx = self.rng.gen_range(0..available.len());
+                    available[idx].to_string()
+                }
+            } else {
+                self.config.code_language.clone()
+            };
+            self.code_drill_language_override = Some(chosen);
+        }
+
+        let chosen = self.code_drill_language_override.clone().unwrap();
+
+        // Step 2: Check if we need to download (only if not already attempted)
+        if self.config.code_downloads_enabled
+            && !self.code_download_attempted
+            && !is_language_cached(&self.config.code_download_dir, &chosen)
+        {
+            if let Some(lang) = language_by_key(&chosen) {
+                if !lang.repos.is_empty() {
+                    let repo_idx = self.rng.gen_range(0..lang.repos.len());
+                    self.code_download_queue = vec![(chosen.clone(), repo_idx)];
+                    self.code_intro_download_total = 1;
+                    self.code_intro_downloaded = 0;
+                    self.code_intro_downloading = true;
+                    self.code_intro_current_repo = lang.repos[repo_idx].key.to_string();
+                    self.code_download_action = CodeDownloadCompleteAction::StartCodeDrill;
+                    self.code_download_job = None;
+                    self.code_download_attempted = true;
+                    self.screen = AppScreen::CodeDownloadProgress;
+                    return;
+                }
+            }
+        }
+
+        // Step 3: If language has no built-in AND no cache → fallback
+        if !is_language_cached(&self.config.code_download_dir, &chosen) {
+            if let Some(lang) = language_by_key(&chosen) {
+                if !lang.has_builtin {
+                    self.code_drill_language_override = Some("rust".to_string());
+                }
+            }
+        }
+
+        // Step 4: Start the drill
+        self.code_download_attempted = false;
+        self.drill_mode = DrillMode::Code;
+        self.drill_scope = DrillScope::Global;
+        self.start_drill();
+    }
+
+    pub fn start_code_downloads(&mut self) {
+        let queue = build_code_download_queue(
+            &self.config.code_language,
+            &self.code_intro_download_dir,
+        );
+
+        self.code_intro_download_total = queue.len();
+        self.code_download_queue = queue;
+        self.code_intro_downloaded = 0;
+        self.code_intro_downloading = self.code_intro_download_total > 0;
+        self.code_intro_download_bytes = 0;
+        self.code_intro_download_bytes_total = 0;
+        self.code_download_job = None;
+    }
+
+    pub fn start_code_downloads_from_settings(&mut self) {
+        self.go_to_code_intro();
+        self.code_download_action = CodeDownloadCompleteAction::ReturnToSettings;
+        self.start_code_downloads();
+        if !self.code_intro_downloading {
+            self.go_to_settings();
+        }
+    }
+
+    pub fn process_code_download_tick(&mut self) {
+        if !self.code_intro_downloading {
+            return;
+        }
+
+        if self.code_download_job.is_none() {
+            let Some((lang_key, repo_idx)) = self.code_download_queue.pop() else {
+                self.code_intro_downloading = false;
+                self.code_intro_current_repo.clear();
+                match self.code_download_action {
+                    CodeDownloadCompleteAction::StartCodeDrill => self.start_code_drill(),
+                    CodeDownloadCompleteAction::ReturnToSettings => self.go_to_settings(),
+                }
+                return;
+            };
+
+            self.spawn_code_download_job(&lang_key, repo_idx);
+            return;
+        }
+
+        let mut finished = false;
+        if let Some(job) = self.code_download_job.as_mut() {
+            self.code_intro_download_bytes = job.downloaded_bytes.load(Ordering::Relaxed);
+            self.code_intro_download_bytes_total = job.total_bytes.load(Ordering::Relaxed);
+            finished = job.done.load(Ordering::Relaxed);
+        }
+
+        if !finished {
+            return;
+        }
+
+        if let Some(mut job) = self.code_download_job.take() {
+            if let Some(handle) = job.handle.take() {
+                let _ = handle.join();
+            }
+            self.code_intro_downloaded = self.code_intro_downloaded.saturating_add(1);
+        }
+
+        if self.code_intro_downloaded >= self.code_intro_download_total {
+            self.code_intro_downloading = false;
+            self.code_intro_current_repo.clear();
+            self.code_intro_download_bytes = 0;
+            self.code_intro_download_bytes_total = 0;
+            match self.code_download_action {
+                CodeDownloadCompleteAction::StartCodeDrill => self.start_code_drill(),
+                CodeDownloadCompleteAction::ReturnToSettings => self.go_to_settings(),
+            }
+        }
+    }
+
+    fn spawn_code_download_job(&mut self, language_key: &str, repo_idx: usize) {
+        let Some(lang) = language_by_key(language_key) else {
+            return;
+        };
+        let Some(repo) = lang.repos.get(repo_idx) else {
+            return;
+        };
+
+        self.code_intro_current_repo = repo.key.to_string();
+        self.code_intro_download_bytes = 0;
+        self.code_intro_download_bytes_total = 0;
+
+        let downloaded_bytes = Arc::new(AtomicU64::new(0));
+        let total_bytes = Arc::new(AtomicU64::new(0));
+        let done = Arc::new(AtomicBool::new(false));
+        let success = Arc::new(AtomicBool::new(false));
+
+        let dl_clone = Arc::clone(&downloaded_bytes);
+        let total_clone = Arc::clone(&total_bytes);
+        let done_clone = Arc::clone(&done);
+        let success_clone = Arc::clone(&success);
+
+        let cache_dir = self.code_intro_download_dir.clone();
+        let lang_key = language_key.to_string();
+        let snippets_limit = self.code_intro_snippets_per_repo;
+
+        // Get static references for thread
+        let repo_ref: &'static crate::generator::code_syntax::CodeRepo =
+            &lang.repos[repo_idx];
+        let block_style_ref: &'static crate::generator::code_syntax::BlockStyle =
+            &lang.block_style;
+
+        let handle = thread::spawn(move || {
+            let ok = download_code_repo_to_cache_with_progress(
+                &cache_dir,
+                &lang_key,
+                repo_ref,
+                block_style_ref,
+                snippets_limit,
+                |downloaded, total| {
+                    dl_clone.store(downloaded, Ordering::Relaxed);
+                    if let Some(total) = total {
+                        total_clone.store(total, Ordering::Relaxed);
+                    }
+                },
+            );
+
+            success_clone.store(ok, Ordering::Relaxed);
+            done_clone.store(true, Ordering::Relaxed);
+        });
+
+        self.code_download_job = Some(DownloadJob {
+            downloaded_bytes,
+            total_bytes,
+            done,
+            success,
+            handle: Some(handle),
+        });
     }
 
     pub fn start_passage_drill(&mut self) {
@@ -763,6 +1027,14 @@ impl App {
         self.passage_intro_download_bytes = 0;
         self.passage_intro_download_bytes_total = 0;
         self.passage_download_job = None;
+    }
+
+    pub fn cancel_code_download(&mut self) {
+        self.code_download_queue.clear();
+        self.code_intro_downloading = false;
+        self.code_download_job = None;
+        self.code_drill_language_override = None;
+        self.code_download_attempted = false;
     }
 
     pub fn start_passage_downloads_from_settings(&mut self) {
@@ -867,7 +1139,7 @@ impl App {
             done_clone.store(true, Ordering::Relaxed);
         });
 
-        self.passage_download_job = Some(PassageDownloadJob {
+        self.passage_download_job = Some(DownloadJob {
             downloaded_bytes,
             total_bytes,
             done,
@@ -900,21 +1172,37 @@ impl App {
                 self.config.word_count = (self.config.word_count + 5).min(100);
             }
             3 => {
-                let langs = ["rust", "python", "javascript", "go", "all"];
-                let idx = langs
+                let options = code_language_options();
+                let keys: Vec<&str> = options.iter().map(|(k, _)| *k).collect();
+                let idx = keys
                     .iter()
                     .position(|&l| l == self.config.code_language)
                     .unwrap_or(0);
-                let next = (idx + 1) % langs.len();
-                self.config.code_language = langs[next].to_string();
+                let next = (idx + 1) % keys.len();
+                self.config.code_language = keys[next].to_string();
             }
             4 => {
-                self.config.passage_downloads_enabled = !self.config.passage_downloads_enabled;
+                self.config.code_downloads_enabled = !self.config.code_downloads_enabled;
             }
             5 => {
                 // Editable text field handled directly in key handler.
             }
             6 => {
+                self.config.code_snippets_per_repo =
+                    match self.config.code_snippets_per_repo {
+                        0 => 1,
+                        n if n >= 200 => 0,
+                        n => n + 10,
+                    };
+            }
+            // 7 = Download Code Now (action button)
+            8 => {
+                self.config.passage_downloads_enabled = !self.config.passage_downloads_enabled;
+            }
+            9 => {
+                // Passage download dir - editable text field handled directly in key handler.
+            }
+            10 => {
                 self.config.passage_paragraphs_per_book =
                     match self.config.passage_paragraphs_per_book {
                         0 => 1,
@@ -950,21 +1238,37 @@ impl App {
                 self.config.word_count = self.config.word_count.saturating_sub(5).max(5);
             }
             3 => {
-                let langs = ["rust", "python", "javascript", "go", "all"];
-                let idx = langs
+                let options = code_language_options();
+                let keys: Vec<&str> = options.iter().map(|(k, _)| *k).collect();
+                let idx = keys
                     .iter()
                     .position(|&l| l == self.config.code_language)
                     .unwrap_or(0);
-                let next = if idx == 0 { langs.len() - 1 } else { idx - 1 };
-                self.config.code_language = langs[next].to_string();
+                let next = if idx == 0 { keys.len() - 1 } else { idx - 1 };
+                self.config.code_language = keys[next].to_string();
             }
             4 => {
-                self.config.passage_downloads_enabled = !self.config.passage_downloads_enabled;
+                self.config.code_downloads_enabled = !self.config.code_downloads_enabled;
             }
             5 => {
                 // Editable text field handled directly in key handler.
             }
             6 => {
+                self.config.code_snippets_per_repo =
+                    match self.config.code_snippets_per_repo {
+                        0 => 200,
+                        1 => 0,
+                        n => n.saturating_sub(10).max(1),
+                    };
+            }
+            // 7 = Download Code Now (action button)
+            8 => {
+                self.config.passage_downloads_enabled = !self.config.passage_downloads_enabled;
+            }
+            9 => {
+                // Passage download dir - editable text field handled directly in key handler.
+            }
+            10 => {
                 self.config.passage_paragraphs_per_book =
                     match self.config.passage_paragraphs_per_book {
                         0 => 500,

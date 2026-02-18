@@ -219,6 +219,51 @@ mod tests {
     }
 
     #[test]
+    fn test_tab_counts_as_four_spaces() {
+        let mut drill = DrillState::new("    pass");
+        let start = drill.cursor;
+        input::process_char(&mut drill, '\t');
+        assert_eq!(drill.cursor, start + 4);
+        assert_eq!(drill.typo_count(), 0);
+    }
+
+    #[test]
+    fn test_tab_counts_as_two_spaces() {
+        let mut drill = DrillState::new("  echo");
+        let start = drill.cursor;
+        input::process_char(&mut drill, '\t');
+        assert_eq!(drill.cursor, start + 2);
+        assert_eq!(drill.typo_count(), 0);
+    }
+
+    #[test]
+    fn test_tab_not_accepted_for_non_four_space_prefix() {
+        let mut drill = DrillState::new("abc   def");
+        for ch in "abc".chars() {
+            input::process_char(&mut drill, ch);
+        }
+        let start = drill.cursor;
+        input::process_char(&mut drill, '\t');
+        // Falls back to synthetic incorrect span behavior.
+        assert!(drill.cursor > start);
+        assert!(drill.typo_count() >= 1);
+    }
+
+    #[test]
+    fn test_correct_enter_auto_indents_next_line() {
+        let mut drill = DrillState::new("if x:\n    pass");
+        for ch in "if x:".chars() {
+            input::process_char(&mut drill, ch);
+        }
+        // Correct newline should also consume the 4-space indent.
+        input::process_char(&mut drill, '\n');
+        let expected_cursor = "if x:\n    ".chars().count();
+        assert_eq!(drill.cursor, expected_cursor);
+        assert_eq!(drill.typo_count(), 0);
+        assert_eq!(drill.accuracy(), 100.0);
+    }
+
+    #[test]
     fn test_nested_synthetic_spans_collapse_to_single_error() {
         let mut drill = DrillState::new("abcd\nefgh");
         input::process_char(&mut drill, 'a');

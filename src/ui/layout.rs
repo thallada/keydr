@@ -82,21 +82,17 @@ impl AppLayout {
 }
 
 pub fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
-    let vertical = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(area);
+    const MIN_POPUP_WIDTH: u16 = 72;
+    const MIN_POPUP_HEIGHT: u16 = 18;
 
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(vertical[1])[1]
+    let requested_w = area.width.saturating_mul(percent_x.min(100)) / 100;
+    let requested_h = area.height.saturating_mul(percent_y.min(100)) / 100;
+
+    let target_w = requested_w.max(MIN_POPUP_WIDTH).min(area.width);
+    let target_h = requested_h.max(MIN_POPUP_HEIGHT).min(area.height);
+
+    let left = area.x.saturating_add((area.width.saturating_sub(target_w)) / 2);
+    let top = area.y.saturating_add((area.height.saturating_sub(target_h)) / 2);
+
+    Rect::new(left, top, target_w, target_h)
 }

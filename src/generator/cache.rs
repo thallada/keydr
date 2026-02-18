@@ -3,10 +3,12 @@ use std::fs;
 use std::io::Read;
 use std::path::PathBuf;
 
+#[allow(dead_code)]
 pub struct DiskCache {
     base_dir: PathBuf,
 }
 
+#[allow(dead_code)]
 impl DiskCache {
     pub fn new(subdir: &str) -> Option<Self> {
         let base = dirs::data_dir()?.join("keydr").join(subdir);
@@ -37,6 +39,7 @@ impl DiskCache {
     }
 }
 
+#[allow(dead_code)]
 #[cfg(feature = "network")]
 pub fn fetch_url(url: &str) -> Option<String> {
     let client = reqwest::blocking::Client::builder()
@@ -51,6 +54,7 @@ pub fn fetch_url(url: &str) -> Option<String> {
     }
 }
 
+#[allow(dead_code)]
 #[cfg(not(feature = "network"))]
 pub fn fetch_url(_url: &str) -> Option<String> {
     None

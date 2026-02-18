@@ -26,12 +26,13 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph, Widget};
+use ratatui::widgets::{Block, Paragraph, Widget, Wrap};
 
 use app::{App, AppScreen, DrillMode};
 use engine::skill_tree::DrillScope;
 use event::{AppEvent, EventHandler};
-use generator::passage::passage_options;
+use generator::code_syntax::{code_language_options, is_language_cached, language_by_key};
+use generator::passage::{is_book_cached, passage_options};
 use ui::components::dashboard::Dashboard;
 use ui::components::keyboard_diagram::KeyboardDiagram;
 use ui::components::skill_tree::{SkillTreeWidget, detail_line_count, selectable_branches};
@@ -123,6 +124,12 @@ fn run_app(
                 {
                     app.process_passage_download_tick();
                 }
+                if (app.screen == AppScreen::CodeIntro
+                    || app.screen == AppScreen::CodeDownloadProgress)
+                    && app.code_intro_downloading
+                {
+                    app.process_code_download_tick();
+                }
                 // Fallback: clear depressed keys after 150ms if no Release event received
                 if let Some(last) = app.last_key_time {
                     if last.elapsed() > Duration::from_millis(150) && !app.depressed_keys.is_empty()
@@ -184,6 +191,8 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         AppScreen::PassageBookSelect => handle_passage_book_key(app, key),
         AppScreen::PassageIntro => handle_passage_intro_key(app, key),
         AppScreen::PassageDownloadProgress => handle_passage_download_progress_key(app, key),
+        AppScreen::CodeIntro => handle_code_intro_key(app, key),
+        AppScreen::CodeDownloadProgress => handle_code_download_progress_key(app, key),
     }
 }
 
@@ -196,10 +205,18 @@ fn handle_menu_key(app: &mut App, key: KeyEvent) {
             app.start_drill();
         }
         KeyCode::Char('2') => {
-            app.go_to_code_language_select();
+            if app.config.code_onboarding_done {
+                app.go_to_code_language_select();
+            } else {
+                app.go_to_code_intro();
+            }
         }
         KeyCode::Char('3') => {
-            app.go_to_passage_book_select();
+            if app.config.passage_onboarding_done {
+                app.go_to_passage_book_select();
+            } else {
+                app.go_to_passage_intro();
+            }
         }
         KeyCode::Char('t') => app.go_to_skill_tree(),
         KeyCode::Char('s') => app.go_to_stats(),
@@ -213,10 +230,18 @@ fn handle_menu_key(app: &mut App, key: KeyEvent) {
                 app.start_drill();
             }
             1 => {
-                app.go_to_code_language_select();
+                if app.config.code_onboarding_done {
+                    app.go_to_code_language_select();
+                } else {
+                    app.go_to_code_intro();
+                }
             }
             2 => {
-                app.go_to_passage_book_select();
+                if app.config.passage_onboarding_done {
+                    app.go_to_passage_book_select();
+                } else {
+                    app.go_to_passage_intro();
+                }
             }
             3 => app.go_to_skill_tree(),
             4 => app.go_to_stats(),
@@ -342,16 +367,26 @@ fn handle_stats_key(app: &mut App, key: KeyEvent) {
 }
 
 fn handle_settings_key(app: &mut App, key: KeyEvent) {
+    const MAX_SETTINGS: usize = 11;
+
     if app.settings_editing_download_dir {
         match key.code {
             KeyCode::Esc => {
                 app.settings_editing_download_dir = false;
             }
             KeyCode::Backspace => {
-                app.config.passage_download_dir.pop();
+                if app.settings_selected == 5 {
+                    app.config.code_download_dir.pop();
+                } else if app.settings_selected == 9 {
+                    app.config.passage_download_dir.pop();
+                }
             }
             KeyCode::Char(ch) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                app.config.passage_download_dir.push(ch);
+                if app.settings_selected == 5 {
+                    app.config.code_download_dir.push(ch);
+                } else if app.settings_selected == 9 {
+                    app.config.passage_download_dir.push(ch);
+                }
             }
             _ => {}
         }
@@ -369,29 +404,29 @@ fn handle_settings_key(app: &mut App, key: KeyEvent) {
             }
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            if app.settings_selected < 7 {
+            if app.settings_selected < MAX_SETTINGS {
                 app.settings_selected += 1;
             }
         }
         KeyCode::Enter => {
-            if app.settings_selected == 5 {
-                app.settings_editing_download_dir = true;
-            } else if app.settings_selected == 7 {
-                app.start_passage_downloads_from_settings();
-            } else {
-                app.settings_cycle_forward();
+            match app.settings_selected {
+                5 | 9 => app.settings_editing_download_dir = true,
+                7 => app.start_code_downloads_from_settings(),
+                11 => app.start_passage_downloads_from_settings(),
+                _ => app.settings_cycle_forward(),
             }
         }
         KeyCode::Right | KeyCode::Char('l') => {
-            if app.settings_selected < 5 {
-                app.settings_cycle_forward();
-            } else if app.settings_selected == 6 {
-                app.settings_cycle_forward();
+            // Allow cycling for non-text, non-button fields
+            match app.settings_selected {
+                5 | 7 | 9 | 11 => {} // text fields or action buttons
+                _ => app.settings_cycle_forward(),
             }
         }
         KeyCode::Left | KeyCode::Char('h') => {
-            if app.settings_selected < 5 || app.settings_selected == 6 {
-                app.settings_cycle_backward();
+            match app.settings_selected {
+                5 | 7 | 9 | 11 => {} // text fields or action buttons
+                _ => app.settings_cycle_backward(),
             }
         }
         _ => {}
@@ -399,7 +434,11 @@ fn handle_settings_key(app: &mut App, key: KeyEvent) {
 }
 
 fn handle_code_language_key(app: &mut App, key: KeyEvent) {
-    const LANGS: &[&str] = &["rust", "python", "javascript", "go", "all"];
+    let options = code_language_options();
+    let len = options.len();
+    if len == 0 {
+        return;
+    }
 
     match key.code {
         KeyCode::Esc | KeyCode::Char('q') => app.go_to_menu(),
@@ -407,44 +446,68 @@ fn handle_code_language_key(app: &mut App, key: KeyEvent) {
             app.code_language_selected = app.code_language_selected.saturating_sub(1);
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            if app.code_language_selected + 1 < LANGS.len() {
+            if app.code_language_selected + 1 < len {
                 app.code_language_selected += 1;
             }
         }
-        KeyCode::Char('1') => {
+        KeyCode::PageUp => {
+            app.code_language_selected = app.code_language_selected.saturating_sub(10);
+        }
+        KeyCode::PageDown => {
+            app.code_language_selected = (app.code_language_selected + 10).min(len - 1);
+        }
+        KeyCode::Home | KeyCode::Char('g') => {
             app.code_language_selected = 0;
-            start_code_drill(app, LANGS);
         }
-        KeyCode::Char('2') => {
-            app.code_language_selected = 1;
-            start_code_drill(app, LANGS);
-        }
-        KeyCode::Char('3') => {
-            app.code_language_selected = 2;
-            start_code_drill(app, LANGS);
-        }
-        KeyCode::Char('4') => {
-            app.code_language_selected = 3;
-            start_code_drill(app, LANGS);
-        }
-        KeyCode::Char('5') => {
-            app.code_language_selected = 4;
-            start_code_drill(app, LANGS);
+        KeyCode::End | KeyCode::Char('G') => {
+            app.code_language_selected = len - 1;
         }
         KeyCode::Enter => {
-            start_code_drill(app, LANGS);
+            if app.code_language_selected >= options.len() {
+                return;
+            }
+            let key = options[app.code_language_selected].0;
+            if !is_code_language_disabled(app, key) {
+                confirm_code_language_and_continue(app, &options);
+            }
         }
         _ => {}
     }
+
+    // Adjust scroll to keep selected item visible.
+    // Use a rough viewport estimate; render will use exact terminal size.
+    let viewport = 15usize;
+    if app.code_language_selected < app.code_language_scroll {
+        app.code_language_scroll = app.code_language_selected;
+    } else if app.code_language_selected >= app.code_language_scroll + viewport {
+        app.code_language_scroll = app.code_language_selected + 1 - viewport;
+    }
 }
 
-fn start_code_drill(app: &mut App, langs: &[&str]) {
-    if app.code_language_selected < langs.len() {
-        app.config.code_language = langs[app.code_language_selected].to_string();
-        let _ = app.config.save();
-        app.drill_mode = DrillMode::Code;
-        app.drill_scope = DrillScope::Global;
-        app.start_drill();
+fn code_language_requires_download(app: &App, key: &str) -> bool {
+    if key == "all" {
+        return false;
+    }
+    let Some(lang) = language_by_key(key) else {
+        return false;
+    };
+    !lang.has_builtin && !is_language_cached(&app.config.code_download_dir, key)
+}
+
+fn is_code_language_disabled(app: &App, key: &str) -> bool {
+    !app.config.code_downloads_enabled && code_language_requires_download(app, key)
+}
+
+fn confirm_code_language_and_continue(app: &mut App, options: &[(&str, String)]) {
+    if app.code_language_selected >= options.len() {
+        return;
+    }
+    app.config.code_language = options[app.code_language_selected].0.to_string();
+    let _ = app.config.save();
+    if app.config.code_onboarding_done {
+        app.start_code_drill();
+    } else {
+        app.go_to_code_intro();
     }
 }
 
@@ -464,14 +527,30 @@ fn handle_passage_book_key(app: &mut App, key: KeyEvent) {
             let idx = (ch as usize).saturating_sub('1' as usize);
             if idx < options.len() {
                 app.passage_book_selected = idx;
-                confirm_passage_book_and_continue(app, &options);
+                let key = options[idx].0;
+                if !is_passage_option_disabled(app, key) {
+                    confirm_passage_book_and_continue(app, &options);
+                }
             }
         }
         KeyCode::Enter => {
-            confirm_passage_book_and_continue(app, &options);
+            if app.passage_book_selected < options.len() {
+                let key = options[app.passage_book_selected].0;
+                if !is_passage_option_disabled(app, key) {
+                    confirm_passage_book_and_continue(app, &options);
+                }
+            }
         }
         _ => {}
     }
+}
+
+fn passage_option_requires_download(app: &App, key: &str) -> bool {
+    key != "all" && key != "builtin" && !is_book_cached(&app.config.passage_download_dir, key)
+}
+
+fn is_passage_option_disabled(app: &App, key: &str) -> bool {
+    !app.config.passage_downloads_enabled && passage_option_requires_download(app, key)
 }
 
 fn confirm_passage_book_and_continue(app: &mut App, options: &[(&'static str, String)]) {
@@ -564,7 +643,7 @@ fn handle_passage_intro_key(app: &mut App, key: KeyEvent) {
             app.config.passage_paragraphs_per_book = app.passage_intro_paragraph_limit;
             app.config.passage_onboarding_done = true;
             let _ = app.config.save();
-            app.start_passage_drill();
+            app.go_to_passage_book_select();
         }
         _ => {}
     }
@@ -573,6 +652,98 @@ fn handle_passage_intro_key(app: &mut App, key: KeyEvent) {
 fn handle_passage_download_progress_key(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc | KeyCode::Char('q') => app.go_to_menu(),
+        _ => {}
+    }
+}
+
+fn handle_code_intro_key(app: &mut App, key: KeyEvent) {
+    const INTRO_FIELDS: usize = 4;
+
+    if app.code_intro_downloading {
+        return;
+    }
+
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => app.go_to_menu(),
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.code_intro_selected = app.code_intro_selected.saturating_sub(1);
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if app.code_intro_selected + 1 < INTRO_FIELDS {
+                app.code_intro_selected += 1;
+            }
+        }
+        KeyCode::Left | KeyCode::Char('h') => match app.code_intro_selected {
+            0 => app.code_intro_downloads_enabled = !app.code_intro_downloads_enabled,
+            2 => {
+                app.code_intro_snippets_per_repo = match app.code_intro_snippets_per_repo {
+                    0 => 200,
+                    1 => 0,
+                    n => n.saturating_sub(10).max(1),
+                };
+            }
+            _ => {}
+        },
+        KeyCode::Right | KeyCode::Char('l') => match app.code_intro_selected {
+            0 => app.code_intro_downloads_enabled = !app.code_intro_downloads_enabled,
+            2 => {
+                app.code_intro_snippets_per_repo = match app.code_intro_snippets_per_repo {
+                    0 => 1,
+                    n if n >= 200 => 0,
+                    n => n + 10,
+                };
+            }
+            _ => {}
+        },
+        KeyCode::Backspace => match app.code_intro_selected {
+            1 => {
+                app.code_intro_download_dir.pop();
+            }
+            2 => {
+                app.code_intro_snippets_per_repo /= 10;
+            }
+            _ => {}
+        },
+        KeyCode::Char(ch) => match app.code_intro_selected {
+            1 if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                app.code_intro_download_dir.push(ch);
+            }
+            2 if ch.is_ascii_digit() => {
+                let digit = (ch as u8 - b'0') as usize;
+                app.code_intro_snippets_per_repo = app
+                    .code_intro_snippets_per_repo
+                    .saturating_mul(10)
+                    .saturating_add(digit)
+                    .min(10_000);
+            }
+            _ => {}
+        },
+        KeyCode::Enter => {
+            if app.code_intro_selected == 0 {
+                app.code_intro_downloads_enabled = !app.code_intro_downloads_enabled;
+                return;
+            }
+            if app.code_intro_selected != 3 {
+                return;
+            }
+
+            app.config.code_downloads_enabled = app.code_intro_downloads_enabled;
+            app.config.code_download_dir = app.code_intro_download_dir.clone();
+            app.config.code_snippets_per_repo = app.code_intro_snippets_per_repo;
+            app.config.code_onboarding_done = true;
+            let _ = app.config.save();
+            app.go_to_code_language_select();
+        }
+        _ => {}
+    }
+}
+
+fn handle_code_download_progress_key(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => {
+            app.cancel_code_download();
+            app.go_to_menu();
+        }
         _ => {}
     }
 }
@@ -684,6 +855,8 @@ fn render(frame: &mut ratatui::Frame, app: &App) {
         AppScreen::PassageBookSelect => render_passage_book_select(frame, app),
         AppScreen::PassageIntro => render_passage_intro(frame, app),
         AppScreen::PassageDownloadProgress => render_passage_download_progress(frame, app),
+        AppScreen::CodeIntro => render_code_intro(frame, app),
+        AppScreen::CodeDownloadProgress => render_code_download_progress(frame, app),
     }
 }
 
@@ -966,21 +1139,51 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
     let inner = block.inner(centered);
     block.render(centered, frame.buffer_mut());
 
-    let available_themes = ui::theme::Theme::available_themes();
-    let languages_all = ["rust", "python", "javascript", "go", "all"];
-    let current_lang = &app.config.code_language;
-
-    let fields: Vec<(String, String)> = vec![
+    let fields: Vec<(String, String, bool)> = vec![
         (
             "Target WPM".to_string(),
             format!("{}", app.config.target_wpm),
+            false,
         ),
-        ("Theme".to_string(), app.config.theme.clone()),
+        ("Theme".to_string(), app.config.theme.clone(), false),
         (
             "Word Count".to_string(),
             format!("{}", app.config.word_count),
+            false,
         ),
-        ("Code Language".to_string(), current_lang.clone()),
+        (
+            "Code Language".to_string(),
+            app.config.code_language.clone(),
+            false,
+        ),
+        (
+            "Code Downloads".to_string(),
+            if app.config.code_downloads_enabled {
+                "On".to_string()
+            } else {
+                "Off".to_string()
+            },
+            false,
+        ),
+        (
+            "Code Download Dir".to_string(),
+            app.config.code_download_dir.clone(),
+            true, // path field
+        ),
+        (
+            "Snippets per Repo".to_string(),
+            if app.config.code_snippets_per_repo == 0 {
+                "Unlimited".to_string()
+            } else {
+                format!("{}", app.config.code_snippets_per_repo)
+            },
+            false,
+        ),
+        (
+            "Download Code Now".to_string(),
+            "Run downloader".to_string(),
+            false,
+        ),
         (
             "Passage Downloads".to_string(),
             if app.config.passage_downloads_enabled {
@@ -988,10 +1191,12 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
             } else {
                 "Off".to_string()
             },
+            false,
         ),
         (
             "Passage Download Dir".to_string(),
             app.config.passage_download_dir.clone(),
+            true, // path field
         ),
         (
             "Paragraphs per Book".to_string(),
@@ -1000,10 +1205,12 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
             } else {
                 format!("{}", app.config.passage_paragraphs_per_book)
             },
+            false,
         ),
         (
             "Download Passages Now".to_string(),
             "Run downloader".to_string(),
+            false,
         ),
     ];
 
@@ -1033,12 +1240,13 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
         )
         .split(layout[1]);
 
-    for (i, (label, value)) in fields.iter().enumerate() {
+    for (i, (label, value, is_path)) in fields.iter().enumerate() {
         let is_selected = i == app.settings_selected;
         let indicator = if is_selected { " > " } else { "   " };
 
         let label_text = format!("{indicator}{label}:");
-        let value_text = if i == 7 {
+        let is_button = i == 7 || i == 11; // Download Code Now, Download Passages Now
+        let value_text = if is_button {
             format!("  [ {value} ]")
         } else {
             format!("  < {value} >")
@@ -1062,7 +1270,7 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
             colors.text_pending()
         });
 
-        let lines = if i == 5 {
+        let lines = if *is_path {
             let path_line = if app.settings_editing_download_dir && is_selected {
                 format!("  {value}_")
             } else {
@@ -1088,23 +1296,74 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
         Paragraph::new(lines).render(field_layout[i], frame.buffer_mut());
     }
 
-    let _ = (available_themes, languages_all);
+    let footer_hints: Vec<&str> = if app.settings_editing_download_dir {
+        vec!["Editing path:", "[Type/Backspace] Modify", "[ESC] Done editing"]
+    } else {
+        vec![
+            "[ESC] Save & back",
+            "[Enter/arrows] Change value",
+            "[Enter on path] Edit dir",
+        ]
+    };
+    let footer_lines: Vec<Line> = pack_hint_lines(&footer_hints, layout[3].width as usize)
+        .into_iter()
+        .map(|line| Line::from(Span::styled(line, Style::default().fg(colors.accent()))))
+        .collect();
+    Paragraph::new(footer_lines)
+        .wrap(Wrap { trim: false })
+        .render(layout[3], frame.buffer_mut());
+}
 
-    let footer = Paragraph::new(Line::from(Span::styled(
-        if app.settings_editing_download_dir {
-            "  Editing path: [Type/Backspace] Modify  [ESC] Done editing"
+fn wrapped_line_count(text: &str, width: usize) -> usize {
+    if width == 0 {
+        return 0;
+    }
+    let chars = text.chars().count().max(1);
+    chars.div_ceil(width)
+}
+
+fn pack_hint_lines(hints: &[&str], width: usize) -> Vec<String> {
+    if width == 0 || hints.is_empty() {
+        return Vec::new();
+    }
+
+    let prefix = "  ";
+    let separator = "  ";
+    let mut out: Vec<String> = Vec::new();
+    let mut current = prefix.to_string();
+    let mut has_hint = false;
+
+    for hint in hints {
+        if hint.is_empty() {
+            continue;
+        }
+        let candidate = if has_hint {
+            format!("{current}{separator}{hint}")
         } else {
-            "  [ESC] Save & back  [Enter/arrows] Change value  [Enter on path] Edit dir"
-        },
-        Style::default().fg(colors.accent()),
-    )));
-    footer.render(layout[3], frame.buffer_mut());
+            format!("{current}{hint}")
+        };
+        if candidate.chars().count() <= width {
+            current = candidate;
+            has_hint = true;
+        } else {
+            if has_hint {
+                out.push(current);
+            }
+            current = format!("{prefix}{hint}");
+            has_hint = true;
+        }
+    }
+
+    if has_hint {
+        out.push(current);
+    }
+    out
 }
 
 fn render_code_language_select(frame: &mut ratatui::Frame, app: &App) {
     let area = frame.area();
     let colors = &app.theme.colors;
-    let centered = ui::layout::centered_rect(40, 50, area);
+    let centered = ui::layout::centered_rect(50, 70, area);
 
     let block = Block::bordered()
         .title(" Select Code Language ")
@@ -1113,20 +1372,83 @@ fn render_code_language_select(frame: &mut ratatui::Frame, app: &App) {
     let inner = block.inner(centered);
     block.render(centered, frame.buffer_mut());
 
-    let langs = ["Rust", "Python", "JavaScript", "Go", "All (random)"];
-    let lang_keys = ["rust", "python", "javascript", "go", "all"];
+    let options = code_language_options();
+    let cache_dir = &app.config.code_download_dir;
+    let footer_hints = [
+        "[Up/Down/PgUp/PgDn] Navigate",
+        "[Enter] Confirm",
+        "[ESC] Back",
+    ];
+    let disabled_notice =
+        "  Some languages are disabled: enable network downloads in intro/settings.";
+    let has_disabled = !app.config.code_downloads_enabled
+        && options
+            .iter()
+            .any(|(key, _)| is_code_language_disabled(app, key));
+    let width = inner.width as usize;
+    let hint_lines_vec = pack_hint_lines(&footer_hints, width);
+    let hint_lines = hint_lines_vec.len();
+    let notice_lines = wrapped_line_count(disabled_notice, width);
+    let total_height = inner.height as usize;
+    let show_notice = has_disabled && total_height >= hint_lines + notice_lines + 3;
+    let desired_footer_height = hint_lines + if show_notice { notice_lines } else { 0 };
+    let footer_height = desired_footer_height.min(total_height.saturating_sub(1)) as u16;
+    let (list_area, footer_area) = if footer_height > 0 {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(footer_height)])
+            .split(inner);
+        (chunks[0], Some(chunks[1]))
+    } else {
+        (inner, None)
+    };
+
+    let viewport_height = (list_area.height as usize).saturating_sub(2).max(1);
+    let scroll = app.code_language_scroll;
 
     let mut lines: Vec<Line> = Vec::new();
-    lines.push(Line::from(""));
 
-    for (i, &lang) in langs.iter().enumerate() {
+    // Show scroll indicator at top if scrolled down
+    if scroll > 0 {
+        lines.push(Line::from(Span::styled(
+            format!("   ... {} more above ...", scroll),
+            Style::default().fg(colors.text_pending()),
+        )));
+    } else {
+        lines.push(Line::from(""));
+    }
+
+    let visible_end = (scroll + viewport_height).min(options.len());
+
+    for i in scroll..visible_end {
+        let (key, display) = &options[i];
         let is_selected = i == app.code_language_selected;
-        let is_current = lang_keys[i] == app.config.code_language;
+        let is_current = *key == app.config.code_language;
+        let is_disabled = is_code_language_disabled(app, key);
 
         let indicator = if is_selected { " > " } else { "   " };
         let current_marker = if is_current { " (current)" } else { "" };
 
-        let style = if is_selected {
+        // Determine availability label
+        let availability = if *key == "all" {
+            String::new()
+        } else if let Some(lang) = language_by_key(key) {
+            if lang.has_builtin {
+                " (built-in)".to_string()
+            } else if is_language_cached(cache_dir, key) {
+                " (cached)".to_string()
+            } else if is_disabled {
+                " (disabled: download required)".to_string()
+            } else {
+                " (download required)".to_string()
+            }
+        } else {
+            String::new()
+        };
+
+        let style = if is_disabled {
+            Style::default().fg(colors.text_pending())
+        } else if is_selected {
             Style::default()
                 .fg(colors.accent())
                 .add_modifier(Modifier::BOLD)
@@ -1135,18 +1457,38 @@ fn render_code_language_select(frame: &mut ratatui::Frame, app: &App) {
         };
 
         lines.push(Line::from(Span::styled(
-            format!("{indicator}[{}] {lang}{current_marker}", i + 1),
+            format!("{indicator}{display}{current_marker}{availability}"),
             style,
         )));
     }
 
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "  [1-5] Select  [Enter] Confirm  [ESC] Back",
-        Style::default().fg(colors.text_pending()),
-    )));
+    // Show scroll indicator at bottom if more items below
+    if visible_end < options.len() {
+        lines.push(Line::from(Span::styled(
+            format!("   ... {} more below ...", options.len() - visible_end),
+            Style::default().fg(colors.text_pending()),
+        )));
+    } else {
+        lines.push(Line::from(""));
+    }
 
-    Paragraph::new(lines).render(inner, frame.buffer_mut());
+    Paragraph::new(lines).render(list_area, frame.buffer_mut());
+
+    if let Some(footer) = footer_area {
+        let mut footer_lines: Vec<Line> = hint_lines_vec
+            .iter()
+            .map(|line| Line::from(Span::styled(line.clone(), Style::default().fg(colors.text_pending()))))
+            .collect();
+        if show_notice {
+            footer_lines.push(Line::from(Span::styled(
+                disabled_notice,
+                Style::default().fg(colors.text_pending()),
+            )));
+        }
+        Paragraph::new(footer_lines)
+            .wrap(Wrap { trim: false })
+            .render(footer, frame.buffer_mut());
+    }
 }
 
 fn render_passage_book_select(frame: &mut ratatui::Frame, app: &App) {
@@ -1162,11 +1504,55 @@ fn render_passage_book_select(frame: &mut ratatui::Frame, app: &App) {
     block.render(centered, frame.buffer_mut());
 
     let options = passage_options();
-    let mut lines: Vec<Line> = vec![Line::from("")];
-    for (i, (_, label)) in options.iter().enumerate() {
+    let footer_hints = ["[Up/Down] Navigate", "[Enter] Confirm", "[ESC] Back"];
+    let disabled_notice =
+        "  Some sources are disabled: enable network downloads in intro/settings.";
+    let has_disabled = !app.config.passage_downloads_enabled
+        && options
+            .iter()
+            .any(|(key, _)| is_passage_option_disabled(app, key));
+    let width = inner.width as usize;
+    let hint_lines_vec = pack_hint_lines(&footer_hints, width);
+    let hint_lines = hint_lines_vec.len();
+    let notice_lines = wrapped_line_count(disabled_notice, width);
+    let total_height = inner.height as usize;
+    let show_notice = has_disabled && total_height >= hint_lines + notice_lines + 3;
+    let desired_footer_height = hint_lines + if show_notice { notice_lines } else { 0 };
+    let footer_height = desired_footer_height.min(total_height.saturating_sub(1)) as u16;
+    let (list_area, footer_area) = if footer_height > 0 {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(footer_height)])
+            .split(inner);
+        (chunks[0], Some(chunks[1]))
+    } else {
+        (inner, None)
+    };
+
+    let viewport_height = list_area.height as usize;
+    let start = app
+        .passage_book_selected
+        .saturating_sub(viewport_height.saturating_sub(1));
+    let end = (start + viewport_height).min(options.len());
+    let mut lines: Vec<Line> = vec![];
+    for (i, (key, label)) in options.iter().enumerate().skip(start).take(end - start) {
         let is_selected = i == app.passage_book_selected;
+        let is_disabled = is_passage_option_disabled(app, key);
         let indicator = if is_selected { " > " } else { "   " };
-        let style = if is_selected {
+        let availability = if *key == "all" {
+            String::new()
+        } else if *key == "builtin" {
+            " (built-in)".to_string()
+        } else if is_book_cached(&app.config.passage_download_dir, key) {
+            " (cached)".to_string()
+        } else if is_disabled {
+            " (disabled: download required)".to_string()
+        } else {
+            " (download required)".to_string()
+        };
+        let style = if is_disabled {
+            Style::default().fg(colors.text_pending())
+        } else if is_selected {
             Style::default()
                 .fg(colors.accent())
                 .add_modifier(Modifier::BOLD)
@@ -1174,16 +1560,28 @@ fn render_passage_book_select(frame: &mut ratatui::Frame, app: &App) {
             Style::default().fg(colors.fg())
         };
         lines.push(Line::from(Span::styled(
-            format!("{indicator}[{}] {label}", i + 1),
+            format!("{indicator}[{}] {label}{availability}", i + 1),
             style,
         )));
     }
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "  [Up/Down] Navigate  [Enter] Confirm  [ESC] Back",
-        Style::default().fg(colors.text_pending()),
-    )));
-    Paragraph::new(lines).render(inner, frame.buffer_mut());
+
+    Paragraph::new(lines).render(list_area, frame.buffer_mut());
+
+    if let Some(footer) = footer_area {
+        let mut footer_lines: Vec<Line> = hint_lines_vec
+            .iter()
+            .map(|line| Line::from(Span::styled(line.clone(), Style::default().fg(colors.text_pending()))))
+            .collect();
+        if show_notice {
+            footer_lines.push(Line::from(Span::styled(
+                disabled_notice,
+                Style::default().fg(colors.text_pending()),
+            )));
+        }
+        Paragraph::new(footer_lines)
+            .wrap(Wrap { trim: false })
+            .render(footer, frame.buffer_mut());
+    }
 }
 
 fn render_passage_intro(frame: &mut ratatui::Frame, app: &App) {
@@ -1312,18 +1710,47 @@ fn render_passage_intro(frame: &mut ratatui::Frame, app: &App) {
                 Style::default().fg(colors.text_pending()),
             )));
         }
-    } else {
-        lines.push(Line::from(Span::styled(
-            "  [Up/Down] Navigate  [Left/Right] Adjust  [Type/Backspace] Edit  [Enter] Confirm",
-            Style::default().fg(colors.text_pending()),
-        )));
-        lines.push(Line::from(Span::styled(
-            "  [ESC] Cancel",
-            Style::default().fg(colors.text_pending()),
-        )));
     }
-
-    Paragraph::new(lines).render(inner, frame.buffer_mut());
+    let hint_lines = if app.passage_intro_downloading {
+        Vec::new()
+    } else {
+        pack_hint_lines(
+            &[
+                "[Up/Down] Navigate",
+                "[Left/Right] Adjust",
+                "[Type/Backspace] Edit",
+                "[Enter] Confirm",
+                "[ESC] Cancel",
+            ],
+            inner.width as usize,
+        )
+    };
+    let footer_height = if hint_lines.is_empty() {
+        0
+    } else {
+        (hint_lines.len() + 1) as u16 // add spacer line above hints
+    };
+    let (content_area, footer_area) = if footer_height > 0 && footer_height < inner.height {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(footer_height)])
+            .split(inner);
+        (chunks[0], Some(chunks[1]))
+    } else {
+        (inner, None)
+    };
+    Paragraph::new(lines).render(content_area, frame.buffer_mut());
+    if let Some(footer) = footer_area {
+        let mut footer_lines = vec![Line::from("")];
+        footer_lines.extend(
+            hint_lines
+                .into_iter()
+                .map(|hint| Line::from(Span::styled(hint, Style::default().fg(colors.text_pending())))),
+        );
+        Paragraph::new(footer_lines)
+            .wrap(Wrap { trim: false })
+            .render(footer, frame.buffer_mut());
+    }
 }
 
 fn render_passage_download_progress(frame: &mut ratatui::Frame, app: &App) {
@@ -1375,6 +1802,235 @@ fn render_passage_download_progress(frame: &mut ratatui::Frame, app: &App) {
                 format!(" Downloaded: {done_bytes} bytes")
             },
             Style::default().fg(colors.accent()),
+        )),
+    ];
+
+    Paragraph::new(lines).render(inner, frame.buffer_mut());
+}
+
+fn render_code_intro(frame: &mut ratatui::Frame, app: &App) {
+    let area = frame.area();
+    let colors = &app.theme.colors;
+    let centered = ui::layout::centered_rect(75, 80, area);
+
+    let block = Block::bordered()
+        .title(" Code Downloads Setup ")
+        .border_style(Style::default().fg(colors.accent()))
+        .style(Style::default().bg(colors.bg()));
+    let inner = block.inner(centered);
+    block.render(centered, frame.buffer_mut());
+
+    let snippets_value = if app.code_intro_snippets_per_repo == 0 {
+        "unlimited".to_string()
+    } else {
+        app.code_intro_snippets_per_repo.to_string()
+    };
+
+    let fields = vec![
+        (
+            "Enable network downloads",
+            if app.code_intro_downloads_enabled {
+                "On".to_string()
+            } else {
+                "Off".to_string()
+            },
+        ),
+        ("Download directory", app.code_intro_download_dir.clone()),
+        ("Snippets per repo (0 = unlimited)", snippets_value),
+        ("Start code drill", "Confirm".to_string()),
+    ];
+
+    let mut lines = vec![
+        Line::from(Span::styled(
+            "Configure code source settings before your first code drill.",
+            Style::default()
+                .fg(colors.fg())
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(
+            "Downloads are lazy: code is fetched only when first needed.",
+            Style::default().fg(colors.text_pending()),
+        )),
+        Line::from(Span::styled(
+            "If you exit without confirming, this dialog will appear again next time.",
+            Style::default().fg(colors.text_pending()),
+        )),
+        Line::from(""),
+    ];
+
+    for (i, (label, value)) in fields.iter().enumerate() {
+        let is_selected = i == app.code_intro_selected;
+        let indicator = if is_selected { " > " } else { "   " };
+        let label_style = if is_selected {
+            Style::default()
+                .fg(colors.accent())
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(colors.fg())
+        };
+        let value_style = if is_selected {
+            Style::default().fg(colors.focused_key())
+        } else {
+            Style::default().fg(colors.text_pending())
+        };
+
+        lines.push(Line::from(Span::styled(
+            format!("{indicator}{label}"),
+            label_style,
+        )));
+        if i == 1 {
+            lines.push(Line::from(Span::styled(format!("   {value}"), value_style)));
+        } else if i == 3 {
+            lines.push(Line::from(Span::styled(
+                format!("   [{value}]"),
+                value_style,
+            )));
+        } else {
+            lines.push(Line::from(Span::styled(
+                format!("   < {value} >"),
+                value_style,
+            )));
+        }
+        lines.push(Line::from(""));
+    }
+
+    if app.code_intro_downloading {
+        let total_repos = app.code_intro_download_total.max(1);
+        let done_repos = app.code_intro_downloaded.min(total_repos);
+        let total_bytes = app.code_intro_download_bytes_total;
+        let done_bytes = app
+            .code_intro_download_bytes
+            .min(total_bytes.max(app.code_intro_download_bytes));
+        let width = 30usize;
+        let fill = if total_bytes > 0 {
+            ((done_bytes as usize).saturating_mul(width)) / (total_bytes as usize)
+        } else {
+            0
+        };
+        let bar = format!(
+            "{}{}",
+            "=".repeat(fill),
+            " ".repeat(width.saturating_sub(fill))
+        );
+        let progress_text = if total_bytes > 0 {
+            format!(" Downloading: [{bar}] {done_bytes}/{total_bytes} bytes")
+        } else {
+            format!(" Downloading: {done_bytes} bytes")
+        };
+        lines.push(Line::from(Span::styled(
+            progress_text,
+            Style::default()
+                .fg(colors.accent())
+                .add_modifier(Modifier::BOLD),
+        )));
+        if !app.code_intro_current_repo.is_empty() {
+            lines.push(Line::from(Span::styled(
+                format!(
+                    " Current: {}  (repo {}/{})",
+                    app.code_intro_current_repo,
+                    done_repos.saturating_add(1).min(total_repos),
+                    total_repos
+                ),
+                Style::default().fg(colors.text_pending()),
+            )));
+        }
+    }
+    let hint_lines = if app.code_intro_downloading {
+        Vec::new()
+    } else {
+        pack_hint_lines(
+            &[
+                "[Up/Down] Navigate",
+                "[Left/Right] Adjust",
+                "[Type/Backspace] Edit",
+                "[Enter] Confirm",
+                "[ESC] Cancel",
+            ],
+            inner.width as usize,
+        )
+    };
+    let footer_height = if hint_lines.is_empty() {
+        0
+    } else {
+        (hint_lines.len() + 1) as u16 // add spacer line above hints
+    };
+    let (content_area, footer_area) = if footer_height > 0 && footer_height < inner.height {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(footer_height)])
+            .split(inner);
+        (chunks[0], Some(chunks[1]))
+    } else {
+        (inner, None)
+    };
+    Paragraph::new(lines).render(content_area, frame.buffer_mut());
+    if let Some(footer) = footer_area {
+        let mut footer_lines = vec![Line::from("")];
+        footer_lines.extend(
+            hint_lines
+                .into_iter()
+                .map(|hint| Line::from(Span::styled(hint, Style::default().fg(colors.text_pending())))),
+        );
+        Paragraph::new(footer_lines)
+            .wrap(Wrap { trim: false })
+            .render(footer, frame.buffer_mut());
+    }
+}
+
+fn render_code_download_progress(frame: &mut ratatui::Frame, app: &App) {
+    let area = frame.area();
+    let colors = &app.theme.colors;
+    let centered = ui::layout::centered_rect(60, 35, area);
+
+    let block = Block::bordered()
+        .title(" Downloading Code Source ")
+        .border_style(Style::default().fg(colors.accent()))
+        .style(Style::default().bg(colors.bg()));
+    let inner = block.inner(centered);
+    block.render(centered, frame.buffer_mut());
+
+    let total_bytes = app.code_intro_download_bytes_total;
+    let done_bytes = app
+        .code_intro_download_bytes
+        .min(total_bytes.max(app.code_intro_download_bytes));
+    let width = 36usize;
+    let fill = if total_bytes > 0 {
+        ((done_bytes as usize).saturating_mul(width)) / (total_bytes as usize)
+    } else {
+        0
+    };
+    let bar = format!(
+        "{}{}",
+        "=".repeat(fill),
+        " ".repeat(width.saturating_sub(fill))
+    );
+
+    let repo_name = if app.code_intro_current_repo.is_empty() {
+        "Preparing download...".to_string()
+    } else {
+        app.code_intro_current_repo.clone()
+    };
+
+    let lines = vec![
+        Line::from(Span::styled(
+            format!(" Repo: {repo_name}"),
+            Style::default()
+                .fg(colors.fg())
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            if total_bytes > 0 {
+                format!(" [{bar}] {done_bytes}/{total_bytes} bytes")
+            } else {
+                format!(" Downloaded: {done_bytes} bytes")
+            },
+            Style::default().fg(colors.accent()),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            " [ESC] Cancel",
+            Style::default().fg(colors.text_pending()),
         )),
     ];
 
