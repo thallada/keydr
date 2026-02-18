@@ -807,7 +807,7 @@ fn handle_skill_tree_key(app: &mut App, key: KeyEvent) {
 fn skill_tree_detail_max_scroll(app: &App) -> usize {
     let (w, h) = crossterm::terminal::size().unwrap_or((120, 40));
     let screen = Rect::new(0, 0, w, h);
-    let centered = ui::layout::centered_rect(70, 90, screen);
+    let centered = skill_tree_popup_rect(screen);
     let inner = Rect::new(
         centered.x.saturating_add(1),
         centered.y.saturating_add(1),
@@ -835,6 +835,12 @@ fn skill_tree_detail_max_scroll(app: &App) -> usize {
         .min(branches.len().saturating_sub(1));
     let total_lines = detail_line_count(branches[selected]);
     total_lines.saturating_sub(detail_height)
+}
+
+fn skill_tree_popup_rect(area: Rect) -> Rect {
+    let percent_x = if area.width < 120 { 95 } else { 85 };
+    let percent_y = if area.height < 40 { 95 } else { 90 };
+    ui::layout::centered_rect(percent_x, percent_y, area)
 }
 
 fn render(frame: &mut ratatui::Frame, app: &App) {
@@ -1446,7 +1452,7 @@ fn render_code_language_select(frame: &mut ratatui::Frame, app: &App) {
             String::new()
         };
 
-        let style = if is_disabled {
+        let name_style = if is_disabled {
             Style::default().fg(colors.text_pending())
         } else if is_selected {
             Style::default()
@@ -1455,11 +1461,18 @@ fn render_code_language_select(frame: &mut ratatui::Frame, app: &App) {
         } else {
             Style::default().fg(colors.fg())
         };
+        let status_style = Style::default()
+            .fg(colors.text_pending())
+            .add_modifier(Modifier::DIM);
 
-        lines.push(Line::from(Span::styled(
-            format!("{indicator}{display}{current_marker}{availability}"),
-            style,
-        )));
+        let mut spans = vec![Span::styled(
+            format!("{indicator}{display}{current_marker}"),
+            name_style,
+        )];
+        if !availability.is_empty() {
+            spans.push(Span::styled(availability, status_style));
+        }
+        lines.push(Line::from(spans));
     }
 
     // Show scroll indicator at bottom if more items below
@@ -1550,7 +1563,7 @@ fn render_passage_book_select(frame: &mut ratatui::Frame, app: &App) {
         } else {
             " (download required)".to_string()
         };
-        let style = if is_disabled {
+        let name_style = if is_disabled {
             Style::default().fg(colors.text_pending())
         } else if is_selected {
             Style::default()
@@ -1559,10 +1572,17 @@ fn render_passage_book_select(frame: &mut ratatui::Frame, app: &App) {
         } else {
             Style::default().fg(colors.fg())
         };
-        lines.push(Line::from(Span::styled(
-            format!("{indicator}[{}] {label}{availability}", i + 1),
-            style,
-        )));
+        let status_style = Style::default()
+            .fg(colors.text_pending())
+            .add_modifier(Modifier::DIM);
+        let mut spans = vec![Span::styled(
+            format!("{indicator}[{}] {label}", i + 1),
+            name_style,
+        )];
+        if !availability.is_empty() {
+            spans.push(Span::styled(availability, status_style));
+        }
+        lines.push(Line::from(spans));
     }
 
     Paragraph::new(lines).render(list_area, frame.buffer_mut());
@@ -2039,7 +2059,7 @@ fn render_code_download_progress(frame: &mut ratatui::Frame, app: &App) {
 
 fn render_skill_tree(frame: &mut ratatui::Frame, app: &App) {
     let area = frame.area();
-    let centered = ui::layout::centered_rect(70, 90, area);
+    let centered = skill_tree_popup_rect(area);
     let widget = SkillTreeWidget::new(
         &app.skill_tree,
         &app.key_stats,

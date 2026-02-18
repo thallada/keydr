@@ -2,7 +2,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph, Widget};
+use ratatui::widgets::{Block, Paragraph, Widget, Wrap};
 
 use crate::engine::key_stats::KeyStatsStore;
 use crate::engine::skill_tree::{
@@ -69,17 +69,71 @@ impl Widget for SkillTreeWidget<'_> {
         let inner = block.inner(area);
         block.render(area, buf);
 
-        // Layout: header (2), branch list (dynamic), separator (1), detail panel (dynamic), footer (2)
+        // Layout: branch list, separator, detail panel, footer (adaptive height)
         let branches = selectable_branches();
         let branch_list_height = branches.len() as u16 * 2 + 1; // all branches * 2 lines + separator after Lowercase
+        let (footer_hints, footer_notice) = if self.selected < branches.len() {
+            let bp = self.skill_tree.branch_progress(branches[self.selected]);
+            if *self.skill_tree.branch_status(branches[self.selected]) == BranchStatus::Locked {
+                (
+                    vec![
+                        "[↑↓/jk] Navigate",
+                        "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                        "[q] Back",
+                    ],
+                    Some("Complete a-z to unlock branches"),
+                )
+            } else if bp.status == BranchStatus::Available || bp.status == BranchStatus::InProgress
+            {
+                (
+                    vec![
+                        "[Enter] Start Drill",
+                        "[↑↓/jk] Navigate",
+                        "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                        "[q] Back",
+                    ],
+                    None,
+                )
+            } else {
+                (
+                    vec![
+                        "[↑↓/jk] Navigate",
+                        "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                        "[q] Back",
+                    ],
+                    None,
+                )
+            }
+        } else {
+            (
+                vec![
+                    "[↑↓/jk] Navigate",
+                    "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                    "[q] Back",
+                ],
+                None,
+            )
+        };
+        let hint_lines = pack_hint_lines(&footer_hints, inner.width as usize);
+        let notice_lines = footer_notice
+            .map(|text| wrapped_line_count(text, inner.width as usize))
+            .unwrap_or(0);
+        let show_notice =
+            footer_notice.is_some() && (inner.height as usize >= hint_lines.len() + notice_lines + 8);
+        let footer_needed = hint_lines.len() + if show_notice { notice_lines } else { 0 } + 1;
+        let footer_height = footer_needed
+            .min(inner.height.saturating_sub(5) as usize)
+            .max(1) as u16;
 
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(branch_list_height.min(inner.height.saturating_sub(6))),
+                Constraint::Length(
+                    branch_list_height.min(inner.height.saturating_sub(footer_height + 4)),
+                ),
                 Constraint::Length(1),
                 Constraint::Min(4),
-                Constraint::Length(2),
+                Constraint::Length(footer_height),
             ])
             .split(inner);
 
@@ -97,24 +151,19 @@ impl Widget for SkillTreeWidget<'_> {
         self.render_detail_panel(layout[2], buf, &branches);
 
         // --- Footer ---
-        let footer_text = if self.selected < branches.len() {
-            let bp = self.skill_tree.branch_progress(branches[self.selected]);
-            if *self.skill_tree.branch_status(branches[self.selected]) == BranchStatus::Locked {
-                " Complete a-z to unlock branches   [\u{2191}\u{2193}/jk] Navigate   [PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll   [q] Back "
-            } else if bp.status == BranchStatus::Available || bp.status == BranchStatus::InProgress
-            {
-                " [Enter] Start Drill   [\u{2191}\u{2193}/jk] Navigate   [PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll   [q] Back "
-            } else {
-                " [\u{2191}\u{2193}/jk] Navigate   [PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll   [q] Back "
+        let mut footer_lines: Vec<Line> = Vec::new();
+        if show_notice {
+            if let Some(notice) = footer_notice {
+                footer_lines.push(Line::from(Span::styled(
+                    format!(" {notice}"),
+                    Style::default().fg(colors.text_pending()),
+                )));
             }
-        } else {
-            " [\u{2191}\u{2193}/jk] Navigate   [PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll   [q] Back "
-        };
-
-        let footer = Paragraph::new(Line::from(Span::styled(
-            footer_text,
-            Style::default().fg(colors.text_pending()),
-        )));
+        }
+        footer_lines.extend(hint_lines.into_iter().map(|line| {
+            Line::from(Span::styled(line, Style::default().fg(colors.text_pending())))
+        }));
+        let footer = Paragraph::new(footer_lines).wrap(Wrap { trim: false });
         footer.render(layout[3], buf);
     }
 }
@@ -383,4 +432,50 @@ fn dual_progress_bar_parts(
         "\u{2593}".repeat(unlocked_cells - mastered_cells),
         "\u{2591}".repeat(empty_cells),
     )
+}
+
+fn wrapped_line_count(text: &str, width: usize) -> usize {
+    if width == 0 {
+        return 0;
+    }
+    let chars = text.chars().count().max(1);
+    chars.div_ceil(width)
+}
+
+fn pack_hint_lines(hints: &[&str], width: usize) -> Vec<String> {
+    if width == 0 || hints.is_empty() {
+        return Vec::new();
+    }
+
+    let prefix = " ";
+    let separator = "  ";
+    let mut out: Vec<String> = Vec::new();
+    let mut current = prefix.to_string();
+    let mut has_hint = false;
+
+    for hint in hints {
+        if hint.is_empty() {
+            continue;
+        }
+        let candidate = if has_hint {
+            format!("{current}{separator}{hint}")
+        } else {
+            format!("{current}{hint}")
+        };
+        if candidate.chars().count() <= width {
+            current = candidate;
+            has_hint = true;
+        } else {
+            if has_hint {
+                out.push(current);
+            }
+            current = format!("{prefix}{hint}");
+            has_hint = true;
+        }
+    }
+
+    if has_hint {
+        out.push(current);
+    }
+    out
 }
