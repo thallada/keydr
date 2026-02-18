@@ -2,8 +2,8 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph, Widget};
-use std::collections::BTreeSet;
+use ratatui::widgets::{Block, Clear, Paragraph, Widget};
+use std::collections::{BTreeSet, HashMap};
 
 use crate::engine::key_stats::KeyStatsStore;
 use crate::keyboard::model::KeyboardModel;
@@ -16,6 +16,9 @@ pub struct StatsDashboard<'a> {
     pub key_stats: &'a KeyStatsStore,
     pub active_tab: usize,
     pub target_wpm: u32,
+    pub overall_unlocked: usize,
+    pub overall_mastered: usize,
+    pub overall_total: usize,
     pub theme: &'a Theme,
     pub history_selected: usize,
     pub history_confirm_delete: bool,
@@ -28,6 +31,9 @@ impl<'a> StatsDashboard<'a> {
         key_stats: &'a KeyStatsStore,
         active_tab: usize,
         target_wpm: u32,
+        overall_unlocked: usize,
+        overall_mastered: usize,
+        overall_total: usize,
         theme: &'a Theme,
         history_selected: usize,
         history_confirm_delete: bool,
@@ -38,6 +44,9 @@ impl<'a> StatsDashboard<'a> {
             key_stats,
             active_tab,
             target_wpm,
+            overall_unlocked,
+            overall_mastered,
+            overall_total,
             theme,
             history_selected,
             history_confirm_delete,
@@ -125,6 +134,7 @@ impl Widget for StatsDashboard<'_> {
             let idx = self.history.len().saturating_sub(self.history_selected);
             let dialog_text = format!("Delete session #{idx}? (y/n)");
 
+            Clear.render(dialog_area, buf);
             let dialog = Paragraph::new(vec![
                 Line::from(""),
                 Line::from(Span::styled(
@@ -132,6 +142,7 @@ impl Widget for StatsDashboard<'_> {
                     Style::default().fg(colors.fg()),
                 )),
             ])
+            .style(Style::default().bg(colors.bg()))
             .block(
                 Block::bordered()
                     .title(" Confirm ")
@@ -158,7 +169,7 @@ impl StatsDashboard<'_> {
     fn render_activity_tab(&self, area: Rect, buf: &mut Buffer) {
         let layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(9), Constraint::Length(4)])
+            .constraints([Constraint::Min(9), Constraint::Length(6)])
             .split(area);
         ActivityHeatmap::new(self.history, self.theme).render(layout[0], buf);
         self.render_activity_stats(layout[1], buf);
@@ -393,6 +404,10 @@ impl StatsDashboard<'_> {
                     buf.set_string(x, y, &ch.to_string(), Style::default().fg(color));
                 }
             }
+            if bar_height == 0 {
+                let y = inner.y + inner.height - 1;
+                buf.set_string(x, y, "▁", Style::default().fg(colors.text_pending()));
+            }
 
             // WPM label on top row
             if bar_spacing >= 3 {
@@ -527,22 +542,19 @@ impl StatsDashboard<'_> {
             buf,
         );
 
-        // Level progress
-        let total_score: f64 = self
-            .history
-            .iter()
-            .map(|r| r.wpm * r.accuracy / 100.0)
-            .sum();
-        let level = ((total_score / 100.0).sqrt() as u32).max(1);
-        let next_level_score = ((level + 1) as f64).powi(2) * 100.0;
-        let current_level_score = (level as f64).powi(2) * 100.0;
-        let level_pct = ((total_score - current_level_score)
-            / (next_level_score - current_level_score))
-            .clamp(0.0, 1.0);
-        let level_label = format!("  Lvl {level} ({:.0}%)", level_pct * 100.0);
+        // Overall key progress (unlocked coverage + mastered detail).
+        let key_pct = if self.overall_total > 0 {
+            self.overall_unlocked as f64 / self.overall_total as f64
+        } else {
+            0.0
+        };
+        let level_label = format!(
+            "  Keys: {}/{} ({} mastered)",
+            self.overall_unlocked, self.overall_total, self.overall_mastered
+        );
         render_text_bar(
             &level_label,
-            level_pct,
+            key_pct,
             colors.focused_key(),
             colors.bar_empty(),
             layout[2],
@@ -566,7 +578,7 @@ impl StatsDashboard<'_> {
         table_block.render(area, buf);
 
         let header = Line::from(vec![Span::styled(
-            "   #     WPM    Raw    Acc%    Time      Date       Mode",
+            "   #     WPM    Raw    Acc%    Time      Date       Mode       Ranked  Partial",
             Style::default()
                 .fg(colors.accent())
                 .add_modifier(Modifier::BOLD),
@@ -575,7 +587,7 @@ impl StatsDashboard<'_> {
         let mut lines = vec![
             header,
             Line::from(Span::styled(
-                "  ─────────────────────────────────────────────",
+                "  ─────────────────────────────────────────────────────────────────────",
                 Style::default().fg(colors.border()),
             )),
         ];
@@ -601,9 +613,15 @@ impl StatsDashboard<'_> {
                 " "
             };
 
-            let mode_str = if result.ranked { "" } else { " (unranked)" };
+            let rank_str = if result.ranked { "yes" } else { "no" };
+            let partial_pct = if result.partial {
+                result.completion_percent
+            } else {
+                100.0
+            };
+            let partial_str = format!("{:>6.0}%", partial_pct);
             let row = format!(
-                " {wpm_indicator}{idx_str}  {wpm_str}  {raw_str}  {acc_str}  {time_str:>6}  {date_str}  {mode}{mode_str}",
+                " {wpm_indicator}{idx_str}  {wpm_str}  {raw_str}  {acc_str}  {time_str:>6}  {date_str}  {mode:<9}  {rank_str:<6}  {partial_str:>7}",
                 mode = result.drill_mode,
             );
 
@@ -618,6 +636,8 @@ impl StatsDashboard<'_> {
             let is_selected = i == self.history_selected;
             let style = if is_selected {
                 Style::default().fg(acc_color).bg(colors.accent_dim())
+            } else if result.partial {
+                Style::default().fg(colors.warning())
             } else if !result.ranked {
                 // Muted styling for unranked drills
                 Style::default().fg(colors.text_pending())
@@ -846,7 +866,7 @@ impl StatsDashboard<'_> {
             .filter(|(_, s)| s.sample_count > 0)
             .map(|(&ch, s)| (ch, s.filtered_time_ms))
             .collect();
-        key_times.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        key_times.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap().then_with(|| a.0.cmp(&b.0)));
 
         let max_time = key_times.first().map(|(_, t)| *t).unwrap_or(1.0);
 
@@ -893,7 +913,7 @@ impl StatsDashboard<'_> {
             .filter(|(_, s)| s.sample_count > 0)
             .map(|(&ch, s)| (ch, s.filtered_time_ms))
             .collect();
-        key_times.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        key_times.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap().then_with(|| a.0.cmp(&b.0)));
 
         let max_time = key_times.last().map(|(_, t)| *t).unwrap_or(1.0);
 
@@ -955,7 +975,7 @@ impl StatsDashboard<'_> {
             })
             .collect();
 
-        key_accuracies.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        key_accuracies.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap().then_with(|| a.0.cmp(&b.0)));
 
         if key_accuracies.is_empty() {
             buf.set_string(
@@ -1027,7 +1047,7 @@ impl StatsDashboard<'_> {
             })
             .collect();
 
-        key_accuracies.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        key_accuracies.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap().then_with(|| a.0.cmp(&b.0)));
 
         if key_accuracies.is_empty() {
             buf.set_string(
@@ -1078,14 +1098,19 @@ impl StatsDashboard<'_> {
         let inner = block.inner(area);
         block.render(area, buf);
 
+        let mut day_counts: HashMap<chrono::NaiveDate, usize> = HashMap::new();
         let mut active_days: BTreeSet<chrono::NaiveDate> = BTreeSet::new();
-        for r in self.history {
-            active_days.insert(r.timestamp.date_naive());
+        for r in self.history.iter().filter(|r| !r.partial) {
+            let day = r.timestamp.date_naive();
+            active_days.insert(day);
+            *day_counts.entry(day).or_insert(0) += 1;
         }
         let (current_streak, best_streak) = compute_streaks(&active_days);
         let active_days_count = active_days.len();
+        let mut top_days: Vec<(chrono::NaiveDate, usize)> = day_counts.into_iter().collect();
+        top_days.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| b.0.cmp(&a.0)));
 
-        let lines = vec![Line::from(vec![
+        let mut lines = vec![Line::from(vec![
             Span::styled("  Current: ", Style::default().fg(colors.fg())),
             Span::styled(
                 format!("{current_streak}d"),
@@ -1096,7 +1121,9 @@ impl StatsDashboard<'_> {
             Span::styled("    Best: ", Style::default().fg(colors.fg())),
             Span::styled(
                 format!("{best_streak}d"),
-                Style::default().fg(colors.accent()).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled("    Active Days: ", Style::default().fg(colors.fg())),
             Span::styled(
@@ -1104,9 +1131,24 @@ impl StatsDashboard<'_> {
                 Style::default().fg(colors.text_pending()),
             ),
         ])];
+
+        let top_days_text = if top_days.is_empty() {
+            "  Top Days: none".to_string()
+        } else {
+            let parts: Vec<String> = top_days
+                .iter()
+                .take(3)
+                .map(|(d, c)| format!("{} ({})", d.format("%Y-%m-%d"), c))
+                .collect();
+            format!("  Top Days: {}", parts.join("  |  "))
+        };
+        lines.push(Line::from(Span::styled(
+            top_days_text,
+            Style::default().fg(colors.text_pending()),
+        )));
+
         Paragraph::new(lines).render(inner, buf);
     }
-
 }
 
 fn accuracy_color(accuracy: f64, colors: &crate::ui::theme::ThemeColors) -> ratatui::style::Color {

@@ -19,6 +19,10 @@ pub struct DrillResult {
     pub drill_mode: String,
     #[serde(default = "default_true")]
     pub ranked: bool,
+    #[serde(default)]
+    pub partial: bool,
+    #[serde(default = "default_completion_percent")]
+    pub completion_percent: f64,
 }
 
 fn default_drill_mode() -> String {
@@ -27,6 +31,10 @@ fn default_drill_mode() -> String {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_completion_percent() -> f64 {
+    100.0
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -42,6 +50,7 @@ impl DrillResult {
         events: &[KeystrokeEvent],
         drill_mode: &str,
         ranked: bool,
+        partial: bool,
     ) -> Self {
         let per_key_times: Vec<KeyTime> = events
             .windows(2)
@@ -75,6 +84,8 @@ impl DrillResult {
             per_key_times,
             drill_mode: drill_mode.to_string(),
             ranked,
+            partial,
+            completion_percent: (drill.progress() * 100.0).clamp(0.0, 100.0),
         }
     }
 }

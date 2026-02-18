@@ -16,6 +16,16 @@ pub struct Config {
     pub word_count: usize,
     #[serde(default = "default_code_language")]
     pub code_language: String,
+    #[serde(default = "default_passage_book")]
+    pub passage_book: String,
+    #[serde(default = "default_passage_downloads_enabled")]
+    pub passage_downloads_enabled: bool,
+    #[serde(default = "default_passage_download_dir")]
+    pub passage_download_dir: String,
+    #[serde(default = "default_passage_paragraphs_per_book")]
+    pub passage_paragraphs_per_book: usize,
+    #[serde(default = "default_passage_onboarding_done")]
+    pub passage_onboarding_done: bool,
 }
 
 fn default_target_wpm() -> u32 {
@@ -33,6 +43,26 @@ fn default_word_count() -> usize {
 fn default_code_language() -> String {
     "rust".to_string()
 }
+fn default_passage_book() -> String {
+    "all".to_string()
+}
+fn default_passage_downloads_enabled() -> bool {
+    false
+}
+fn default_passage_download_dir() -> String {
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("keydr")
+        .join("passages")
+        .to_string_lossy()
+        .to_string()
+}
+fn default_passage_paragraphs_per_book() -> usize {
+    100
+}
+fn default_passage_onboarding_done() -> bool {
+    false
+}
 
 impl Default for Config {
     fn default() -> Self {
@@ -42,6 +72,11 @@ impl Default for Config {
             keyboard_layout: default_keyboard_layout(),
             word_count: default_word_count(),
             code_language: default_code_language(),
+            passage_book: default_passage_book(),
+            passage_downloads_enabled: default_passage_downloads_enabled(),
+            passage_download_dir: default_passage_download_dir(),
+            passage_paragraphs_per_book: default_passage_paragraphs_per_book(),
+            passage_onboarding_done: default_passage_onboarding_done(),
         }
     }
 }

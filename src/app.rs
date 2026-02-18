@@ -1,4 +1,7 @@
 use std::collections::HashSet;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::thread;
 use std::time::Instant;
 
 use rand::Rng;
@@ -16,7 +19,10 @@ use crate::generator::code_patterns;
 use crate::generator::code_syntax::CodeSyntaxGenerator;
 use crate::generator::dictionary::Dictionary;
 use crate::generator::numbers;
-use crate::generator::passage::PassageGenerator;
+use crate::generator::passage::{
+    GUTENBERG_BOOKS, PassageGenerator, book_by_key, download_book_to_cache_with_progress,
+    is_book_cached, passage_options, uncached_books,
+};
 use crate::generator::phonetic::PhoneticGenerator;
 use crate::generator::punctuate;
 use crate::generator::transition_table::TransitionTable;
@@ -39,6 +45,9 @@ pub enum AppScreen {
     Settings,
     SkillTree,
     CodeLanguageSelect,
+    PassageBookSelect,
+    PassageIntro,
+    PassageDownloadProgress,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,6 +55,20 @@ pub enum DrillMode {
     Adaptive,
     Code,
     Passage,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PassageDownloadCompleteAction {
+    StartPassageDrill,
+    ReturnToSettings,
+}
+
+struct PassageDownloadJob {
+    downloaded_bytes: Arc<AtomicU64>,
+    total_bytes: Arc<AtomicU64>,
+    done: Arc<AtomicBool>,
+    success: Arc<AtomicBool>,
+    handle: Option<thread::JoinHandle<()>>,
 }
 
 impl DrillMode {
@@ -79,6 +102,7 @@ pub struct App {
     pub store: Option<JsonStore>,
     pub should_quit: bool,
     pub settings_selected: usize,
+    pub settings_editing_download_dir: bool,
     pub stats_tab: usize,
     pub depressed_keys: HashSet<char>,
     pub last_key_time: Option<Instant>,
@@ -88,12 +112,27 @@ pub struct App {
     pub skill_tree_detail_scroll: usize,
     pub drill_source_info: Option<String>,
     pub code_language_selected: usize,
+    pub passage_book_selected: usize,
+    pub passage_intro_selected: usize,
+    pub passage_intro_downloads_enabled: bool,
+    pub passage_intro_download_dir: String,
+    pub passage_intro_paragraph_limit: usize,
+    pub passage_intro_downloading: bool,
+    pub passage_intro_download_total: usize,
+    pub passage_intro_downloaded: usize,
+    pub passage_intro_current_book: String,
+    pub passage_intro_download_bytes: u64,
+    pub passage_intro_download_bytes_total: u64,
+    pub passage_download_queue: Vec<usize>,
+    pub passage_drill_selection_override: Option<String>,
+    pub passage_download_action: PassageDownloadCompleteAction,
     pub shift_held: bool,
     pub keyboard_model: KeyboardModel,
     rng: SmallRng,
     transition_table: TransitionTable,
     #[allow(dead_code)]
     dictionary: Dictionary,
+    passage_download_job: Option<PassageDownloadJob>,
 }
 
 impl App {
@@ -141,6 +180,9 @@ impl App {
         let dictionary = Dictionary::load();
         let transition_table = TransitionTable::build_from_words(&dictionary.words_list());
         let keyboard_model = KeyboardModel::from_name(&config.keyboard_layout);
+        let intro_downloads_enabled = config.passage_downloads_enabled;
+        let intro_download_dir = config.passage_download_dir.clone();
+        let intro_paragraph_limit = config.passage_paragraphs_per_book;
 
         let mut app = Self {
             screen: AppScreen::Menu,
@@ -159,6 +201,7 @@ impl App {
             store,
             should_quit: false,
             settings_selected: 0,
+            settings_editing_download_dir: false,
             stats_tab: 0,
             depressed_keys: HashSet::new(),
             last_key_time: None,
@@ -168,11 +211,26 @@ impl App {
             skill_tree_detail_scroll: 0,
             drill_source_info: None,
             code_language_selected: 0,
+            passage_book_selected: 0,
+            passage_intro_selected: 0,
+            passage_intro_downloads_enabled: intro_downloads_enabled,
+            passage_intro_download_dir: intro_download_dir,
+            passage_intro_paragraph_limit: intro_paragraph_limit,
+            passage_intro_downloading: false,
+            passage_intro_download_total: 0,
+            passage_intro_downloaded: 0,
+            passage_intro_current_book: String::new(),
+            passage_intro_download_bytes: 0,
+            passage_intro_download_bytes_total: 0,
+            passage_download_queue: Vec::new(),
+            passage_drill_selection_override: None,
+            passage_download_action: PassageDownloadCompleteAction::StartPassageDrill,
             shift_held: false,
             keyboard_model,
             rng: SmallRng::from_entropy(),
             transition_table,
             dictionary,
+            passage_download_job: None,
         };
         app.start_drill();
         app
@@ -325,7 +383,18 @@ impl App {
             DrillMode::Passage => {
                 let filter = CharFilter::new(('a'..='z').collect());
                 let rng = SmallRng::from_rng(&mut self.rng).unwrap();
-                let mut generator = PassageGenerator::new(rng);
+                let selection = self
+                    .passage_drill_selection_override
+                    .clone()
+                    .unwrap_or_else(|| self.config.passage_book.clone());
+                let mut generator = PassageGenerator::new(
+                    rng,
+                    &selection,
+                    &self.config.passage_download_dir,
+                    self.config.passage_paragraphs_per_book,
+                    self.config.passage_downloads_enabled,
+                );
+                self.passage_drill_selection_override = None;
                 let text = generator.generate(&filter, None, word_count);
                 (text, Some(generator.last_source().to_string()))
             }
@@ -334,11 +403,21 @@ impl App {
 
     pub fn type_char(&mut self, ch: char) {
         if let Some(ref mut drill) = self.drill {
-            if let Some(event) = input::process_char(drill, ch) {
+            let event = input::process_char(drill, ch);
+            let had_event = event.is_some();
+            if let Some(event) = event {
                 self.drill_events.push(event);
             }
 
             if drill.is_complete() {
+                let synthetic_reached_end = drill
+                    .synthetic_spans
+                    .last()
+                    .is_some_and(|span| span.end == drill.target.len());
+                if synthetic_reached_end && had_event {
+                    // Give the user a chance to backspace erroneous Enter/Tab spans at EOF.
+                    return;
+                }
                 self.finish_drill();
             }
         }
@@ -358,6 +437,7 @@ impl App {
                 &self.drill_events,
                 self.drill_mode.as_str(),
                 ranked,
+                false,
             );
 
             if ranked {
@@ -411,6 +491,27 @@ impl App {
         }
     }
 
+    pub fn finish_partial_drill(&mut self) {
+        if let Some(ref drill) = self.drill {
+            let result = DrillResult::from_drill(
+                drill,
+                &self.drill_events,
+                self.drill_mode.as_str(),
+                false,
+                true,
+            );
+
+            self.drill_history.push(result.clone());
+            if self.drill_history.len() > 500 {
+                self.drill_history.remove(0);
+            }
+
+            self.last_result = Some(result);
+            self.screen = AppScreen::DrillResult;
+            self.save_data();
+        }
+    }
+
     fn save_data(&self) {
         if let Some(ref store) = self.store {
             let _ = store.save_profile(&self.profile);
@@ -426,7 +527,15 @@ impl App {
     }
 
     pub fn retry_drill(&mut self) {
-        self.start_drill();
+        if let Some(ref drill) = self.drill {
+            let text: String = drill.target.iter().collect();
+            self.drill = Some(DrillState::new(&text));
+            self.drill_events.clear();
+            self.last_result = None;
+            self.screen = AppScreen::Drill;
+        } else {
+            self.start_drill();
+        }
     }
 
     pub fn go_to_menu(&mut self) {
@@ -483,6 +592,11 @@ impl App {
                     }
                 }
                 self.skill_tree.update(&self.key_stats);
+            }
+
+            // Partial sessions are visible in history but do not affect profile/streak activity.
+            if result.partial {
+                continue;
             }
 
             // Compute score
@@ -544,7 +658,222 @@ impl App {
 
     pub fn go_to_settings(&mut self) {
         self.settings_selected = 0;
+        self.settings_editing_download_dir = false;
         self.screen = AppScreen::Settings;
+    }
+
+    pub fn go_to_passage_book_select(&mut self) {
+        let options = passage_options();
+        let selected = options
+            .iter()
+            .position(|(key, _)| *key == self.config.passage_book)
+            .unwrap_or(0);
+        self.passage_book_selected = selected;
+        self.screen = AppScreen::PassageBookSelect;
+    }
+
+    pub fn go_to_passage_intro(&mut self) {
+        self.passage_intro_selected = 0;
+        self.passage_intro_downloads_enabled = self.config.passage_downloads_enabled;
+        self.passage_intro_download_dir = self.config.passage_download_dir.clone();
+        self.passage_intro_paragraph_limit = self.config.passage_paragraphs_per_book;
+        self.passage_intro_downloading = false;
+        self.passage_intro_download_total = 0;
+        self.passage_intro_downloaded = 0;
+        self.passage_intro_current_book.clear();
+        self.passage_intro_download_bytes = 0;
+        self.passage_intro_download_bytes_total = 0;
+        self.passage_download_queue.clear();
+        self.passage_download_job = None;
+        self.passage_download_action = PassageDownloadCompleteAction::StartPassageDrill;
+        self.screen = AppScreen::PassageIntro;
+    }
+
+    pub fn start_passage_drill(&mut self) {
+        // Lazy source selection: choose a specific source for this drill and
+        // download exactly one missing book when needed.
+        if self.passage_drill_selection_override.is_none() && self.config.passage_downloads_enabled
+        {
+            let chosen = if self.config.passage_book == "all" {
+                let count = GUTENBERG_BOOKS.len() + 1; // + built-in
+                let idx = self.rng.gen_range(0..count);
+                if idx == 0 {
+                    "builtin".to_string()
+                } else {
+                    GUTENBERG_BOOKS[idx - 1].key.to_string()
+                }
+            } else {
+                self.config.passage_book.clone()
+            };
+
+            if chosen != "builtin"
+                && !is_book_cached(&self.config.passage_download_dir, &chosen)
+                && book_by_key(&chosen).is_some()
+            {
+                self.passage_drill_selection_override = Some(chosen.clone());
+                self.passage_intro_downloading = true;
+                self.passage_intro_download_total = 1;
+                self.passage_intro_downloaded = 0;
+                self.passage_intro_download_bytes = 0;
+                self.passage_intro_download_bytes_total = 0;
+                self.passage_intro_current_book = book_by_key(&chosen)
+                    .map(|b| b.title.to_string())
+                    .unwrap_or_default();
+                self.passage_download_queue = GUTENBERG_BOOKS
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, b)| (b.key == chosen).then_some(i))
+                    .collect();
+                self.passage_download_action = PassageDownloadCompleteAction::StartPassageDrill;
+                self.passage_download_job = None;
+                self.screen = AppScreen::PassageDownloadProgress;
+                return;
+            }
+
+            self.passage_drill_selection_override = Some(chosen);
+        } else if self.passage_drill_selection_override.is_none()
+            && self.config.passage_book != "all"
+            && self.config.passage_book != "builtin"
+        {
+            // Downloads disabled: gracefully fall back to built-in if selected book is unavailable.
+            if !is_book_cached(&self.config.passage_download_dir, &self.config.passage_book) {
+                self.passage_drill_selection_override = Some("builtin".to_string());
+            } else {
+                self.passage_drill_selection_override = Some(self.config.passage_book.clone());
+            }
+        }
+
+        self.drill_mode = DrillMode::Passage;
+        self.drill_scope = DrillScope::Global;
+        self.start_drill();
+    }
+
+    pub fn start_passage_downloads(&mut self) {
+        let uncached = uncached_books(&self.passage_intro_download_dir);
+        let uncached_keys: std::collections::HashSet<&str> =
+            uncached.iter().map(|b| b.key).collect();
+        self.passage_download_queue = GUTENBERG_BOOKS
+            .iter()
+            .enumerate()
+            .filter_map(|(i, book)| uncached_keys.contains(book.key).then_some(i))
+            .collect();
+        self.passage_intro_download_total = self.passage_download_queue.len();
+        self.passage_intro_downloaded = 0;
+        self.passage_intro_downloading = self.passage_intro_download_total > 0;
+        self.passage_intro_download_bytes = 0;
+        self.passage_intro_download_bytes_total = 0;
+        self.passage_download_job = None;
+    }
+
+    pub fn start_passage_downloads_from_settings(&mut self) {
+        self.go_to_passage_intro();
+        self.passage_download_action = PassageDownloadCompleteAction::ReturnToSettings;
+        self.start_passage_downloads();
+        if !self.passage_intro_downloading {
+            self.go_to_settings();
+        }
+    }
+
+    pub fn process_passage_download_tick(&mut self) {
+        if !self.passage_intro_downloading {
+            return;
+        }
+
+        if self.passage_download_job.is_none() {
+            let Some(book_index) = self.passage_download_queue.pop() else {
+                self.passage_intro_downloading = false;
+                self.passage_intro_current_book.clear();
+                match self.passage_download_action {
+                    PassageDownloadCompleteAction::StartPassageDrill => self.start_passage_drill(),
+                    PassageDownloadCompleteAction::ReturnToSettings => self.go_to_settings(),
+                }
+                return;
+            };
+            self.spawn_passage_download_job(book_index);
+            return;
+        }
+
+        let mut finished = false;
+        if let Some(job) = self.passage_download_job.as_mut() {
+            self.passage_intro_download_bytes = job.downloaded_bytes.load(Ordering::Relaxed);
+            self.passage_intro_download_bytes_total = job.total_bytes.load(Ordering::Relaxed);
+            finished = job.done.load(Ordering::Relaxed);
+        }
+
+        if !finished {
+            return;
+        }
+
+        if let Some(mut job) = self.passage_download_job.take() {
+            if let Some(handle) = job.handle.take() {
+                let _ = handle.join();
+            }
+            if job.success.load(Ordering::Relaxed) {
+                self.passage_intro_downloaded = self.passage_intro_downloaded.saturating_add(1);
+            } else {
+                // Skip failed book and continue queue without hanging.
+                self.passage_intro_downloaded = self.passage_intro_downloaded.saturating_add(1);
+            }
+        }
+
+        if self.passage_intro_downloaded >= self.passage_intro_download_total {
+            self.passage_intro_downloading = false;
+            self.passage_intro_current_book.clear();
+            self.passage_intro_download_bytes = 0;
+            self.passage_intro_download_bytes_total = 0;
+            match self.passage_download_action {
+                PassageDownloadCompleteAction::StartPassageDrill => self.start_passage_drill(),
+                PassageDownloadCompleteAction::ReturnToSettings => self.go_to_settings(),
+            }
+        }
+    }
+
+    fn spawn_passage_download_job(&mut self, book_index: usize) {
+        let Some(book) = GUTENBERG_BOOKS.get(book_index) else {
+            return;
+        };
+
+        self.passage_intro_current_book = book.title.to_string();
+        self.passage_intro_download_bytes = 0;
+        self.passage_intro_download_bytes_total = 0;
+
+        let downloaded_bytes = Arc::new(AtomicU64::new(0));
+        let total_bytes = Arc::new(AtomicU64::new(0));
+        let done = Arc::new(AtomicBool::new(false));
+        let success = Arc::new(AtomicBool::new(false));
+
+        let dl_clone = Arc::clone(&downloaded_bytes);
+        let total_clone = Arc::clone(&total_bytes);
+        let done_clone = Arc::clone(&done);
+        let success_clone = Arc::clone(&success);
+
+        let cache_dir = self.passage_intro_download_dir.clone();
+        let book_ref: &'static crate::generator::passage::GutenbergBook =
+            &GUTENBERG_BOOKS[book_index];
+
+        let handle = thread::spawn(move || {
+            let ok = download_book_to_cache_with_progress(
+                cache_dir.as_str(),
+                book_ref,
+                |downloaded, total| {
+                    dl_clone.store(downloaded, Ordering::Relaxed);
+                    if let Some(total) = total {
+                        total_clone.store(total, Ordering::Relaxed);
+                    }
+                },
+            );
+
+            success_clone.store(ok, Ordering::Relaxed);
+            done_clone.store(true, Ordering::Relaxed);
+        });
+
+        self.passage_download_job = Some(PassageDownloadJob {
+            downloaded_bytes,
+            total_bytes,
+            done,
+            success,
+            handle: Some(handle),
+        });
     }
 
     pub fn settings_cycle_forward(&mut self) {
@@ -578,6 +907,20 @@ impl App {
                     .unwrap_or(0);
                 let next = (idx + 1) % langs.len();
                 self.config.code_language = langs[next].to_string();
+            }
+            4 => {
+                self.config.passage_downloads_enabled = !self.config.passage_downloads_enabled;
+            }
+            5 => {
+                // Editable text field handled directly in key handler.
+            }
+            6 => {
+                self.config.passage_paragraphs_per_book =
+                    match self.config.passage_paragraphs_per_book {
+                        0 => 1,
+                        n if n >= 500 => 0,
+                        n => n + 25,
+                    };
             }
             _ => {}
         }
@@ -614,6 +957,20 @@ impl App {
                     .unwrap_or(0);
                 let next = if idx == 0 { langs.len() - 1 } else { idx - 1 };
                 self.config.code_language = langs[next].to_string();
+            }
+            4 => {
+                self.config.passage_downloads_enabled = !self.config.passage_downloads_enabled;
+            }
+            5 => {
+                // Editable text field handled directly in key handler.
+            }
+            6 => {
+                self.config.passage_paragraphs_per_book =
+                    match self.config.passage_paragraphs_per_book {
+                        0 => 500,
+                        1 => 0,
+                        n => n.saturating_sub(25).max(1),
+                    };
             }
             _ => {}
         }

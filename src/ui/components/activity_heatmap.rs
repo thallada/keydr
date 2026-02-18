@@ -42,7 +42,7 @@ impl Widget for ActivityHeatmap<'_> {
 
         // Count sessions per day
         let mut day_counts: HashMap<NaiveDate, usize> = HashMap::new();
-        for result in self.history {
+        for result in self.history.iter().filter(|r| !r.partial) {
             let date = result.timestamp.date_naive();
             *day_counts.entry(date).or_insert(0) += 1;
         }
@@ -126,8 +126,10 @@ impl Widget for ActivityHeatmap<'_> {
                 }
 
                 let count = day_counts.get(&date).copied().unwrap_or(0);
-                let (ch, color) = intensity_cell(count, colors);
-                buf.set_string(x, y, &ch.to_string(), Style::default().fg(color));
+                let color = intensity_cell_bg(count, colors);
+                // Fill both columns so low-activity cells render as blocks instead of glyphs.
+                // This avoids cursor-like artifacts in some terminal fonts.
+                buf.set_string(x, y, "  ", Style::default().bg(color).fg(colors.bg()));
             }
 
             current_date += chrono::Duration::weeks(1);
@@ -147,13 +149,13 @@ fn scale_color(base: Color, factor: f64) -> Color {
     }
 }
 
-fn intensity_cell(count: usize, colors: &crate::ui::theme::ThemeColors) -> (char, Color) {
+fn intensity_cell_bg(count: usize, colors: &crate::ui::theme::ThemeColors) -> Color {
     let success = colors.success();
     match count {
-        0 => ('·', colors.accent_dim()),
-        1..=2 => ('▪', scale_color(success, 0.4)),
-        3..=5 => ('▪', scale_color(success, 0.65)),
-        6..=15 => ('█', scale_color(success, 0.85)),
-        _ => ('█', success),
+        0 => scale_color(colors.accent_dim(), 0.35),
+        1..=2 => scale_color(success, 0.35),
+        3..=5 => scale_color(success, 0.6),
+        6..=15 => scale_color(success, 0.8),
+        _ => success,
     }
 }

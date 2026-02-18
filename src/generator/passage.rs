@@ -1,12 +1,14 @@
+use std::fs;
+use std::path::PathBuf;
+
 use rand::Rng;
 use rand::rngs::SmallRng;
 
 use crate::engine::filter::CharFilter;
 use crate::generator::TextGenerator;
-use crate::generator::cache::{DiskCache, fetch_url};
+use crate::generator::cache::fetch_url_bytes_with_progress;
 
 const PASSAGES: &[&str] = &[
-    // Classic literature & speeches
     "the quick brown fox jumps over the lazy dog and then runs across the field while the sun sets behind the distant hills",
     "it was the best of times it was the worst of times it was the age of wisdom it was the age of foolishness",
     "in the beginning there was nothing but darkness and then the light appeared slowly spreading across the vast empty space",
@@ -17,94 +19,137 @@ const PASSAGES: &[&str] = &[
     "all that glitters is not gold and not all those who wander are lost for the old that is strong does not wither",
     "the river flowed quietly through the green valley and the mountains rose high on either side covered with trees and snow",
     "a long time ago in a land far away there lived a wise king who ruled his people with kindness and justice",
-    "the rain fell steadily on the roof making a soft drumming sound that filled the room and made everything feel calm",
-    "she opened the door and stepped outside into the cool morning air breathing deeply as the first light of dawn appeared",
-    "he picked up the book and began to read turning the pages slowly as the story drew him deeper and deeper into its world",
-    "the stars shone brightly in the clear night sky and the moon cast a silver light over the sleeping town below",
-    "they gathered around the fire telling stories and laughing while the wind howled outside and the snow piled up against the door",
-    // Pride and Prejudice
-    "it is a truth universally acknowledged that a single man in possession of a good fortune must be in want of a wife",
-    "there is a stubbornness about me that never can bear to be frightened at the will of others my courage always rises at every attempt to intimidate me",
-    "i could easily forgive his pride if he had not mortified mine but vanity not love has been my folly",
-    // Alice in Wonderland
-    "alice was beginning to get very tired of sitting by her sister on the bank and of having nothing to do",
-    "who in the world am i that is the great puzzle she said as she looked around the strange room with wonder",
-    "but i dont want to go among mad people alice remarked oh you cant help that said the cat were all mad here",
-    // Great Gatsby
-    "in my younger and more vulnerable years my father gave me some advice that i have been turning over in my mind ever since",
-    "so we beat on boats against the current borne back ceaselessly into the past dreaming of that green light",
-    // Sherlock Holmes
-    "when you have eliminated the impossible whatever remains however improbable must be the truth my dear watson",
-    "the world is full of obvious things which nobody by any chance ever observes but which are perfectly visible",
-    // Moby Dick
-    "call me ishmael some years ago having little or no money in my purse and nothing particular to interest me on shore",
-    "it is not down on any map because true places never are and the voyage was long and the sea was deep",
-    // 1984
-    "it was a bright cold day in april and the clocks were striking thirteen winston smith his chin nuzzled into his breast",
-    "who controls the past controls the future and who controls the present controls the past said the voice from the screen",
-    // Walden
-    "i went to the woods because i wished to live deliberately to front only the essential facts of life",
-    "the mass of men lead lives of quiet desperation and go to the grave with the song still in them",
-    // Science & philosophy
-    "the only way to do great work is to love what you do and if you have not found it yet keep looking and do not settle",
-    "imagination is more important than knowledge for while knowledge defines all we currently know imagination points to what we might discover",
-    "the important thing is not to stop questioning for curiosity has its own reason for existing in this wonderful universe",
-    "we are all in the gutter but some of us are looking at the stars and dreaming of worlds beyond our own",
-    "the greatest glory in living lies not in never falling but in rising every time we fall and trying once more",
-    // Nature & observation
-    "the autumn wind scattered golden leaves across the garden as the last rays of sunlight painted the clouds in shades of orange and pink",
-    "deep in the forest where the ancient trees stood tall and silent a small stream wound its way through moss covered stones",
-    "the ocean stretched endlessly before them its surface catching the light of the setting sun in a thousand shimmering reflections",
-    "morning mist hung low over the meadow as the first birds began their chorus and dew drops sparkled like diamonds on every blade of grass",
-    "the mountain peak stood above the clouds its snow covered summit glowing pink and gold in the light of the early morning sun",
-    // Everyday wisdom
-    "the best time to plant a tree was twenty years ago and the second best time is now so do not wait any longer to begin",
-    "a journey of a thousand miles begins with a single step and every great achievement started with the decision to try",
-    "the more that you read the more things you will know and the more that you learn the more places you will go",
-    "in three words i can sum up everything i have learned about life it goes on and so must we with hope",
-    "happiness is not something ready made it comes from your own actions and your choices shape the life you live",
-    "do not go where the path may lead but go instead where there is no path and leave a trail for others to follow",
-    "success is not final failure is not fatal it is the courage to continue that counts in the end",
-    "be yourself because everyone else is already taken and the world needs what only you can bring to it",
-    "life is what happens when you are busy making other plans so enjoy the journey along the way",
-    "the secret of getting ahead is getting started and the secret of getting started is breaking your tasks into small steps",
 ];
 
-/// Gutenberg book IDs for popular public domain works
-const GUTENBERG_IDS: &[(u32, &str)] = &[
-    (1342, "pride_and_prejudice"),
-    (11, "alice_in_wonderland"),
-    (1661, "sherlock_holmes"),
-    (84, "frankenstein"),
-    (1952, "yellow_wallpaper"),
-    (2701, "moby_dick"),
-    (74, "tom_sawyer"),
-    (345, "dracula"),
-    (1232, "prince"),
-    (76, "huckleberry_finn"),
-    (5200, "metamorphosis"),
-    (2542, "aesop_fables"),
-    (174, "dorian_gray"),
-    (98, "tale_two_cities"),
-    (1080, "modest_proposal"),
-    (219, "heart_of_darkness"),
-    (4300, "ulysses"),
-    (28054, "brothers_karamazov"),
-    (2554, "crime_and_punishment"),
-    (55, "oz"),
+pub struct GutenbergBook {
+    pub id: u32,
+    pub key: &'static str,
+    pub title: &'static str,
+}
+
+pub const GUTENBERG_BOOKS: &[GutenbergBook] = &[
+    GutenbergBook {
+        id: 1342,
+        key: "pride_prejudice",
+        title: "Pride and Prejudice",
+    },
+    GutenbergBook {
+        id: 11,
+        key: "alice_wonderland",
+        title: "Alice in Wonderland",
+    },
+    GutenbergBook {
+        id: 1661,
+        key: "sherlock_holmes",
+        title: "Sherlock Holmes",
+    },
+    GutenbergBook {
+        id: 84,
+        key: "frankenstein",
+        title: "Frankenstein",
+    },
+    GutenbergBook {
+        id: 2701,
+        key: "moby_dick",
+        title: "Moby Dick",
+    },
+    GutenbergBook {
+        id: 98,
+        key: "tale_two_cities",
+        title: "A Tale of Two Cities",
+    },
+    GutenbergBook {
+        id: 2554,
+        key: "crime_punishment",
+        title: "Crime and Punishment",
+    },
 ];
+
+pub fn passage_options() -> Vec<(&'static str, String)> {
+    let mut out = vec![
+        ("all", "All (Built-in + all books)".to_string()),
+        ("builtin", "Built-in passages only".to_string()),
+    ];
+    for book in GUTENBERG_BOOKS {
+        out.push((book.key, format!("Book: {}", book.title)));
+    }
+    out
+}
+
+pub fn is_valid_passage_book(book: &str) -> bool {
+    book == "all" || book == "builtin" || GUTENBERG_BOOKS.iter().any(|b| b.key == book)
+}
+
+pub fn uncached_books(cache_dir: &str) -> Vec<&'static GutenbergBook> {
+    GUTENBERG_BOOKS
+        .iter()
+        .filter(|book| !cache_file(cache_dir, book.key).exists())
+        .collect()
+}
+
+pub fn book_by_key(key: &str) -> Option<&'static GutenbergBook> {
+    GUTENBERG_BOOKS.iter().find(|b| b.key == key)
+}
+
+pub fn is_book_cached(cache_dir: &str, key: &str) -> bool {
+    cache_file(cache_dir, key).exists()
+}
+
+pub fn download_book_to_cache_with_progress<F>(
+    cache_dir: &str,
+    book: &GutenbergBook,
+    mut on_progress: F,
+) -> bool
+where
+    F: FnMut(u64, Option<u64>),
+{
+    let _ = fs::create_dir_all(cache_dir);
+    let url = format!(
+        "https://www.gutenberg.org/cache/epub/{}/pg{}.txt",
+        book.id, book.id
+    );
+    if let Some(bytes) = fetch_url_bytes_with_progress(&url, |downloaded, total| {
+        on_progress(downloaded, total);
+    }) {
+        return fs::write(cache_file(cache_dir, book.key), bytes).is_ok();
+    }
+    false
+}
+
+fn cache_file(cache_dir: &str, key: &str) -> PathBuf {
+    PathBuf::from(cache_dir).join(format!("{key}.txt"))
+}
 
 pub struct PassageGenerator {
-    fetched_passages: Vec<String>,
+    fetched_passages: Vec<(String, String)>,
     rng: SmallRng,
+    selection: String,
+    cache_dir: String,
+    paragraph_limit: usize,
+    _downloads_enabled: bool,
     last_source: String,
 }
 
 impl PassageGenerator {
-    pub fn new(rng: SmallRng) -> Self {
+    pub fn new(
+        rng: SmallRng,
+        selection: &str,
+        cache_dir: &str,
+        paragraph_limit: usize,
+        downloads_enabled: bool,
+    ) -> Self {
+        let selected = if is_valid_passage_book(selection) {
+            selection.to_string()
+        } else {
+            "all".to_string()
+        };
         let mut generator = Self {
             fetched_passages: Vec::new(),
             rng,
+            selection: selected,
+            cache_dir: cache_dir.to_string(),
+            paragraph_limit,
+            _downloads_enabled: downloads_enabled,
             last_source: "Built-in passage library".to_string(),
         };
         generator.load_cached_passages();
@@ -116,41 +161,13 @@ impl PassageGenerator {
     }
 
     fn load_cached_passages(&mut self) {
-        if let Some(cache) = DiskCache::new("passages") {
-            for &(_, name) in GUTENBERG_IDS {
-                if let Some(content) = cache.get(name) {
-                    let paragraphs = extract_paragraphs(&content);
-                    self.fetched_passages.extend(paragraphs);
+        let _ = fs::create_dir_all(&self.cache_dir);
+        for book in relevant_books(&self.selection) {
+            if let Ok(content) = fs::read_to_string(cache_file(&self.cache_dir, book.key)) {
+                for para in extract_paragraphs(&content, self.paragraph_limit) {
+                    self.fetched_passages.push((para, book.title.to_string()));
                 }
             }
-        }
-    }
-
-    fn try_fetch_gutenberg(&mut self) {
-        let cache = match DiskCache::new("passages") {
-            Some(c) => c,
-            None => return,
-        };
-
-        // Pick a random book that we haven't cached yet
-        let uncached: Vec<(u32, &str)> = GUTENBERG_IDS
-            .iter()
-            .filter(|(_, name)| cache.get(name).is_none())
-            .copied()
-            .collect();
-
-        if uncached.is_empty() {
-            return;
-        }
-
-        let idx = self.rng.gen_range(0..uncached.len());
-        let (book_id, name) = uncached[idx];
-        let url = format!("https://www.gutenberg.org/cache/epub/{book_id}/pg{book_id}.txt");
-
-        if let Some(content) = fetch_url(&url) {
-            cache.put(name, &content);
-            let paragraphs = extract_paragraphs(&content);
-            self.fetched_passages.extend(paragraphs);
         }
     }
 }
@@ -160,39 +177,48 @@ impl TextGenerator for PassageGenerator {
         &mut self,
         _filter: &CharFilter,
         _focused: Option<char>,
-        _word_count: usize,
+        word_count: usize,
     ) -> String {
-        // Opportunistically fetch Gutenberg passages for source variety.
-        if self.fetched_passages.len() < 50 && self.rng.gen_bool(0.35) {
-            self.try_fetch_gutenberg();
+        let use_builtin = self.selection == "all" || self.selection == "builtin";
+        let total = (if use_builtin { PASSAGES.len() } else { 0 }) + self.fetched_passages.len();
+
+        if total == 0 {
+            let idx = self.rng.gen_range(0..PASSAGES.len());
+            self.last_source = "Built-in passage library (fallback)".to_string();
+            return normalize_keyboard_text(PASSAGES[idx]);
+        }
+        let idx = self.rng.gen_range(0..total);
+        if use_builtin && idx < PASSAGES.len() {
+            self.last_source = "Built-in passage library".to_string();
+            return fit_to_word_target(&normalize_keyboard_text(PASSAGES[idx]), word_count);
         }
 
-        let total_passages = PASSAGES.len() + self.fetched_passages.len();
-
-        if total_passages == 0 {
-            self.last_source = "Built-in passage library".to_string();
-            return PASSAGES[0].to_string();
-        }
-
-        // Randomly mix embedded and fetched passages.
-        let idx = self.rng.gen_range(0..total_passages);
-
-        if idx < PASSAGES.len() {
-            self.last_source = "Built-in passage library".to_string();
-            PASSAGES[idx].to_string()
+        let fetched_idx = if use_builtin {
+            idx - PASSAGES.len()
         } else {
-            let fetched_idx = idx - PASSAGES.len();
-            self.last_source = "Project Gutenberg (cached)".to_string();
-            self.fetched_passages[fetched_idx % self.fetched_passages.len()].clone()
-        }
+            idx
+        };
+        let (text, source) = &self.fetched_passages[fetched_idx % self.fetched_passages.len()];
+        self.last_source = format!("Project Gutenberg ({source})");
+        fit_to_word_target(text, word_count)
     }
 }
 
-/// Extract readable paragraphs from Gutenberg text, skipping header/footer
-fn extract_paragraphs(text: &str) -> Vec<String> {
-    let mut paragraphs = Vec::new();
+fn relevant_books(selection: &str) -> Vec<&'static GutenbergBook> {
+    if selection == "all" || selection == "builtin" {
+        return GUTENBERG_BOOKS.iter().collect();
+    }
+    GUTENBERG_BOOKS
+        .iter()
+        .filter(|book| book.key == selection)
+        .collect()
+}
 
-    // Find the start of actual content (after Gutenberg header)
+fn extract_paragraphs(text: &str, limit: usize) -> Vec<String> {
+    const MIN_WORDS: usize = 12;
+    const MAX_WORDS: usize = 42;
+
+    let mut paragraphs = Vec::new();
     let start_markers = ["*** START OF", "***START OF"];
     let end_markers = ["*** END OF", "***END OF"];
 
@@ -200,52 +226,150 @@ fn extract_paragraphs(text: &str) -> Vec<String> {
         .iter()
         .filter_map(|marker| text.find(marker))
         .min()
-        .map(|pos| {
-            // Find the end of the header line
-            text[pos..].find('\n').map(|nl| pos + nl + 1).unwrap_or(pos)
-        })
+        .map(|pos| text[pos..].find('\n').map(|nl| pos + nl + 1).unwrap_or(pos))
         .unwrap_or(0);
-
     let content_end = end_markers
         .iter()
         .filter_map(|marker| text.find(marker))
         .min()
         .unwrap_or(text.len());
+    let normalized = normalize_keyboard_text(
+        &text[content_start..content_end]
+            .replace("\r\n", "\n")
+            .replace('\r', "\n"),
+    );
 
-    let content = &text[content_start..content_end];
+    for para in normalized.split("\n\n") {
+        let raw = para.trim_matches('\n');
+        if raw.is_empty() {
+            continue;
+        }
 
-    // Split into paragraphs (double newline separated)
-    for para in content.split("\r\n\r\n").chain(content.split("\n\n")) {
-        let cleaned: String = para
-            .lines()
-            .map(|l| l.trim())
-            .collect::<Vec<_>>()
-            .join(" ")
+        let has_letters = raw.chars().any(|c| c.is_alphabetic());
+        let has_only_supported_controls = raw
             .chars()
-            .filter(|c| {
-                c.is_ascii_alphanumeric() || c.is_ascii_whitespace() || c.is_ascii_punctuation()
-            })
-            .collect::<String>()
-            .to_lowercase();
+            .all(|c| !c.is_control() || c == '\n' || c == '\t');
+        let word_count = raw.split_whitespace().count();
+        if !has_letters || !has_only_supported_controls || word_count < MIN_WORDS {
+            continue;
+        }
 
-        let word_count = cleaned.split_whitespace().count();
-        if word_count >= 15 && word_count <= 60 {
-            // Keep only the alpha/space portions for typing
-            let typing_text: String = cleaned
-                .chars()
-                .filter(|c| c.is_ascii_lowercase() || *c == ' ')
-                .collect::<String>()
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ");
-
-            if typing_text.split_whitespace().count() >= 10 {
-                paragraphs.push(typing_text);
-            }
+        if word_count <= MAX_WORDS {
+            paragraphs.push(raw.to_string());
+        } else {
+            paragraphs.extend(split_into_sentence_chunks(raw, MIN_WORDS, MAX_WORDS));
         }
     }
 
-    // Take at most 100 paragraphs per book
-    paragraphs.truncate(100);
+    if limit > 0 {
+        paragraphs.truncate(limit);
+    }
     paragraphs
+}
+
+fn normalize_keyboard_text(text: &str) -> String {
+    text.chars()
+        .map(|c| match c {
+            '\u{2018}' | '\u{2019}' | '\u{201B}' | '\u{2032}' => '\'',
+            '\u{201C}' | '\u{201D}' | '\u{201F}' | '\u{2033}' => '"',
+            '\u{2013}' | '\u{2014}' | '\u{2015}' | '\u{2212}' => '-',
+            '\u{2026}' => '.',
+            '\u{00A0}' => ' ',
+            _ => c,
+        })
+        .collect()
+}
+
+fn fit_to_word_target(text: &str, target_words: usize) -> String {
+    if target_words == 0 {
+        return text.to_string();
+    }
+    let words: Vec<&str> = text.split_whitespace().collect();
+    if words.is_empty() {
+        return text.to_string();
+    }
+    // Keep passages slightly longer than target at most.
+    let keep = target_words.saturating_mul(6) / 5;
+    if words.len() <= keep.max(1) {
+        return text.to_string();
+    }
+    words[..keep.max(1)].join(" ")
+}
+
+fn split_into_sentence_chunks(text: &str, min_words: usize, max_words: usize) -> Vec<String> {
+    let mut sentences: Vec<String> = Vec::new();
+    let mut start = 0usize;
+    for (idx, ch) in text.char_indices() {
+        if matches!(ch, '.' | '!' | '?') {
+            let end = idx + ch.len_utf8();
+            let s = text[start..end].trim();
+            if !s.is_empty() {
+                sentences.push(s.to_string());
+            }
+            start = end;
+        }
+    }
+    let tail = text[start..].trim();
+    if !tail.is_empty() {
+        sentences.push(tail.to_string());
+    }
+
+    let mut chunks: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut current_words = 0usize;
+
+    for sentence in sentences {
+        let w = sentence.split_whitespace().count();
+        if w == 0 {
+            continue;
+        }
+        if w > max_words {
+            if current_words >= min_words {
+                chunks.push(current.trim().to_string());
+            }
+            current.clear();
+            current_words = 0;
+            chunks.extend(split_long_by_words(&sentence, min_words, max_words));
+            continue;
+        }
+
+        if current_words == 0 {
+            current = sentence;
+            current_words = w;
+        } else if current_words + w <= max_words {
+            current.push(' ');
+            current.push_str(&sentence);
+            current_words += w;
+        } else {
+            if current_words >= min_words {
+                chunks.push(current.trim().to_string());
+            }
+            current = sentence;
+            current_words = w;
+        }
+    }
+
+    if current_words >= min_words {
+        chunks.push(current.trim().to_string());
+    }
+
+    chunks
+}
+
+fn split_long_by_words(sentence: &str, min_words: usize, max_words: usize) -> Vec<String> {
+    let words: Vec<&str> = sentence.split_whitespace().collect();
+    let mut out: Vec<String> = Vec::new();
+    let mut i = 0usize;
+    while i < words.len() {
+        let end = (i + max_words).min(words.len());
+        let chunk = words[i..end].join(" ");
+        if chunk.split_whitespace().count() >= min_words {
+            out.push(chunk);
+        } else if let Some(last) = out.last_mut() {
+            last.push(' ');
+            last.push_str(&chunk);
+        }
+        i = end;
+    }
+    out
 }

@@ -31,7 +31,7 @@ use ratatui::widgets::{Block, Paragraph, Widget};
 use app::{App, AppScreen, DrillMode};
 use engine::skill_tree::DrillScope;
 use event::{AppEvent, EventHandler};
-use session::result::DrillResult;
+use generator::passage::passage_options;
 use ui::components::dashboard::Dashboard;
 use ui::components::keyboard_diagram::KeyboardDiagram;
 use ui::components::skill_tree::{SkillTreeWidget, detail_line_count, selectable_branches};
@@ -117,6 +117,12 @@ fn run_app(
         match events.next()? {
             AppEvent::Key(key) => handle_key(app, key),
             AppEvent::Tick => {
+                if (app.screen == AppScreen::PassageIntro
+                    || app.screen == AppScreen::PassageDownloadProgress)
+                    && app.passage_intro_downloading
+                {
+                    app.process_passage_download_tick();
+                }
                 // Fallback: clear depressed keys after 150ms if no Release event received
                 if let Some(last) = app.last_key_time {
                     if last.elapsed() > Duration::from_millis(150) && !app.depressed_keys.is_empty()
@@ -175,6 +181,9 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         AppScreen::Settings => handle_settings_key(app, key),
         AppScreen::SkillTree => handle_skill_tree_key(app, key),
         AppScreen::CodeLanguageSelect => handle_code_language_key(app, key),
+        AppScreen::PassageBookSelect => handle_passage_book_key(app, key),
+        AppScreen::PassageIntro => handle_passage_intro_key(app, key),
+        AppScreen::PassageDownloadProgress => handle_passage_download_progress_key(app, key),
     }
 }
 
@@ -190,9 +199,7 @@ fn handle_menu_key(app: &mut App, key: KeyEvent) {
             app.go_to_code_language_select();
         }
         KeyCode::Char('3') => {
-            app.drill_mode = DrillMode::Passage;
-            app.drill_scope = DrillScope::Global;
-            app.start_drill();
+            app.go_to_passage_book_select();
         }
         KeyCode::Char('t') => app.go_to_skill_tree(),
         KeyCode::Char('s') => app.go_to_stats(),
@@ -209,9 +216,7 @@ fn handle_menu_key(app: &mut App, key: KeyEvent) {
                 app.go_to_code_language_select();
             }
             2 => {
-                app.drill_mode = DrillMode::Passage;
-                app.drill_scope = DrillScope::Global;
-                app.start_drill();
+                app.go_to_passage_book_select();
             }
             3 => app.go_to_skill_tree(),
             4 => app.go_to_stats(),
@@ -242,18 +247,8 @@ fn handle_drill_key(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc => {
             let has_progress = app.drill.as_ref().is_some_and(|d| d.cursor > 0);
-            if has_progress && app.drill_mode != DrillMode::Adaptive {
-                // Non-adaptive: show result screen for partial drill
-                if let Some(ref drill) = app.drill {
-                    let result = DrillResult::from_drill(
-                        drill,
-                        &app.drill_events,
-                        app.drill_mode.as_str(),
-                        app.drill_mode.is_ranked(),
-                    );
-                    app.last_result = Some(result);
-                }
-                app.screen = AppScreen::DrillResult;
+            if has_progress {
+                app.finish_partial_drill();
             } else {
                 app.go_to_menu();
             }
@@ -347,6 +342,22 @@ fn handle_stats_key(app: &mut App, key: KeyEvent) {
 }
 
 fn handle_settings_key(app: &mut App, key: KeyEvent) {
+    if app.settings_editing_download_dir {
+        match key.code {
+            KeyCode::Esc => {
+                app.settings_editing_download_dir = false;
+            }
+            KeyCode::Backspace => {
+                app.config.passage_download_dir.pop();
+            }
+            KeyCode::Char(ch) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                app.config.passage_download_dir.push(ch);
+            }
+            _ => {}
+        }
+        return;
+    }
+
     match key.code {
         KeyCode::Esc => {
             let _ = app.config.save();
@@ -358,15 +369,30 @@ fn handle_settings_key(app: &mut App, key: KeyEvent) {
             }
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            if app.settings_selected < 3 {
+            if app.settings_selected < 7 {
                 app.settings_selected += 1;
             }
         }
-        KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => {
-            app.settings_cycle_forward();
+        KeyCode::Enter => {
+            if app.settings_selected == 5 {
+                app.settings_editing_download_dir = true;
+            } else if app.settings_selected == 7 {
+                app.start_passage_downloads_from_settings();
+            } else {
+                app.settings_cycle_forward();
+            }
+        }
+        KeyCode::Right | KeyCode::Char('l') => {
+            if app.settings_selected < 5 {
+                app.settings_cycle_forward();
+            } else if app.settings_selected == 6 {
+                app.settings_cycle_forward();
+            }
         }
         KeyCode::Left | KeyCode::Char('h') => {
-            app.settings_cycle_backward();
+            if app.settings_selected < 5 || app.settings_selected == 6 {
+                app.settings_cycle_backward();
+            }
         }
         _ => {}
     }
@@ -419,6 +445,135 @@ fn start_code_drill(app: &mut App, langs: &[&str]) {
         app.drill_mode = DrillMode::Code;
         app.drill_scope = DrillScope::Global;
         app.start_drill();
+    }
+}
+
+fn handle_passage_book_key(app: &mut App, key: KeyEvent) {
+    let options = passage_options();
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => app.go_to_menu(),
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.passage_book_selected = app.passage_book_selected.saturating_sub(1);
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if app.passage_book_selected + 1 < options.len() {
+                app.passage_book_selected += 1;
+            }
+        }
+        KeyCode::Char(ch) if ch.is_ascii_digit() => {
+            let idx = (ch as usize).saturating_sub('1' as usize);
+            if idx < options.len() {
+                app.passage_book_selected = idx;
+                confirm_passage_book_and_continue(app, &options);
+            }
+        }
+        KeyCode::Enter => {
+            confirm_passage_book_and_continue(app, &options);
+        }
+        _ => {}
+    }
+}
+
+fn confirm_passage_book_and_continue(app: &mut App, options: &[(&'static str, String)]) {
+    if app.passage_book_selected >= options.len() {
+        return;
+    }
+    app.config.passage_book = options[app.passage_book_selected].0.to_string();
+    let _ = app.config.save();
+
+    if app.config.passage_onboarding_done {
+        app.start_passage_drill();
+    } else {
+        app.go_to_passage_intro();
+    }
+}
+
+fn handle_passage_intro_key(app: &mut App, key: KeyEvent) {
+    const INTRO_FIELDS: usize = 4;
+
+    if app.passage_intro_downloading {
+        return;
+    }
+
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => app.go_to_menu(),
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.passage_intro_selected = app.passage_intro_selected.saturating_sub(1);
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if app.passage_intro_selected + 1 < INTRO_FIELDS {
+                app.passage_intro_selected += 1;
+            }
+        }
+        KeyCode::Left | KeyCode::Char('h') => match app.passage_intro_selected {
+            0 => app.passage_intro_downloads_enabled = !app.passage_intro_downloads_enabled,
+            2 => {
+                app.passage_intro_paragraph_limit = match app.passage_intro_paragraph_limit {
+                    0 => 500,
+                    1 => 0,
+                    n => n.saturating_sub(25).max(1),
+                };
+            }
+            _ => {}
+        },
+        KeyCode::Right | KeyCode::Char('l') => match app.passage_intro_selected {
+            0 => app.passage_intro_downloads_enabled = !app.passage_intro_downloads_enabled,
+            2 => {
+                app.passage_intro_paragraph_limit = match app.passage_intro_paragraph_limit {
+                    0 => 1,
+                    n if n >= 500 => 0,
+                    n => n + 25,
+                };
+            }
+            _ => {}
+        },
+        KeyCode::Backspace => match app.passage_intro_selected {
+            1 => {
+                app.passage_intro_download_dir.pop();
+            }
+            2 => {
+                app.passage_intro_paragraph_limit /= 10;
+            }
+            _ => {}
+        },
+        KeyCode::Char(ch) => match app.passage_intro_selected {
+            1 if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                app.passage_intro_download_dir.push(ch);
+            }
+            2 if ch.is_ascii_digit() => {
+                let digit = (ch as u8 - b'0') as usize;
+                app.passage_intro_paragraph_limit = app
+                    .passage_intro_paragraph_limit
+                    .saturating_mul(10)
+                    .saturating_add(digit)
+                    .min(50_000);
+            }
+            _ => {}
+        },
+        KeyCode::Enter => {
+            if app.passage_intro_selected == 0 {
+                app.passage_intro_downloads_enabled = !app.passage_intro_downloads_enabled;
+                return;
+            }
+            if app.passage_intro_selected != 3 {
+                return;
+            }
+
+            app.config.passage_downloads_enabled = app.passage_intro_downloads_enabled;
+            app.config.passage_download_dir = app.passage_intro_download_dir.clone();
+            app.config.passage_paragraphs_per_book = app.passage_intro_paragraph_limit;
+            app.config.passage_onboarding_done = true;
+            let _ = app.config.save();
+            app.start_passage_drill();
+        }
+        _ => {}
+    }
+}
+
+fn handle_passage_download_progress_key(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => app.go_to_menu(),
+        _ => {}
     }
 }
 
@@ -504,7 +659,9 @@ fn skill_tree_detail_max_scroll(app: &App) -> usize {
         ])
         .split(inner);
     let detail_height = layout.get(2).map(|r| r.height as usize).unwrap_or(0);
-    let selected = app.skill_tree_selected.min(branches.len().saturating_sub(1));
+    let selected = app
+        .skill_tree_selected
+        .min(branches.len().saturating_sub(1));
     let total_lines = detail_line_count(branches[selected]);
     total_lines.saturating_sub(detail_height)
 }
@@ -524,6 +681,9 @@ fn render(frame: &mut ratatui::Frame, app: &App) {
         AppScreen::Settings => render_settings(frame, app),
         AppScreen::SkillTree => render_skill_tree(frame, app),
         AppScreen::CodeLanguageSelect => render_code_language_select(frame, app),
+        AppScreen::PassageBookSelect => render_passage_book_select(frame, app),
+        AppScreen::PassageIntro => render_passage_intro(frame, app),
+        AppScreen::PassageDownloadProgress => render_passage_download_progress(frame, app),
     }
 }
 
@@ -545,12 +705,11 @@ fn render_menu(frame: &mut ratatui::Frame, app: &App) {
     } else {
         String::new()
     };
+    let total_keys = app.skill_tree.total_unique_keys;
+    let unlocked = app.skill_tree.total_unlocked_count();
+    let mastered = app.skill_tree.total_confident_keys(&app.key_stats);
     let header_info = format!(
-        " Level {} | Score {:.0} | {}/{} keys{}",
-        crate::engine::scoring::level_from_score(app.profile.total_score),
-        app.profile.total_score,
-        app.skill_tree.total_unlocked_count(),
-        app.skill_tree.total_unique_keys,
+        " Key Progress {unlocked}/{total_keys} ({mastered} mastered){}",
         streak_text,
     );
     let header = Paragraph::new(Line::from(vec![
@@ -716,7 +875,12 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
                     " Passage source "
                 };
                 let source_info = Paragraph::new(Line::from(vec![
-                    Span::styled(label, Style::default().fg(colors.accent()).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        label,
+                        Style::default()
+                            .fg(colors.accent())
+                            .add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled(source, Style::default().fg(colors.text_pending())),
                 ]));
                 frame.render_widget(source_info, main_layout[idx]);
@@ -778,6 +942,9 @@ fn render_stats(frame: &mut ratatui::Frame, app: &App) {
         &app.key_stats,
         app.stats_tab,
         app.config.target_wpm,
+        app.skill_tree.total_unlocked_count(),
+        app.skill_tree.total_confident_keys(&app.key_stats),
+        app.skill_tree.total_unique_keys,
         app.theme,
         app.history_selected,
         app.history_confirm_delete,
@@ -814,6 +981,30 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
             format!("{}", app.config.word_count),
         ),
         ("Code Language".to_string(), current_lang.clone()),
+        (
+            "Passage Downloads".to_string(),
+            if app.config.passage_downloads_enabled {
+                "On".to_string()
+            } else {
+                "Off".to_string()
+            },
+        ),
+        (
+            "Passage Download Dir".to_string(),
+            app.config.passage_download_dir.clone(),
+        ),
+        (
+            "Paragraphs per Book".to_string(),
+            if app.config.passage_paragraphs_per_book == 0 {
+                "Whole book".to_string()
+            } else {
+                format!("{}", app.config.passage_paragraphs_per_book)
+            },
+        ),
+        (
+            "Download Passages Now".to_string(),
+            "Run downloader".to_string(),
+        ),
     ];
 
     let layout = Layout::default()
@@ -847,7 +1038,11 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
         let indicator = if is_selected { " > " } else { "   " };
 
         let label_text = format!("{indicator}{label}:");
-        let value_text = format!("  < {value} >");
+        let value_text = if i == 7 {
+            format!("  [ {value} ]")
+        } else {
+            format!("  < {value} >")
+        };
 
         let label_style = Style::default()
             .fg(if is_selected {
@@ -867,17 +1062,40 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
             colors.text_pending()
         });
 
-        let lines = vec![
-            Line::from(Span::styled(label_text, label_style)),
-            Line::from(Span::styled(value_text, value_style)),
-        ];
+        let lines = if i == 5 {
+            let path_line = if app.settings_editing_download_dir && is_selected {
+                format!("  {value}_")
+            } else {
+                format!("  {value}")
+            };
+            vec![
+                Line::from(Span::styled(
+                    if app.settings_editing_download_dir && is_selected {
+                        format!("{indicator}{label}: (editing)")
+                    } else {
+                        label_text
+                    },
+                    label_style,
+                )),
+                Line::from(Span::styled(path_line, value_style)),
+            ]
+        } else {
+            vec![
+                Line::from(Span::styled(label_text, label_style)),
+                Line::from(Span::styled(value_text, value_style)),
+            ]
+        };
         Paragraph::new(lines).render(field_layout[i], frame.buffer_mut());
     }
 
     let _ = (available_themes, languages_all);
 
     let footer = Paragraph::new(Line::from(Span::styled(
-        "  [ESC] Save & back  [Enter/arrows] Change value",
+        if app.settings_editing_download_dir {
+            "  Editing path: [Type/Backspace] Modify  [ESC] Done editing"
+        } else {
+            "  [ESC] Save & back  [Enter/arrows] Change value  [Enter on path] Edit dir"
+        },
         Style::default().fg(colors.accent()),
     )));
     footer.render(layout[3], frame.buffer_mut());
@@ -927,6 +1145,238 @@ fn render_code_language_select(frame: &mut ratatui::Frame, app: &App) {
         "  [1-5] Select  [Enter] Confirm  [ESC] Back",
         Style::default().fg(colors.text_pending()),
     )));
+
+    Paragraph::new(lines).render(inner, frame.buffer_mut());
+}
+
+fn render_passage_book_select(frame: &mut ratatui::Frame, app: &App) {
+    let area = frame.area();
+    let colors = &app.theme.colors;
+    let centered = ui::layout::centered_rect(60, 70, area);
+
+    let block = Block::bordered()
+        .title(" Select Passage Source ")
+        .border_style(Style::default().fg(colors.accent()))
+        .style(Style::default().bg(colors.bg()));
+    let inner = block.inner(centered);
+    block.render(centered, frame.buffer_mut());
+
+    let options = passage_options();
+    let mut lines: Vec<Line> = vec![Line::from("")];
+    for (i, (_, label)) in options.iter().enumerate() {
+        let is_selected = i == app.passage_book_selected;
+        let indicator = if is_selected { " > " } else { "   " };
+        let style = if is_selected {
+            Style::default()
+                .fg(colors.accent())
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(colors.fg())
+        };
+        lines.push(Line::from(Span::styled(
+            format!("{indicator}[{}] {label}", i + 1),
+            style,
+        )));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  [Up/Down] Navigate  [Enter] Confirm  [ESC] Back",
+        Style::default().fg(colors.text_pending()),
+    )));
+    Paragraph::new(lines).render(inner, frame.buffer_mut());
+}
+
+fn render_passage_intro(frame: &mut ratatui::Frame, app: &App) {
+    let area = frame.area();
+    let colors = &app.theme.colors;
+    let centered = ui::layout::centered_rect(75, 80, area);
+
+    let block = Block::bordered()
+        .title(" Passage Downloads Setup ")
+        .border_style(Style::default().fg(colors.accent()))
+        .style(Style::default().bg(colors.bg()));
+    let inner = block.inner(centered);
+    block.render(centered, frame.buffer_mut());
+
+    let paragraphs_value = if app.passage_intro_paragraph_limit == 0 {
+        "whole book".to_string()
+    } else {
+        app.passage_intro_paragraph_limit.to_string()
+    };
+
+    let fields = vec![
+        (
+            "Enable network downloads",
+            if app.passage_intro_downloads_enabled {
+                "On".to_string()
+            } else {
+                "Off".to_string()
+            },
+        ),
+        ("Download directory", app.passage_intro_download_dir.clone()),
+        ("Paragraphs per book (0 = whole)", paragraphs_value),
+        ("Start passage drill", "Confirm".to_string()),
+    ];
+
+    let mut lines = vec![
+        Line::from(Span::styled(
+            "Configure passage source settings before your first passage drill.",
+            Style::default()
+                .fg(colors.fg())
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(
+            "Downloads are lazy: books are fetched only when first needed.",
+            Style::default().fg(colors.text_pending()),
+        )),
+        Line::from(Span::styled(
+            "If you exit without confirming, this dialog will appear again next time.",
+            Style::default().fg(colors.text_pending()),
+        )),
+        Line::from(""),
+    ];
+
+    for (i, (label, value)) in fields.iter().enumerate() {
+        let is_selected = i == app.passage_intro_selected;
+        let indicator = if is_selected { " > " } else { "   " };
+        let label_style = if is_selected {
+            Style::default()
+                .fg(colors.accent())
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(colors.fg())
+        };
+        let value_style = if is_selected {
+            Style::default().fg(colors.focused_key())
+        } else {
+            Style::default().fg(colors.text_pending())
+        };
+
+        lines.push(Line::from(Span::styled(
+            format!("{indicator}{label}"),
+            label_style,
+        )));
+        if i == 1 {
+            lines.push(Line::from(Span::styled(format!("   {value}"), value_style)));
+        } else if i == 3 {
+            lines.push(Line::from(Span::styled(
+                format!("   [{value}]"),
+                value_style,
+            )));
+        } else {
+            lines.push(Line::from(Span::styled(
+                format!("   < {value} >"),
+                value_style,
+            )));
+        }
+        lines.push(Line::from(""));
+    }
+
+    if app.passage_intro_downloading {
+        let total_books = app.passage_intro_download_total.max(1);
+        let done_books = app.passage_intro_downloaded.min(total_books);
+        let total_bytes = app.passage_intro_download_bytes_total;
+        let done_bytes = app
+            .passage_intro_download_bytes
+            .min(total_bytes.max(app.passage_intro_download_bytes));
+        let width = 30usize;
+        let fill = if total_bytes > 0 {
+            ((done_bytes as usize).saturating_mul(width)) / (total_bytes as usize)
+        } else {
+            0
+        };
+        let bar = format!(
+            "{}{}",
+            "=".repeat(fill),
+            " ".repeat(width.saturating_sub(fill))
+        );
+        let progress_text = if total_bytes > 0 {
+            format!(" Downloading current book: [{bar}] {done_bytes}/{total_bytes} bytes")
+        } else {
+            format!(" Downloading current book: {done_bytes} bytes")
+        };
+        lines.push(Line::from(Span::styled(
+            progress_text,
+            Style::default()
+                .fg(colors.accent())
+                .add_modifier(Modifier::BOLD),
+        )));
+        if !app.passage_intro_current_book.is_empty() {
+            lines.push(Line::from(Span::styled(
+                format!(
+                    " Current: {}  (book {}/{})",
+                    app.passage_intro_current_book,
+                    done_books.saturating_add(1).min(total_books),
+                    total_books
+                ),
+                Style::default().fg(colors.text_pending()),
+            )));
+        }
+    } else {
+        lines.push(Line::from(Span::styled(
+            "  [Up/Down] Navigate  [Left/Right] Adjust  [Type/Backspace] Edit  [Enter] Confirm",
+            Style::default().fg(colors.text_pending()),
+        )));
+        lines.push(Line::from(Span::styled(
+            "  [ESC] Cancel",
+            Style::default().fg(colors.text_pending()),
+        )));
+    }
+
+    Paragraph::new(lines).render(inner, frame.buffer_mut());
+}
+
+fn render_passage_download_progress(frame: &mut ratatui::Frame, app: &App) {
+    let area = frame.area();
+    let colors = &app.theme.colors;
+    let centered = ui::layout::centered_rect(60, 35, area);
+
+    let block = Block::bordered()
+        .title(" Downloading Passage Source ")
+        .border_style(Style::default().fg(colors.accent()))
+        .style(Style::default().bg(colors.bg()));
+    let inner = block.inner(centered);
+    block.render(centered, frame.buffer_mut());
+
+    let total_bytes = app.passage_intro_download_bytes_total;
+    let done_bytes = app
+        .passage_intro_download_bytes
+        .min(total_bytes.max(app.passage_intro_download_bytes));
+    let width = 36usize;
+    let fill = if total_bytes > 0 {
+        ((done_bytes as usize).saturating_mul(width)) / (total_bytes as usize)
+    } else {
+        0
+    };
+    let bar = format!(
+        "{}{}",
+        "=".repeat(fill),
+        " ".repeat(width.saturating_sub(fill))
+    );
+
+    let book_name = if app.passage_intro_current_book.is_empty() {
+        "Preparing download...".to_string()
+    } else {
+        app.passage_intro_current_book.clone()
+    };
+
+    let lines = vec![
+        Line::from(Span::styled(
+            format!(" Book: {book_name}"),
+            Style::default()
+                .fg(colors.fg())
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            if total_bytes > 0 {
+                format!(" [{bar}] {done_bytes}/{total_bytes} bytes")
+            } else {
+                format!(" Downloaded: {done_bytes} bytes")
+            },
+            Style::default().fg(colors.accent()),
+        )),
+    ];
 
     Paragraph::new(lines).render(inner, frame.buffer_mut());
 }

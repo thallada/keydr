@@ -92,19 +92,31 @@ impl Widget for BranchProgressList<'_> {
             let total = self.skill_tree.total_unique_keys;
             let unlocked = self.skill_tree.total_unlocked_count();
             let mastered = self.skill_tree.total_confident_keys(self.key_stats);
-            let (m_bar, u_bar, e_bar) = compact_dual_bar_parts(mastered, unlocked, total, 12);
+            let left_pad = if area.width >= 90 {
+                3
+            } else if area.width >= 70 {
+                2
+            } else if area.width >= 55 {
+                1
+            } else {
+                0
+            };
+            let right_pad = if area.width >= 75 { 2 } else { 0 };
+            let label = format!("{}Overall Key Progress  ", " ".repeat(left_pad));
+            let suffix = format!(
+                " {unlocked}/{total} unlocked ({mastered} mastered){}",
+                " ".repeat(right_pad)
+            );
+            let reserved = label.len() + suffix.len();
+            let bar_width = (area.width as usize).saturating_sub(reserved).max(6);
+            let (m_bar, u_bar, e_bar) =
+                compact_dual_bar_parts(mastered, unlocked, total, bar_width);
             lines.push(Line::from(vec![
-                Span::styled(
-                    format!("   {:<14}", "Overall"),
-                    Style::default().fg(colors.fg()),
-                ),
+                Span::styled(label, Style::default().fg(colors.fg())),
                 Span::styled(m_bar, Style::default().fg(colors.text_correct())),
                 Span::styled(u_bar, Style::default().fg(colors.accent())),
                 Span::styled(e_bar, Style::default().fg(colors.text_pending())),
-                Span::styled(
-                    format!(" {unlocked}/{total}"),
-                    Style::default().fg(colors.text_pending()),
-                ),
+                Span::styled(suffix, Style::default().fg(colors.text_pending())),
             ]));
         }
 

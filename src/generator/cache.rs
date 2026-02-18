@@ -1,4 +1,6 @@
 use std::fs;
+#[cfg(feature = "network")]
+use std::io::Read;
 use std::path::PathBuf;
 
 pub struct DiskCache {
@@ -51,5 +53,45 @@ pub fn fetch_url(url: &str) -> Option<String> {
 
 #[cfg(not(feature = "network"))]
 pub fn fetch_url(_url: &str) -> Option<String> {
+    None
+}
+
+#[cfg(feature = "network")]
+pub fn fetch_url_bytes_with_progress<F>(url: &str, mut on_progress: F) -> Option<Vec<u8>>
+where
+    F: FnMut(u64, Option<u64>),
+{
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .ok()?;
+    let mut response = client.get(url).send().ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+
+    let total = response.content_length();
+    let mut out: Vec<u8> = Vec::new();
+    let mut buf = [0u8; 16 * 1024];
+    let mut downloaded = 0u64;
+
+    loop {
+        let n = response.read(&mut buf).ok()?;
+        if n == 0 {
+            break;
+        }
+        out.extend_from_slice(&buf[..n]);
+        downloaded = downloaded.saturating_add(n as u64);
+        on_progress(downloaded, total);
+    }
+
+    Some(out)
+}
+
+#[cfg(not(feature = "network"))]
+pub fn fetch_url_bytes_with_progress<F>(_url: &str, _on_progress: F) -> Option<Vec<u8>>
+where
+    F: FnMut(u64, Option<u64>),
+{
     None
 }

@@ -146,10 +146,7 @@ impl SkillTreeWidget<'_> {
                         .fg(colors.accent())
                         .add_modifier(Modifier::BOLD),
                 ),
-                BranchStatus::Available => (
-                    "  ",
-                    Style::default().fg(colors.fg()),
-                ),
+                BranchStatus::Available => ("  ", Style::default().fg(colors.fg())),
                 BranchStatus::Locked => ("  ", Style::default().fg(colors.text_pending())),
             };
 
@@ -359,7 +356,11 @@ impl SkillTreeWidget<'_> {
         }
         let max_scroll = lines.len().saturating_sub(visible_height);
         let scroll = self.detail_scroll.min(max_scroll);
-        let visible_lines: Vec<Line> = lines.into_iter().skip(scroll).take(visible_height).collect();
+        let visible_lines: Vec<Line> = lines
+            .into_iter()
+            .skip(scroll)
+            .take(visible_height)
+            .collect();
         let paragraph = Paragraph::new(visible_lines);
         paragraph.render(area, buf);
     }

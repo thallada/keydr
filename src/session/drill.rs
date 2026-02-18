@@ -3,6 +3,12 @@ use std::time::Instant;
 
 use crate::session::input::CharStatus;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SyntheticSpan {
+    pub start: usize,
+    pub end: usize,
+}
+
 pub struct DrillState {
     pub target: Vec<char>,
     pub input: Vec<CharStatus>,
@@ -10,6 +16,7 @@ pub struct DrillState {
     pub started_at: Option<Instant>,
     pub finished_at: Option<Instant>,
     pub typo_flags: HashSet<usize>,
+    pub synthetic_spans: Vec<SyntheticSpan>,
 }
 
 impl DrillState {
@@ -21,6 +28,7 @@ impl DrillState {
             started_at: None,
             finished_at: None,
             typo_flags: HashSet::new(),
+            synthetic_spans: Vec::new(),
         }
     }
 
@@ -157,5 +165,73 @@ mod tests {
         input::process_char(&mut drill, 'b'); // correct at pos 1
         assert_eq!(drill.typo_count(), 1);
         assert!(drill.typo_flags.contains(&0));
+    }
+
+    #[test]
+    fn test_wrong_enter_skips_line_and_backspace_collapses() {
+        let mut drill = DrillState::new("abcd\nef");
+        input::process_char(&mut drill, 'a');
+        assert_eq!(drill.cursor, 1);
+
+        // Wrong newline while expecting 'b' should skip to next line start.
+        input::process_char(&mut drill, '\n');
+        assert_eq!(drill.cursor, 5); // index after '\n'
+        assert!(drill.typo_count() >= 4);
+        for pos in 1..5 {
+            assert!(drill.typo_flags.contains(&pos));
+        }
+
+        // Backspacing at jump boundary collapses span to a single typo.
+        input::process_backspace(&mut drill);
+        assert_eq!(drill.cursor, 1);
+        assert_eq!(drill.typo_count(), 1);
+        assert!(drill.typo_flags.contains(&1));
+    }
+
+    #[test]
+    fn test_wrong_tab_skips_tab_width_and_backspace_collapses() {
+        let mut drill = DrillState::new("abcdef");
+        input::process_char(&mut drill, 'a');
+        assert_eq!(drill.cursor, 1);
+
+        // Tab jumps 4 chars (or to end of line).
+        input::process_char(&mut drill, '\t');
+        assert_eq!(drill.cursor, 5);
+        for pos in 1..5 {
+            assert!(drill.typo_flags.contains(&pos));
+        }
+
+        input::process_backspace(&mut drill);
+        assert_eq!(drill.cursor, 1);
+        assert_eq!(drill.typo_count(), 1);
+        assert!(drill.typo_flags.contains(&1));
+    }
+
+    #[test]
+    fn test_wrong_tab_near_line_end_clamps_to_end_of_line() {
+        let mut drill = DrillState::new("ab\ncd");
+        input::process_char(&mut drill, 'a');
+        input::process_char(&mut drill, 'b');
+        // At newline position, a wrong tab should consume just this line remainder.
+        input::process_char(&mut drill, '\t');
+        assert_eq!(drill.cursor, 3);
+        assert_eq!(drill.typo_count(), 1);
+    }
+
+    #[test]
+    fn test_nested_synthetic_spans_collapse_to_single_error() {
+        let mut drill = DrillState::new("abcd\nefgh");
+        input::process_char(&mut drill, 'a');
+        input::process_char(&mut drill, '\n');
+        let after_newline = drill.cursor;
+        input::process_char(&mut drill, '\t');
+        assert!(drill.typo_count() > 1);
+
+        input::process_backspace(&mut drill); // collapse tab span
+        assert_eq!(drill.cursor, after_newline);
+        input::process_backspace(&mut drill); // collapse newline span
+        assert_eq!(drill.cursor, 1);
+        assert_eq!(drill.typo_count(), 1);
+        assert!(drill.typo_flags.contains(&1));
     }
 }
