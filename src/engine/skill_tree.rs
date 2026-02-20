@@ -4,6 +4,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::engine::key_stats::KeyStatsStore;
 
+/// Events returned by `SkillTree::update` describing what changed.
+pub struct SkillTreeUpdate {
+    pub newly_unlocked: Vec<char>,
+    pub newly_mastered: Vec<char>,
+}
+
 // --- Branch ID ---
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -187,6 +193,19 @@ pub const ALL_BRANCHES: &[BranchDefinition] = &[
         levels: CODE_SYMBOLS_LEVELS,
     },
 ];
+
+/// Find which branch and level a key belongs to.
+/// Returns (branch_def, level_name, 1-based position in level).
+pub fn find_key_branch(ch: char) -> Option<(&'static BranchDefinition, &'static str, usize)> {
+    for branch in ALL_BRANCHES {
+        for level in branch.levels {
+            if let Some(pos) = level.keys.iter().position(|&k| k == ch) {
+                return Some((branch, level.name, pos + 1));
+            }
+        }
+    }
+    None
+}
 
 pub fn get_branch_definition(id: BranchId) -> &'static BranchDefinition {
     ALL_BRANCHES
@@ -487,7 +506,19 @@ impl SkillTree {
 
     /// Update skill tree progress based on current key stats.
     /// Call after updating KeyStatsStore.
-    pub fn update(&mut self, stats: &KeyStatsStore) {
+    ///
+    /// `before_stats` is an optional snapshot of key stats *before* this drill's data was added.
+    /// When provided, it's used to detect which keys were newly mastered (confidence crossing 1.0).
+    /// Returns a `SkillTreeUpdate` describing which keys were newly unlocked or mastered.
+    pub fn update(
+        &mut self,
+        stats: &KeyStatsStore,
+        before_stats: Option<&KeyStatsStore>,
+    ) -> SkillTreeUpdate {
+        // Snapshot unlocked keys before tree structure changes
+        let before_unlocked: HashSet<char> =
+            self.unlocked_keys(DrillScope::Global).into_iter().collect();
+
         // Update lowercase branch (progressive unlock)
         self.update_lowercase(stats);
 
@@ -517,6 +548,34 @@ impl SkillTree {
                 continue;
             }
             self.update_branch_level(branch_def, stats);
+        }
+
+        // Snapshot after
+        let after_unlocked: HashSet<char> =
+            self.unlocked_keys(DrillScope::Global).into_iter().collect();
+
+        let newly_unlocked: Vec<char> = after_unlocked
+            .difference(&before_unlocked)
+            .copied()
+            .collect();
+
+        // Detect mastery: keys that were unlocked before, had confidence < 1.0 in before_stats,
+        // but now have confidence >= 1.0 in current stats
+        let newly_mastered: Vec<char> = if let Some(before) = before_stats {
+            before_unlocked
+                .iter()
+                .filter(|&&ch| {
+                    before.get_confidence(ch) < 1.0 && stats.get_confidence(ch) >= 1.0
+                })
+                .copied()
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        SkillTreeUpdate {
+            newly_unlocked,
+            newly_mastered,
         }
     }
 
@@ -731,7 +790,7 @@ mod tests {
 
         // Make initial 6 keys confident
         make_stats_confident(&mut stats, &['e', 't', 'a', 'o', 'i', 'n']);
-        tree.update(&stats);
+        tree.update(&stats, None);
 
         // Should unlock 7th key ('s')
         let keys = tree.unlocked_keys(DrillScope::Global);
@@ -750,7 +809,7 @@ mod tests {
 
         // Need to repeatedly update as each unlock requires all current keys confident
         for _ in 0..30 {
-            tree.update(&stats);
+            tree.update(&stats, None);
         }
 
         assert_eq!(
@@ -805,7 +864,7 @@ mod tests {
 
         // Make level 1 capitals confident: T I A S W H B M
         make_stats_confident(&mut stats, &['T', 'I', 'A', 'S', 'W', 'H', 'B', 'M']);
-        tree.update(&stats);
+        tree.update(&stats, None);
 
         assert_eq!(tree.branch_progress(BranchId::Capitals).current_level, 1);
         assert_eq!(
@@ -829,7 +888,7 @@ mod tests {
 
         // Update multiple times for level advancement
         for _ in 0..5 {
-            tree.update(&stats);
+            tree.update(&stats, None);
         }
 
         assert_eq!(
@@ -967,5 +1026,70 @@ mod tests {
         // Selection at 0 and at max index should be valid
         assert!(0 < branches.len());
         assert!(branches.len() - 1 < branches.len());
+    }
+
+    #[test]
+    fn test_update_returns_newly_unlocked() {
+        let mut tree = SkillTree::default();
+        let mut stats = KeyStatsStore::default();
+
+        // Make initial 6 keys confident
+        make_stats_confident(&mut stats, &['e', 't', 'a', 'o', 'i', 'n']);
+        let result = tree.update(&stats, None);
+
+        // Should unlock 7th key ('s')
+        assert!(
+            result.newly_unlocked.contains(&'s'),
+            "newly_unlocked: {:?}",
+            result.newly_unlocked
+        );
+    }
+
+    #[test]
+    fn test_update_returns_newly_mastered() {
+        let mut tree = SkillTree::default();
+        let mut stats = KeyStatsStore::default();
+
+        // Snapshot before any key stats are added
+        let before_stats = stats.clone();
+
+        // Make first 5 keys confident
+        make_stats_confident(&mut stats, &['e', 't', 'a', 'o', 'i']);
+        let result = tree.update(&stats, Some(&before_stats));
+
+        // The 5 keys that went from <1.0 to >=1.0 should be in newly_mastered
+        for &ch in &['e', 't', 'a', 'o', 'i'] {
+            assert!(
+                result.newly_mastered.contains(&ch),
+                "expected {} in newly_mastered: {:?}",
+                ch,
+                result.newly_mastered
+            );
+        }
+    }
+
+    #[test]
+    fn test_find_key_branch_lowercase() {
+        let result = find_key_branch('e');
+        assert!(result.is_some());
+        let (branch, level_name, pos) = result.unwrap();
+        assert_eq!(branch.id, BranchId::Lowercase);
+        assert_eq!(level_name, "Frequency Order");
+        assert_eq!(pos, 1); // 'e' is first in the frequency order
+    }
+
+    #[test]
+    fn test_find_key_branch_capitals() {
+        let result = find_key_branch('T');
+        assert!(result.is_some());
+        let (branch, level_name, pos) = result.unwrap();
+        assert_eq!(branch.id, BranchId::Capitals);
+        assert_eq!(level_name, "Common Sentence Capitals");
+        assert_eq!(pos, 1); // 'T' is first
+    }
+
+    #[test]
+    fn test_find_key_branch_unknown() {
+        assert!(find_key_branch('\x00').is_none());
     }
 }

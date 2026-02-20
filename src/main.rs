@@ -14,8 +14,8 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use clap::Parser;
 use crossterm::event::{
-    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags,
-    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, KeyboardEnhancementFlags,
+    ModifierKeyCode, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use crossterm::execute;
 use crossterm::terminal::{
@@ -28,8 +28,10 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget, Wrap};
 
-use app::{App, AppScreen, DrillMode};
-use engine::skill_tree::DrillScope;
+use app::{App, AppScreen, DrillMode, MilestoneKind};
+use engine::skill_tree::{DrillScope, find_key_branch};
+use keyboard::display::key_display_name;
+use keyboard::finger::Hand;
 use event::{AppEvent, EventHandler};
 use generator::code_syntax::{code_language_options, is_language_cached, language_by_key};
 use generator::passage::{is_book_cached, passage_options};
@@ -81,7 +83,10 @@ fn main() -> Result<()> {
     // Try to enable keyboard enhancement for Release event support
     let keyboard_enhanced = execute!(
         io::stdout(),
-        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::REPORT_EVENT_TYPES)
+        PushKeyboardEnhancementFlags(
+            KeyboardEnhancementFlags::REPORT_EVENT_TYPES
+                | KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
+        )
     )
     .is_ok();
 
@@ -153,8 +158,24 @@ fn run_app(
 }
 
 fn handle_key(app: &mut App, key: KeyEvent) {
+    // Track caps lock state via Kitty protocol metadata (KeyEventState::CAPS_LOCK).
+    // This only works in terminals with native Kitty keyboard protocol support
+    // (Kitty, WezTerm, foot, Ghostty). In tmux/mosh/SSH, the protocol is stripped
+    // and crossterm infers SHIFT from character case, making it impossible to
+    // distinguish Shift+a from CapsLock+a.
+    app.caps_lock = key.state.contains(KeyEventState::CAPS_LOCK);
+
     // Track depressed keys and shift state for keyboard diagram
     match (&key.code, key.kind) {
+        (KeyCode::Modifier(ModifierKeyCode::LeftShift | ModifierKeyCode::RightShift), KeyEventKind::Press) => {
+            app.shift_held = true;
+            app.last_key_time = Some(Instant::now());
+            return; // Don't dispatch bare shift presses to screen handlers
+        }
+        (KeyCode::Modifier(ModifierKeyCode::LeftShift | ModifierKeyCode::RightShift), KeyEventKind::Release) => {
+            app.shift_held = false;
+            return;
+        }
         (KeyCode::Char(ch), KeyEventKind::Press) => {
             app.depressed_keys.insert(ch.to_ascii_lowercase());
             app.last_key_time = Some(Instant::now());
@@ -163,6 +184,33 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         (KeyCode::Char(ch), KeyEventKind::Release) => {
             app.depressed_keys.remove(&ch.to_ascii_lowercase());
             return; // Don't process Release events as input
+        }
+        (KeyCode::Backspace, KeyEventKind::Press) => {
+            app.depressed_keys.insert('\x08');
+            app.last_key_time = Some(Instant::now());
+            app.shift_held = key.modifiers.contains(KeyModifiers::SHIFT);
+        }
+        (KeyCode::Backspace, KeyEventKind::Release) => {
+            app.depressed_keys.remove(&'\x08');
+            return;
+        }
+        (KeyCode::Tab, KeyEventKind::Press) => {
+            app.depressed_keys.insert('\t');
+            app.last_key_time = Some(Instant::now());
+            app.shift_held = key.modifiers.contains(KeyModifiers::SHIFT);
+        }
+        (KeyCode::Tab, KeyEventKind::Release) => {
+            app.depressed_keys.remove(&'\t');
+            return;
+        }
+        (KeyCode::Enter, KeyEventKind::Press) => {
+            app.depressed_keys.insert('\n');
+            app.last_key_time = Some(Instant::now());
+            app.shift_held = key.modifiers.contains(KeyModifiers::SHIFT);
+        }
+        (KeyCode::Enter, KeyEventKind::Release) => {
+            app.depressed_keys.remove(&'\n');
+            return;
         }
         (_, KeyEventKind::Release) => return,
         _ => {
@@ -193,6 +241,7 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         AppScreen::PassageDownloadProgress => handle_passage_download_progress_key(app, key),
         AppScreen::CodeIntro => handle_code_intro_key(app, key),
         AppScreen::CodeDownloadProgress => handle_code_download_progress_key(app, key),
+        AppScreen::Keyboard => handle_keyboard_explorer_key(app, key),
     }
 }
 
@@ -219,6 +268,7 @@ fn handle_menu_key(app: &mut App, key: KeyEvent) {
             }
         }
         KeyCode::Char('t') => app.go_to_skill_tree(),
+        KeyCode::Char('b') => app.go_to_keyboard(),
         KeyCode::Char('s') => app.go_to_stats(),
         KeyCode::Char('c') => app.go_to_settings(),
         KeyCode::Up | KeyCode::Char('k') => app.menu.prev(),
@@ -244,8 +294,9 @@ fn handle_menu_key(app: &mut App, key: KeyEvent) {
                 }
             }
             3 => app.go_to_skill_tree(),
-            4 => app.go_to_stats(),
-            5 => app.go_to_settings(),
+            4 => app.go_to_keyboard(),
+            5 => app.go_to_stats(),
+            6 => app.go_to_settings(),
             _ => {}
         },
         _ => {}
@@ -253,6 +304,25 @@ fn handle_menu_key(app: &mut App, key: KeyEvent) {
 }
 
 fn handle_drill_key(app: &mut App, key: KeyEvent) {
+    // If a milestone overlay is showing, dismiss it on any key press
+    if !app.milestone_queue.is_empty() {
+        app.milestone_queue.pop_front();
+
+        // Determine what to do with the dismissing key
+        match milestone_dismiss_action(key.code) {
+            MilestoneDismissAction::EscAndExit => {
+                // Esc clears entire queue and exits drill
+                app.milestone_queue.clear();
+                // Fall through to normal Esc handling below
+            }
+            MilestoneDismissAction::Replay => {
+                // Char/Tab/Enter: dismiss and replay into drill
+                // Fall through to normal key handling below
+            }
+            MilestoneDismissAction::DismissOnly => return, // Backspace and others
+        }
+    }
+
     // Route Enter/Tab as typed characters during active drills
     if app.drill.is_some() {
         match key.code {
@@ -281,6 +351,21 @@ fn handle_drill_key(app: &mut App, key: KeyEvent) {
         KeyCode::Backspace => app.backspace(),
         KeyCode::Char(ch) => app.type_char(ch),
         _ => {}
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MilestoneDismissAction {
+    Replay,
+    DismissOnly,
+    EscAndExit,
+}
+
+fn milestone_dismiss_action(code: KeyCode) -> MilestoneDismissAction {
+    match code {
+        KeyCode::Esc => MilestoneDismissAction::EscAndExit,
+        KeyCode::Char(_) | KeyCode::Tab | KeyCode::Enter => MilestoneDismissAction::Replay,
+        _ => MilestoneDismissAction::DismissOnly,
     }
 }
 
@@ -863,6 +948,7 @@ fn render(frame: &mut ratatui::Frame, app: &App) {
         AppScreen::PassageDownloadProgress => render_passage_download_progress(frame, app),
         AppScreen::CodeIntro => render_code_intro(frame, app),
         AppScreen::CodeDownloadProgress => render_code_download_progress(frame, app),
+        AppScreen::Keyboard => render_keyboard_explorer(frame, app),
     }
 }
 
@@ -886,7 +972,7 @@ fn render_menu(frame: &mut ratatui::Frame, app: &App) {
     };
     let total_keys = app.skill_tree.total_unique_keys;
     let unlocked = app.skill_tree.total_unlocked_count();
-    let mastered = app.skill_tree.total_confident_keys(&app.key_stats);
+    let mastered = app.skill_tree.total_confident_keys(&app.ranked_key_stats);
     let header_info = format!(
         " Key Progress {unlocked}/{total_keys} ({mastered} mastered){}",
         streak_text,
@@ -913,7 +999,7 @@ fn render_menu(frame: &mut ratatui::Frame, app: &App) {
     frame.render_widget(&app.menu, menu_area);
 
     let footer = Paragraph::new(Line::from(vec![Span::styled(
-        " [1-3] Start  [t] Skill Tree  [s] Stats  [c] Settings  [q] Quit ",
+        " [1-3] Start  [t] Skill Tree  [b] Keyboard  [s] Stats  [c] Settings  [q] Quit ",
         Style::default().fg(colors.text_pending()),
     )]));
     frame.render_widget(footer, layout[2]);
@@ -952,7 +1038,9 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
         } else {
             let header_title = format!(" {mode_name} Drill ");
             let focus_text = if app.drill_mode == DrillMode::Adaptive {
-                let focused = app.skill_tree.focused_key(app.drill_scope, &app.key_stats);
+                let focused = app
+                    .skill_tree
+                    .focused_key(app.drill_scope, &app.ranked_key_stats);
                 if let Some(focused) = focused {
                     format!(" | Focus: '{focused}'")
                 } else {
@@ -1010,9 +1098,9 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
 
         let kbd_height = if show_kbd {
             if tier.compact_keyboard() {
-                5 // 3 rows + 2 border
+                6 // 3 rows + 2 border + 1 modifier space
             } else {
-                7 // 4 rows + 2 border + 1 label space
+                8 // 5 rows (4 + space bar) + 2 border + 1 spacing
             }
         } else {
             0
@@ -1039,7 +1127,7 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
             if app.drill_mode == DrillMode::Adaptive {
                 let progress_widget = ui::components::branch_progress_list::BranchProgressList {
                     skill_tree: &app.skill_tree,
-                    key_stats: &app.key_stats,
+                    key_stats: &app.ranked_key_stats,
                     drill_scope: app.drill_scope,
                     active_branches: &active_branches,
                     theme: app.theme,
@@ -1070,11 +1158,7 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
         if show_kbd {
             let next_char = drill.target.get(drill.cursor).copied();
             let unlocked_keys = app.skill_tree.unlocked_keys(app.drill_scope);
-            let focused = app.skill_tree.focused_key(app.drill_scope, &app.key_stats);
-            let kbd_height = if tier.compact_keyboard() { 5 } else { 7 };
-            let _ = kbd_height; // Height managed by constraints
             let kbd = KeyboardDiagram::new(
-                focused,
                 next_char,
                 &unlocked_keys,
                 &app.depressed_keys,
@@ -1082,7 +1166,8 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
                 &app.keyboard_model,
             )
             .compact(tier.compact_keyboard())
-            .shift_held(app.shift_held);
+            .shift_held(app.shift_held)
+            .caps_lock(app.caps_lock);
             frame.render_widget(kbd, main_layout[idx]);
         }
 
@@ -1101,6 +1186,221 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
             Style::default().fg(colors.text_pending()),
         )));
         frame.render_widget(footer, app_layout.footer);
+
+        // Render milestone overlay if present
+        if let Some(milestone) = app.milestone_queue.front() {
+            render_milestone_overlay(frame, app, milestone);
+        }
+    }
+}
+
+fn render_milestone_overlay(
+    frame: &mut ratatui::Frame,
+    app: &App,
+    milestone: &app::KeyMilestonePopup,
+) {
+    let area = frame.area();
+    let colors = &app.theme.colors;
+
+    // Determine overlay size based on terminal height:
+    // Large (>=25): full keyboard diagram
+    // Medium (>=15): compact keyboard diagram
+    // Small (<15): text only
+    let kbd_mode = overlay_keyboard_mode(area.height);
+    let overlay_height = match kbd_mode {
+        2 => 18u16.min(area.height.saturating_sub(2)),
+        1 => 14u16.min(area.height.saturating_sub(2)),
+        _ => 10u16.min(area.height.saturating_sub(2)),
+    };
+    let overlay_width = 60u16.min(area.width.saturating_sub(4));
+
+    let left = area.x + (area.width.saturating_sub(overlay_width)) / 2;
+    let top = area.y + (area.height.saturating_sub(overlay_height)) / 2;
+    let overlay_area = Rect::new(left, top, overlay_width, overlay_height);
+
+    // Clear the area behind the overlay
+    frame.render_widget(ratatui::widgets::Clear, overlay_area);
+
+    let title = match milestone.kind {
+        MilestoneKind::Unlock => " Key Unlocked! ",
+        MilestoneKind::Mastery => " Key Mastered! ",
+    };
+
+    let block = Block::bordered()
+        .title(title)
+        .border_style(Style::default().fg(colors.accent()))
+        .style(Style::default().bg(colors.bg()));
+    let inner = block.inner(overlay_area);
+    block.render(overlay_area, frame.buffer_mut());
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    // Key display line
+    let key_action = match milestone.kind {
+        MilestoneKind::Unlock => "unlocked",
+        MilestoneKind::Mastery => "mastered",
+    };
+
+    let key_names: Vec<String> = milestone
+        .keys
+        .iter()
+        .map(|&ch| {
+            let name = keyboard::display::key_display_name(ch);
+            if name.is_empty() {
+                format!("'{ch}'")
+            } else {
+                name.to_string()
+            }
+        })
+        .collect();
+    let keys_str = key_names.join(", ");
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        format!("  You {key_action}: {keys_str}"),
+        Style::default()
+            .fg(colors.accent())
+            .add_modifier(Modifier::BOLD),
+    )));
+
+    // Finger info (for unlocks)
+    if matches!(milestone.kind, MilestoneKind::Unlock) {
+        for (ch, finger_desc) in &milestone.finger_info {
+            let key_label = {
+                let name = keyboard::display::key_display_name(*ch);
+                if name.is_empty() {
+                    format!("'{ch}'")
+                } else {
+                    name.to_string()
+                }
+            };
+            lines.push(Line::from(Span::styled(
+                format!("  {key_label}: Use your {finger_desc}"),
+                Style::default().fg(colors.fg()),
+            )));
+
+            // Shift key guidance for shifted characters
+            let fa = app.keyboard_model.finger_for_char(*ch);
+            if ch.is_ascii_uppercase()
+                || (!ch.is_ascii_lowercase()
+                    && !ch.is_ascii_digit()
+                    && !ch.is_ascii_whitespace()
+                    && *ch != ' ')
+            {
+                let shift_hint = if fa.hand == keyboard::finger::Hand::Left {
+                    "Hold Right Shift (right pinky)"
+                } else {
+                    "Hold Left Shift (left pinky)"
+                };
+                lines.push(Line::from(Span::styled(
+                    format!("  {shift_hint}"),
+                    Style::default().fg(colors.text_pending()),
+                )));
+            }
+        }
+    }
+
+    // Encouraging message (randomly selected at creation time)
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        format!("  {}", milestone.message),
+        Style::default().fg(colors.focused_key()),
+    )));
+
+    // Keyboard diagram (if space permits)
+    if kbd_mode > 0 {
+        let min_kbd_height: u16 = if kbd_mode == 2 { 6 } else { 4 };
+        let remaining = inner.height.saturating_sub(lines.len() as u16 + 2);
+        if remaining >= min_kbd_height {
+            let kbd_y_start = inner.y + lines.len() as u16 + 1;
+            let kbd_height = remaining.min(if kbd_mode == 2 { 8 } else { 6 });
+            let kbd_area = Rect::new(inner.x, kbd_y_start, inner.width, kbd_height);
+            let milestone_key = milestone.keys.first().copied();
+            let unlocked_keys = app.skill_tree.unlocked_keys(app.drill_scope);
+            let is_shifted = milestone_key.is_some_and(|ch| {
+                ch.is_ascii_uppercase()
+                    || app.keyboard_model.shifted_to_base(ch).is_some()
+            });
+            let kbd = KeyboardDiagram::new(
+                None,
+                &unlocked_keys,
+                &app.depressed_keys,
+                app.theme,
+                &app.keyboard_model,
+            )
+            .selected_key(milestone_key)
+            .compact(kbd_mode == 1)
+            .shift_held(is_shifted)
+            .caps_lock(app.caps_lock);
+            frame.render_widget(kbd, kbd_area);
+        }
+    }
+
+    // Render the text content
+    let text_area = Rect::new(
+        inner.x,
+        inner.y,
+        inner.width,
+        inner.height.saturating_sub(1),
+    );
+    Paragraph::new(lines).render(text_area, frame.buffer_mut());
+
+    // Footer
+    let footer_y = inner.y + inner.height.saturating_sub(1);
+    if footer_y < inner.y + inner.height {
+        let footer_area = Rect::new(inner.x, footer_y, inner.width, 1);
+        let footer = Paragraph::new(Line::from(Span::styled(
+            "  Press any key to continue (Backspace dismisses only)",
+            Style::default().fg(colors.text_pending()),
+        )));
+        frame.render_widget(footer, footer_area);
+    }
+}
+
+fn overlay_keyboard_mode(height: u16) -> u8 {
+    if height >= 25 {
+        2 // full
+    } else if height >= 15 {
+        1 // compact
+    } else {
+        0 // text only
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+
+    #[test]
+    fn milestone_dismiss_matrix_matches_spec() {
+        assert_eq!(
+            milestone_dismiss_action(KeyCode::Char('a')),
+            MilestoneDismissAction::Replay
+        );
+        assert_eq!(
+            milestone_dismiss_action(KeyCode::Tab),
+            MilestoneDismissAction::Replay
+        );
+        assert_eq!(
+            milestone_dismiss_action(KeyCode::Enter),
+            MilestoneDismissAction::Replay
+        );
+        assert_eq!(
+            milestone_dismiss_action(KeyCode::Backspace),
+            MilestoneDismissAction::DismissOnly
+        );
+        assert_eq!(
+            milestone_dismiss_action(KeyCode::Esc),
+            MilestoneDismissAction::EscAndExit
+        );
+    }
+
+    #[test]
+    fn overlay_mode_height_boundaries() {
+        assert_eq!(overlay_keyboard_mode(14), 0);
+        assert_eq!(overlay_keyboard_mode(15), 1);
+        assert_eq!(overlay_keyboard_mode(24), 1);
+        assert_eq!(overlay_keyboard_mode(25), 2);
     }
 }
 
@@ -1122,7 +1422,7 @@ fn render_stats(frame: &mut ratatui::Frame, app: &App) {
         app.stats_tab,
         app.config.target_wpm,
         app.skill_tree.total_unlocked_count(),
-        app.skill_tree.total_confident_keys(&app.key_stats),
+        app.skill_tree.total_confident_keys(&app.ranked_key_stats),
         app.skill_tree.total_unique_keys,
         app.theme,
         app.history_selected,
@@ -2062,10 +2362,337 @@ fn render_skill_tree(frame: &mut ratatui::Frame, app: &App) {
     let centered = skill_tree_popup_rect(area);
     let widget = SkillTreeWidget::new(
         &app.skill_tree,
-        &app.key_stats,
+        &app.ranked_key_stats,
         app.skill_tree_selected,
         app.skill_tree_detail_scroll,
         app.theme,
     );
     frame.render_widget(widget, centered);
+}
+
+fn handle_keyboard_explorer_key(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => app.go_to_menu(),
+        KeyCode::Char('q') if app.keyboard_explorer_selected.is_none() => app.go_to_menu(),
+        KeyCode::Char(ch) => {
+            app.keyboard_explorer_selected = Some(ch);
+            app.key_accuracy(ch, false);
+            app.key_accuracy(ch, true);
+        }
+        KeyCode::Tab => {
+            app.keyboard_explorer_selected = Some('\t');
+            app.key_accuracy('\t', false);
+            app.key_accuracy('\t', true);
+        }
+        KeyCode::Enter => {
+            app.keyboard_explorer_selected = Some('\n');
+            app.key_accuracy('\n', false);
+            app.key_accuracy('\n', true);
+        }
+        KeyCode::Backspace => {
+            app.keyboard_explorer_selected = Some('\x08');
+            app.key_accuracy('\x08', false);
+            app.key_accuracy('\x08', true);
+        }
+        _ => {}
+    }
+}
+
+fn render_keyboard_explorer(frame: &mut ratatui::Frame, app: &App) {
+    let area = frame.area();
+    let colors = &app.theme.colors;
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // header
+            Constraint::Length(8), // keyboard diagram
+            Constraint::Min(3),   // detail panel
+            Constraint::Length(1), // footer
+        ])
+        .split(area);
+
+    // Header
+    let header_lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            " Keyboard Explorer ",
+            Style::default()
+                .fg(colors.accent())
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(
+            "Press any key to see details",
+            Style::default().fg(colors.text_pending()),
+        )),
+    ];
+    let header = Paragraph::new(header_lines)
+        .alignment(ratatui::layout::Alignment::Center);
+    frame.render_widget(header, layout[0]);
+
+    // Keyboard diagram
+    let unlocked = app.skill_tree.unlocked_keys(DrillScope::Global);
+    let kbd = KeyboardDiagram::new(
+        None,
+        &unlocked,
+        &app.depressed_keys,
+        app.theme,
+        &app.keyboard_model,
+    )
+    .selected_key(app.keyboard_explorer_selected)
+    .shift_held(app.shift_held)
+    .caps_lock(app.caps_lock);
+    frame.render_widget(kbd, layout[1]);
+
+    // Detail panel
+    render_keyboard_detail_panel(frame, app, layout[2]);
+
+    // Footer
+    let footer = Paragraph::new(Line::from(vec![Span::styled(
+        " [ESC] Back ",
+        Style::default().fg(colors.text_pending()),
+    )]));
+    frame.render_widget(footer, layout[3]);
+}
+
+fn render_keyboard_detail_panel(frame: &mut ratatui::Frame, app: &App, area: Rect) {
+    let colors = &app.theme.colors;
+
+    let selected = match app.keyboard_explorer_selected {
+        Some(ch) => ch,
+        None => {
+            let hint = Paragraph::new(Line::from(Span::styled(
+                "Press a key to see its details",
+                Style::default().fg(colors.text_pending()),
+            )))
+            .alignment(ratatui::layout::Alignment::Center)
+            .block(
+                Block::bordered()
+                    .border_style(Style::default().fg(colors.border()))
+                    .title(" Key Details "),
+            );
+            frame.render_widget(hint, area);
+            return;
+        }
+    };
+
+    // Build display name for title
+    let display_name = key_display_name(selected);
+    let title = if display_name.is_empty() {
+        format!(" Key Details: '{}' ", selected)
+    } else {
+        format!(" Key Details: {} ", display_name)
+    };
+
+    let block = Block::bordered()
+        .border_style(Style::default().fg(colors.border()))
+        .title(Span::styled(
+            title,
+            Style::default()
+                .fg(colors.accent())
+                .add_modifier(Modifier::BOLD),
+        ));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    // Finger assignment
+    let finger = app.keyboard_model.finger_for_char(selected);
+    lines.push(Line::from(vec![
+        Span::styled("  Finger:      ", Style::default().fg(colors.text_pending())),
+        Span::styled(
+            finger.description(),
+            Style::default().fg(colors.fg()),
+        ),
+    ]));
+
+    // Shift guidance for shifted characters
+    let is_shifted = selected.is_uppercase()
+        || matches!(
+            selected,
+            '!' | '@' | '#' | '$' | '%' | '^' | '&' | '*' | '(' | ')' | '_' | '+'
+                | '{' | '}' | '|' | ':' | '"' | '<' | '>' | '?' | '~'
+        );
+    if is_shifted {
+        let shift_guidance = if finger.hand == Hand::Left {
+            "Hold Right Shift (right pinky)"
+        } else {
+            "Hold Left Shift (left pinky)"
+        };
+        lines.push(Line::from(vec![
+            Span::styled("  Shift:       ", Style::default().fg(colors.text_pending())),
+            Span::styled(shift_guidance, Style::default().fg(colors.fg())),
+        ]));
+    }
+
+    // Unlocked status
+    let unlocked_keys = app.skill_tree.unlocked_keys(DrillScope::Global);
+    let is_unlocked = unlocked_keys.contains(&selected);
+    lines.push(Line::from(vec![
+        Span::styled("  Unlocked:    ", Style::default().fg(colors.text_pending())),
+        Span::styled(
+            if is_unlocked { "Yes" } else { "No" },
+            Style::default().fg(if is_unlocked {
+                colors.success()
+            } else {
+                colors.text_pending()
+            }),
+        ),
+    ]));
+
+    // Mastery / confidence (overall and ranked)
+    let overall_confidence = app.key_stats.get_confidence(selected);
+    let ranked_confidence = app.ranked_key_stats.get_confidence(selected);
+    if overall_confidence > 0.0 || ranked_confidence > 0.0 {
+        let overall_pct = (overall_confidence * 100.0).min(100.0);
+        let ranked_pct = (ranked_confidence * 100.0).min(100.0);
+        lines.push(Line::from(vec![
+            Span::styled("  Mastery:     ", Style::default().fg(colors.text_pending())),
+            Span::styled(
+                format!("overall {:>3.0}%  ranked {:>3.0}%", overall_pct, ranked_pct),
+                Style::default().fg(colors.fg()),
+            ),
+        ]));
+    }
+
+    // Branch/Level info
+    if let Some((branch, level_name, position)) = find_key_branch(selected) {
+        lines.push(Line::from(vec![
+            Span::styled("  Branch:      ", Style::default().fg(colors.text_pending())),
+            Span::styled(branch.name, Style::default().fg(colors.fg())),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  Level:       ", Style::default().fg(colors.text_pending())),
+            Span::styled(
+                format!("{} (key #{})", level_name, position),
+                Style::default().fg(colors.fg()),
+            ),
+        ]));
+    }
+
+    // Avg time / samples (overall and ranked)
+    let overall_stat = app.key_stats.get_stat(selected);
+    let ranked_stat = app.ranked_key_stats.get_stat(selected);
+    if overall_stat.is_some() || ranked_stat.is_some() {
+        let fmt_time = |stat: Option<&crate::engine::key_stats::KeyStat>| -> String {
+            if let Some(stat) = stat {
+                if stat.sample_count > 0 {
+                    let best = if stat.best_time_ms < f64::MAX {
+                        stat.best_time_ms
+                    } else {
+                        stat.filtered_time_ms
+                    };
+                    return format!("{:.0}ms/{:.0}ms", stat.filtered_time_ms, best);
+                }
+            }
+            "No data".to_string()
+        };
+        let fmt_samples = |stat: Option<&crate::engine::key_stats::KeyStat>| -> usize {
+            stat.map(|s| s.sample_count).unwrap_or(0)
+        };
+        lines.push(Line::from(vec![
+            Span::styled("  Avg Time:    ", Style::default().fg(colors.text_pending())),
+            Span::styled(
+                format!(
+                    "overall {}  ranked {}",
+                    fmt_time(overall_stat),
+                    fmt_time(ranked_stat)
+                ),
+                Style::default().fg(colors.fg()),
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  Samples:     ", Style::default().fg(colors.text_pending())),
+            Span::styled(
+                format!(
+                    "overall {}  ranked {}",
+                    fmt_samples(overall_stat),
+                    fmt_samples(ranked_stat)
+                ),
+                Style::default().fg(colors.fg()),
+            ),
+        ]));
+    }
+
+    // Accuracy (overall and ranked) from precomputed caches
+    let overall_acc = app
+        .explorer_accuracy_cache_overall
+        .filter(|(key, _, _)| *key == selected);
+    let ranked_acc = app
+        .explorer_accuracy_cache_ranked
+        .filter(|(key, _, _)| *key == selected);
+    if overall_acc.is_some() || ranked_acc.is_some() {
+        let fmt_acc = |entry: Option<(char, usize, usize)>| -> String {
+            if let Some((_, correct, total)) = entry {
+                if total > 0 {
+                    let pct = (correct as f64 / total as f64) * 100.0;
+                    return format!("{:.1}% ({}/{})", pct, correct, total);
+                }
+            }
+            "No data".to_string()
+        };
+        lines.push(Line::from(vec![
+            Span::styled("  Accuracy:    ", Style::default().fg(colors.text_pending())),
+            Span::styled(
+                format!(
+                    "overall {}  ranked {}",
+                    fmt_acc(overall_acc),
+                    fmt_acc(ranked_acc)
+                ),
+                Style::default().fg(colors.fg()),
+            ),
+        ]));
+    }
+
+    // Ranked progression info (mirrors Skill Tree per-key bar semantics)
+    if is_unlocked {
+        let focus_key = app
+            .skill_tree
+            .focused_key(DrillScope::Global, &app.ranked_key_stats);
+        let in_focus = focus_key == Some(selected);
+        lines.push(Line::from(vec![
+            Span::styled("  Focus:       ", Style::default().fg(colors.text_pending())),
+            Span::styled(
+                if in_focus { "In focus now" } else { "No" },
+                Style::default().fg(if in_focus {
+                    colors.focused_key()
+                } else {
+                    colors.fg()
+                }),
+            ),
+        ]));
+
+        let conf = app.ranked_key_stats.get_confidence(selected).min(1.0);
+        let bar_width = 10usize;
+        let filled = (conf * bar_width as f64).round() as usize;
+        let bar = format!(
+            "{}{}",
+            "\u{2588}".repeat(filled),
+            "\u{2591}".repeat(bar_width.saturating_sub(filled))
+        );
+        lines.push(Line::from(vec![
+            Span::styled("  Progress:    ", Style::default().fg(colors.text_pending())),
+            Span::styled(bar, Style::default().fg(colors.accent())),
+            Span::styled(
+                format!(" {:>3.0}%", conf * 100.0),
+                Style::default().fg(colors.fg()),
+            ),
+        ]));
+    }
+
+    // If no stats at all
+    if overall_stat.is_none()
+        && ranked_stat.is_none()
+        && overall_acc.is_none()
+        && ranked_acc.is_none()
+    {
+        lines.push(Line::from(Span::styled(
+            "  No data yet",
+            Style::default().fg(colors.text_pending()),
+        )));
+    }
+
+    let paragraph = Paragraph::new(lines);
+    frame.render_widget(paragraph, inner);
 }

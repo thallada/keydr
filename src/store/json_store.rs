@@ -74,6 +74,14 @@ impl JsonStore {
         self.save("key_stats.json", data)
     }
 
+    pub fn load_ranked_key_stats(&self) -> KeyStatsData {
+        self.load("key_stats_ranked.json")
+    }
+
+    pub fn save_ranked_key_stats(&self, data: &KeyStatsData) -> Result<()> {
+        self.save("key_stats_ranked.json", data)
+    }
+
     pub fn load_drill_history(&self) -> DrillHistoryData {
         self.load("lesson_history.json")
     }

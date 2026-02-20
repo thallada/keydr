@@ -6,6 +6,7 @@ use ratatui::widgets::{Block, Clear, Paragraph, Widget};
 use std::collections::{BTreeSet, HashMap};
 
 use crate::engine::key_stats::KeyStatsStore;
+use crate::keyboard::display::{self, BACKSPACE, ENTER, SPACE, TAB};
 use crate::keyboard::model::KeyboardModel;
 use crate::session::result::DrillResult;
 use crate::ui::components::activity_heatmap::ActivityHeatmap;
@@ -176,7 +177,8 @@ impl StatsDashboard<'_> {
     }
 
     fn render_accuracy_tab(&self, area: Rect, buf: &mut Buffer) {
-        let kbd_height: u16 = if area.width >= 96 { 10 } else { 8 };
+        // Give keyboard as much height as available (up to 12), reserving 6 for lists below
+        let kbd_height: u16 = area.height.saturating_sub(6).min(12).max(7);
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(kbd_height), Constraint::Min(6)])
@@ -191,7 +193,8 @@ impl StatsDashboard<'_> {
     }
 
     fn render_timing_tab(&self, area: Rect, buf: &mut Buffer) {
-        let kbd_height: u16 = if area.width >= 96 { 10 } else { 8 };
+        // Give keyboard as much height as available (up to 12), reserving 6 for lists below
+        let kbd_height: u16 = area.height.saturating_sub(6).min(12).max(7);
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(kbd_height), Constraint::Min(6)])
@@ -676,7 +679,7 @@ impl StatsDashboard<'_> {
         } else {
             return;
         };
-        let show_shifted = inner.height >= 6;
+        let show_shifted = inner.height >= 10; // 4 base + 4 shifted + 1 mod row + 1 spare
         let all_rows = &self.keyboard_model.rows;
         let offsets: &[u16] = &[0, 2, 3, 4];
 
@@ -731,6 +734,50 @@ impl StatsDashboard<'_> {
 
                 let display = format_accuracy_cell(key, accuracy, key_width);
                 buf.set_string(x, base_y, &display, Style::default().fg(fg_color));
+            }
+
+        }
+
+        // Modifier key stats row below the keyboard, spread across keyboard width
+        let kbd_width = all_rows
+            .iter()
+            .enumerate()
+            .map(|(i, row)| {
+                let off = offsets.get(i).copied().unwrap_or(0);
+                off + row.len() as u16 * key_step
+            })
+            .max()
+            .unwrap_or(inner.width)
+            .min(inner.width);
+        let mod_y = if show_shifted {
+            inner.y + all_rows.len() as u16 * 2 + 1
+        } else {
+            inner.y + all_rows.len() as u16
+        };
+        if mod_y < inner.y + inner.height {
+            let mod_keys: &[(char, &str)] = &[
+                (TAB, display::key_short_label(TAB)),
+                (SPACE, display::key_short_label(SPACE)),
+                (ENTER, display::key_short_label(ENTER)),
+                (BACKSPACE, display::key_short_label(BACKSPACE)),
+            ];
+            let labels: Vec<String> = mod_keys
+                .iter()
+                .map(|&(key, label)| {
+                    let accuracy = self.get_key_accuracy(key);
+                    format_accuracy_cell_label(label, accuracy, key_width)
+                })
+                .collect();
+            let positions = spread_labels(&labels, kbd_width);
+            for (i, &(key, _)) in mod_keys.iter().enumerate() {
+                let accuracy = self.get_key_accuracy(key);
+                let fg_color = accuracy_color(accuracy, colors);
+                buf.set_string(
+                    inner.x + positions[i],
+                    mod_y,
+                    &labels[i],
+                    Style::default().fg(fg_color),
+                );
             }
         }
     }
@@ -790,7 +837,7 @@ impl StatsDashboard<'_> {
         } else {
             return;
         };
-        let show_shifted = inner.height >= 6;
+        let show_shifted = inner.height >= 10; // 4 base + 4 shifted + 1 mod row + 1 spare
         let all_rows = &self.keyboard_model.rows;
         let offsets: &[u16] = &[0, 2, 3, 4];
 
@@ -841,6 +888,50 @@ impl StatsDashboard<'_> {
                 let fg_color = timing_color(time_ms, colors);
                 let display = format_timing_cell(key, time_ms, key_width);
                 buf.set_string(x, base_y, &display, Style::default().fg(fg_color));
+            }
+
+        }
+
+        // Modifier key stats row below the keyboard, spread across keyboard width
+        let kbd_width = all_rows
+            .iter()
+            .enumerate()
+            .map(|(i, row)| {
+                let off = offsets.get(i).copied().unwrap_or(0);
+                off + row.len() as u16 * key_step
+            })
+            .max()
+            .unwrap_or(inner.width)
+            .min(inner.width);
+        let mod_y = if show_shifted {
+            inner.y + all_rows.len() as u16 * 2 + 1
+        } else {
+            inner.y + all_rows.len() as u16
+        };
+        if mod_y < inner.y + inner.height {
+            let mod_keys: &[(char, &str)] = &[
+                (TAB, display::key_short_label(TAB)),
+                (SPACE, display::key_short_label(SPACE)),
+                (ENTER, display::key_short_label(ENTER)),
+                (BACKSPACE, display::key_short_label(BACKSPACE)),
+            ];
+            let labels: Vec<String> = mod_keys
+                .iter()
+                .map(|&(key, label)| {
+                    let time_ms = self.get_key_time_ms(key);
+                    format_timing_cell_label(label, time_ms, key_width)
+                })
+                .collect();
+            let positions = spread_labels(&labels, kbd_width);
+            for (i, &(key, _)) in mod_keys.iter().enumerate() {
+                let time_ms = self.get_key_time_ms(key);
+                let fg_color = timing_color(time_ms, colors);
+                buf.set_string(
+                    inner.x + positions[i],
+                    mod_y,
+                    &labels[i],
+                    Style::default().fg(fg_color),
+                );
             }
         }
     }
@@ -953,7 +1044,7 @@ impl StatsDashboard<'_> {
         let inner = block.inner(area);
         block.render(area, buf);
 
-        // Collect all keys from keyboard model
+        // Collect all keys from keyboard model + modifier keys
         let mut all_keys = std::collections::HashSet::new();
         for row in &self.keyboard_model.rows {
             for pk in row {
@@ -961,6 +1052,10 @@ impl StatsDashboard<'_> {
                 all_keys.insert(pk.shifted);
             }
         }
+        // Include modifier/whitespace keys
+        all_keys.insert(SPACE);
+        all_keys.insert(TAB);
+        all_keys.insert(ENTER);
 
         let mut key_accuracies: Vec<(char, f64)> = all_keys
             .into_iter()
@@ -1034,6 +1129,9 @@ impl StatsDashboard<'_> {
                 all_keys.insert(pk.shifted);
             }
         }
+        all_keys.insert(SPACE);
+        all_keys.insert(TAB);
+        all_keys.insert(ENTER);
 
         let mut key_accuracies: Vec<(char, f64)> = all_keys
             .into_iter()
@@ -1178,6 +1276,21 @@ fn format_accuracy_cell(key: char, accuracy: f64, key_width: u16) -> String {
     }
 }
 
+fn format_accuracy_cell_label(label: &str, accuracy: f64, key_width: u16) -> String {
+    if accuracy > 0.0 {
+        let pct = accuracy.round() as u32;
+        if key_width >= 5 {
+            format!("{label}{pct:>3}")
+        } else {
+            format!("{label}{pct:>2}")
+        }
+    } else if key_width >= 5 {
+        format!("{label}   ")
+    } else {
+        format!("{label}  ")
+    }
+}
+
 fn timing_color(time_ms: f64, colors: &crate::ui::theme::ThemeColors) -> ratatui::style::Color {
     if time_ms <= 0.0 {
         colors.text_pending()
@@ -1239,6 +1352,51 @@ fn format_timing_cell(key: char, time_ms: f64, key_width: u16) -> String {
     } else {
         format!("{key}   ")
     }
+}
+
+fn format_timing_cell_label(label: &str, time_ms: f64, key_width: u16) -> String {
+    if time_ms > 0.0 {
+        let ms = time_ms.round() as u32;
+        if key_width >= 5 {
+            format!("{label}{ms:>4}")
+        } else {
+            format!("{label}{:>3}", ms.min(999))
+        }
+    } else if key_width >= 5 {
+        format!("{label}    ")
+    } else {
+        format!("{label}   ")
+    }
+}
+
+/// Distribute labels across `total_width`, with the first flush-left
+/// and the last flush-right, and equal gaps between the rest.
+fn spread_labels(labels: &[String], total_width: u16) -> Vec<u16> {
+    let n = labels.len();
+    if n == 0 {
+        return vec![];
+    }
+    if n == 1 {
+        return vec![0];
+    }
+    let total_label_width: u16 = labels.iter().map(|l| l.len() as u16).sum();
+    let last_width = labels.last().map(|l| l.len() as u16).unwrap_or(0);
+    let spare = total_width.saturating_sub(total_label_width);
+    let gaps = (n - 1) as u16;
+    let gap = if gaps > 0 { spare / gaps } else { 0 };
+    let remainder = if gaps > 0 { spare % gaps } else { 0 };
+
+    let mut positions = Vec::with_capacity(n);
+    let mut x: u16 = 0;
+    for (i, label) in labels.iter().enumerate() {
+        if i == n - 1 {
+            // Last label flush-right
+            x = total_width.saturating_sub(last_width);
+        }
+        positions.push(x);
+        x += label.len() as u16 + gap + if (i as u16) < remainder { 1 } else { 0 };
+    }
+    positions
 }
 
 fn render_text_bar(

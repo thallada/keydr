@@ -43,6 +43,11 @@ impl<'a> Menu<'a> {
                     description: "View progression branches and launch drills".to_string(),
                 },
                 MenuItem {
+                    key: "b".to_string(),
+                    label: "Keyboard".to_string(),
+                    description: "Explore keyboard layout and key statistics".to_string(),
+                },
+                MenuItem {
                     key: "s".to_string(),
                     label: "Statistics".to_string(),
                     description: "View your typing statistics".to_string(),

@@ -111,7 +111,9 @@ impl Widget for TypingArea<'_> {
                     token.display.clone()
                 }
             } else if idx == self.drill.cursor && target_ch == ' ' {
-                "\u{00b7}".to_string()
+                // Keep an actual space at cursor position so soft-wrap break opportunities
+                // remain stable at word boundaries.
+                " ".to_string()
             } else {
                 token.display.clone()
             };

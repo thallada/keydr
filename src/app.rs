@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
@@ -54,6 +54,7 @@ pub enum AppScreen {
     PassageDownloadProgress,
     CodeIntro,
     CodeDownloadProgress,
+    Keyboard,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,6 +75,32 @@ pub enum CodeDownloadCompleteAction {
     StartCodeDrill,
     ReturnToSettings,
 }
+
+pub enum MilestoneKind {
+    Unlock,
+    Mastery,
+}
+
+pub struct KeyMilestonePopup {
+    pub kind: MilestoneKind,
+    pub keys: Vec<char>,
+    pub finger_info: Vec<(char, String)>,
+    pub message: &'static str,
+}
+
+const UNLOCK_MESSAGES: &[&str] = &[
+    "Nice work! Keep building your typing skills.",
+    "Another key added to your arsenal!",
+    "Your keyboard is growing! Keep it up.",
+    "One step closer to full keyboard mastery!",
+];
+
+const MASTERY_MESSAGES: &[&str] = &[
+    "This key is now at full confidence!",
+    "You've got this key down pat!",
+    "Muscle memory locked in!",
+    "One more key conquered!",
+];
 
 struct DownloadJob {
     downloaded_bytes: Arc<AtomicU64>,
@@ -109,6 +136,7 @@ pub struct App {
     pub theme: &'static Theme,
     pub config: Config,
     pub key_stats: KeyStatsStore,
+    pub ranked_key_stats: KeyStatsStore,
     pub skill_tree: SkillTree,
     pub profile: ProfileData,
     pub store: Option<JsonStore>,
@@ -154,7 +182,12 @@ pub struct App {
     pub code_download_attempted: bool,
     pub code_download_action: CodeDownloadCompleteAction,
     pub shift_held: bool,
+    pub caps_lock: bool,
     pub keyboard_model: KeyboardModel,
+    pub milestone_queue: VecDeque<KeyMilestonePopup>,
+    pub keyboard_explorer_selected: Option<char>,
+    pub explorer_accuracy_cache_overall: Option<(char, usize, usize)>,
+    pub explorer_accuracy_cache_ranked: Option<(char, usize, usize)>,
     rng: SmallRng,
     transition_table: TransitionTable,
     #[allow(dead_code)]
@@ -176,20 +209,22 @@ impl App {
 
         let store = JsonStore::new().ok();
 
-        let (key_stats, skill_tree, profile, drill_history) = if let Some(ref s) = store {
+        let (key_stats, ranked_key_stats, skill_tree, profile, drill_history) = if let Some(ref s) = store {
             // load_profile returns None if file exists but can't parse (schema mismatch)
             let pd = s.load_profile();
 
             match pd {
                 Some(pd) if !pd.needs_reset() => {
                     let ksd = s.load_key_stats();
+                    let rksd = s.load_ranked_key_stats();
                     let lhd = s.load_drill_history();
                     let st = SkillTree::new(pd.skill_tree.clone());
-                    (ksd.stats, st, pd, lhd.drills)
+                    (ksd.stats, rksd.stats, st, pd, lhd.drills)
                 }
                 _ => {
                     // Schema mismatch or parse failure: full reset of all stores
                     (
+                        KeyStatsStore::default(),
                         KeyStatsStore::default(),
                         SkillTree::default(),
                         ProfileData::default(),
@@ -200,6 +235,7 @@ impl App {
         } else {
             (
                 KeyStatsStore::default(),
+                KeyStatsStore::default(),
                 SkillTree::default(),
                 ProfileData::default(),
                 Vec::new(),
@@ -208,6 +244,8 @@ impl App {
 
         let mut key_stats_with_target = key_stats;
         key_stats_with_target.target_cpm = config.target_cpm();
+        let mut ranked_key_stats_with_target = ranked_key_stats;
+        ranked_key_stats_with_target.target_cpm = config.target_cpm();
 
         let dictionary = Dictionary::load();
         let transition_table = TransitionTable::build_from_words(&dictionary.words_list());
@@ -231,6 +269,7 @@ impl App {
             theme,
             config,
             key_stats: key_stats_with_target,
+            ranked_key_stats: ranked_key_stats_with_target,
             skill_tree,
             profile,
             store,
@@ -276,7 +315,12 @@ impl App {
             code_download_attempted: false,
             code_download_action: CodeDownloadCompleteAction::StartCodeDrill,
             shift_held: false,
+            caps_lock: false,
             keyboard_model,
+            milestone_queue: VecDeque::new(),
+            keyboard_explorer_selected: None,
+            explorer_accuracy_cache_overall: None,
+            explorer_accuracy_cache_ranked: None,
             rng: SmallRng::from_entropy(),
             transition_table,
             dictionary,
@@ -303,7 +347,7 @@ impl App {
             DrillMode::Adaptive => {
                 let scope = self.drill_scope;
                 let all_keys = self.skill_tree.unlocked_keys(scope);
-                let focused = self.skill_tree.focused_key(scope, &self.key_stats);
+                let focused = self.skill_tree.focused_key(scope, &self.ranked_key_stats);
 
                 // Generate base lowercase text using only lowercase keys from scope
                 let lowercase_keys: Vec<char> = all_keys
@@ -493,13 +537,65 @@ impl App {
                 false,
             );
 
+            // Update timing stats for all drill modes
+            let before_stats = if ranked {
+                Some(self.ranked_key_stats.clone())
+            } else {
+                None
+            };
+            for kt in &result.per_key_times {
+                if kt.correct {
+                    self.key_stats.update_key(kt.key, kt.time_ms);
+                }
+            }
+
             if ranked {
                 for kt in &result.per_key_times {
                     if kt.correct {
-                        self.key_stats.update_key(kt.key, kt.time_ms);
+                        self.ranked_key_stats.update_key(kt.key, kt.time_ms);
                     }
                 }
-                self.skill_tree.update(&self.key_stats);
+                let update = self
+                    .skill_tree
+                    .update(&self.ranked_key_stats, before_stats.as_ref());
+
+                // Queue milestone overlays for newly unlocked keys
+                if !update.newly_unlocked.is_empty() {
+                    let finger_info: Vec<(char, String)> = update
+                        .newly_unlocked
+                        .iter()
+                        .map(|&ch| {
+                            let desc = self.keyboard_model.finger_for_char(ch).description();
+                            (ch, desc.to_string())
+                        })
+                        .collect();
+                    let msg = UNLOCK_MESSAGES[self.rng.gen_range(0..UNLOCK_MESSAGES.len())];
+                    self.milestone_queue.push_back(KeyMilestonePopup {
+                        kind: MilestoneKind::Unlock,
+                        keys: update.newly_unlocked,
+                        finger_info,
+                        message: msg,
+                    });
+                }
+
+                // Queue milestone overlays for newly mastered keys
+                if !update.newly_mastered.is_empty() {
+                    let finger_info: Vec<(char, String)> = update
+                        .newly_mastered
+                        .iter()
+                        .map(|&ch| {
+                            let desc = self.keyboard_model.finger_for_char(ch).description();
+                            (ch, desc.to_string())
+                        })
+                        .collect();
+                    let msg = MASTERY_MESSAGES[self.rng.gen_range(0..MASTERY_MESSAGES.len())];
+                    self.milestone_queue.push_back(KeyMilestonePopup {
+                        kind: MilestoneKind::Mastery,
+                        keys: update.newly_mastered,
+                        finger_info,
+                        message: msg,
+                    });
+                }
             }
 
             let complexity = self.skill_tree.complexity();
@@ -554,6 +650,13 @@ impl App {
                 true,
             );
 
+            // Update timing stats for all completed keystrokes
+            for kt in &result.per_key_times {
+                if kt.correct {
+                    self.key_stats.update_key(kt.key, kt.time_ms);
+                }
+            }
+
             self.drill_history.push(result.clone());
             if self.drill_history.len() > 500 {
                 self.drill_history.remove(0);
@@ -571,6 +674,10 @@ impl App {
             let _ = store.save_key_stats(&KeyStatsData {
                 schema_version: 2,
                 stats: self.key_stats.clone(),
+            });
+            let _ = store.save_ranked_key_stats(&KeyStatsData {
+                schema_version: 2,
+                stats: self.ranked_key_stats.clone(),
             });
             let _ = store.save_drill_history(&DrillHistoryData {
                 schema_version: 2,
@@ -628,6 +735,8 @@ impl App {
         // Reset all derived state
         self.key_stats = KeyStatsStore::default();
         self.key_stats.target_cpm = self.config.target_cpm();
+        self.ranked_key_stats = KeyStatsStore::default();
+        self.ranked_key_stats.target_cpm = self.config.target_cpm();
         self.skill_tree = SkillTree::default();
         self.profile.total_score = 0.0;
         self.profile.total_drills = 0;
@@ -637,14 +746,20 @@ impl App {
 
         // Replay each remaining session oldest->newest
         for result in &self.drill_history {
+            // Update timing stats for all sessions
+            for kt in &result.per_key_times {
+                if kt.correct {
+                    self.key_stats.update_key(kt.key, kt.time_ms);
+                }
+            }
             // Only update skill tree for ranked sessions
             if result.ranked {
                 for kt in &result.per_key_times {
                     if kt.correct {
-                        self.key_stats.update_key(kt.key, kt.time_ms);
+                        self.ranked_key_stats.update_key(kt.key, kt.time_ms);
                     }
                 }
-                self.skill_tree.update(&self.key_stats);
+                self.skill_tree.update(&self.ranked_key_stats, None);
             }
 
             // Partial sessions are visible in history but do not affect profile/streak activity.
@@ -698,6 +813,47 @@ impl App {
         self.drill_mode = DrillMode::Adaptive;
         self.drill_scope = DrillScope::Branch(branch_id);
         self.start_drill();
+    }
+
+    pub fn go_to_keyboard(&mut self) {
+        self.keyboard_explorer_selected = None;
+        self.explorer_accuracy_cache_overall = None;
+        self.explorer_accuracy_cache_ranked = None;
+        self.screen = AppScreen::Keyboard;
+    }
+
+    pub fn key_accuracy(&mut self, ch: char, ranked_only: bool) -> (usize, usize) {
+        let cache = if ranked_only {
+            self.explorer_accuracy_cache_ranked
+        } else {
+            self.explorer_accuracy_cache_overall
+        };
+        if let Some((cached_key, correct, total)) = cache {
+            if cached_key == ch {
+                return (correct, total);
+            }
+        }
+        let mut correct = 0usize;
+        let mut total = 0usize;
+        for result in &self.drill_history {
+            if ranked_only && !result.ranked {
+                continue;
+            }
+            for kt in &result.per_key_times {
+                if kt.key == ch {
+                    total += 1;
+                    if kt.correct {
+                        correct += 1;
+                    }
+                }
+            }
+        }
+        if ranked_only {
+            self.explorer_accuracy_cache_ranked = Some((ch, correct, total));
+        } else {
+            self.explorer_accuracy_cache_overall = Some((ch, correct, total));
+        }
+        (correct, total)
     }
 
     pub fn go_to_code_language_select(&mut self) {
@@ -1153,6 +1309,7 @@ impl App {
             0 => {
                 self.config.target_wpm = (self.config.target_wpm + 5).min(200);
                 self.key_stats.target_cpm = self.config.target_cpm();
+                self.ranked_key_stats.target_cpm = self.config.target_cpm();
             }
             1 => {
                 let themes = Theme::available_themes();
@@ -1219,6 +1376,7 @@ impl App {
             0 => {
                 self.config.target_wpm = self.config.target_wpm.saturating_sub(5).max(10);
                 self.key_stats.target_cpm = self.config.target_cpm();
+                self.ranked_key_stats.target_cpm = self.config.target_cpm();
             }
             1 => {
                 let themes = Theme::available_themes();

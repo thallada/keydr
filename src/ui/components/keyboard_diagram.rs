@@ -5,12 +5,12 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Widget};
 
-use crate::keyboard::finger::{Finger, Hand};
+use crate::keyboard::display::{self, BACKSPACE, ENTER, SPACE, TAB};
 use crate::keyboard::model::KeyboardModel;
 use crate::ui::theme::Theme;
 
 pub struct KeyboardDiagram<'a> {
-    pub focused_key: Option<char>,
+    pub selected_key: Option<char>,
     pub next_key: Option<char>,
     pub unlocked_keys: &'a [char],
     pub depressed_keys: &'a HashSet<char>,
@@ -18,11 +18,11 @@ pub struct KeyboardDiagram<'a> {
     pub compact: bool,
     pub model: &'a KeyboardModel,
     pub shift_held: bool,
+    pub caps_lock: bool,
 }
 
 impl<'a> KeyboardDiagram<'a> {
     pub fn new(
-        focused_key: Option<char>,
         next_key: Option<char>,
         unlocked_keys: &'a [char],
         depressed_keys: &'a HashSet<char>,
@@ -30,7 +30,7 @@ impl<'a> KeyboardDiagram<'a> {
         model: &'a KeyboardModel,
     ) -> Self {
         Self {
-            focused_key,
+            selected_key: None,
             next_key,
             unlocked_keys,
             depressed_keys,
@@ -38,7 +38,18 @@ impl<'a> KeyboardDiagram<'a> {
             compact: false,
             model,
             shift_held: false,
+            caps_lock: false,
         }
+    }
+
+    pub fn caps_lock(mut self, caps_lock: bool) -> Self {
+        self.caps_lock = caps_lock;
+        self
+    }
+
+    pub fn selected_key(mut self, key: Option<char>) -> Self {
+        self.selected_key = key;
+        self
     }
 
     pub fn compact(mut self, compact: bool) -> Self {
@@ -50,20 +61,15 @@ impl<'a> KeyboardDiagram<'a> {
         self.shift_held = shift_held;
         self
     }
-}
 
-fn finger_color(model: &KeyboardModel, ch: char) -> Color {
-    let assignment = model.finger_for_char(ch);
-    match (assignment.hand, assignment.finger) {
-        (Hand::Left, Finger::Pinky) => Color::Rgb(180, 100, 100),
-        (Hand::Left, Finger::Ring) => Color::Rgb(180, 140, 80),
-        (Hand::Left, Finger::Middle) => Color::Rgb(120, 160, 80),
-        (Hand::Left, Finger::Index) => Color::Rgb(80, 140, 180),
-        (Hand::Right, Finger::Index) => Color::Rgb(100, 140, 200),
-        (Hand::Right, Finger::Middle) => Color::Rgb(120, 160, 80),
-        (Hand::Right, Finger::Ring) => Color::Rgb(180, 140, 80),
-        (Hand::Right, Finger::Pinky) => Color::Rgb(180, 100, 100),
-        _ => Color::Rgb(120, 120, 120),
+    /// Check if a key (by display or base char) matches the selected key.
+    fn is_key_selected(&self, display_char: char, base_char: char) -> bool {
+        self.selected_key == Some(display_char) || self.selected_key == Some(base_char)
+    }
+
+    /// Check if a sentinel/modifier key matches the selected key.
+    fn is_sentinel_selected(&self, sentinel: char) -> bool {
+        self.selected_key == Some(sentinel)
     }
 }
 
@@ -75,6 +81,69 @@ fn brighten_color(color: Color) -> Color {
             b.saturating_add(60),
         ),
         other => other,
+    }
+}
+
+/// Blend a color toward the background at the given ratio (0.0 = full bg, 1.0 = full color).
+fn blend_toward_bg(color: Color, bg: Color, ratio: f32) -> Color {
+    match (color, bg) {
+        (Color::Rgb(r, g, b), Color::Rgb(br, bg_g, bb)) => {
+            let mix = |c: u8, base: u8| -> u8 {
+                (base as f32 + (c as f32 - base as f32) * ratio).round() as u8
+            };
+            Color::Rgb(mix(r, br), mix(g, bg_g), mix(b, bb))
+        }
+        _ => color,
+    }
+}
+
+/// Compute style for a modifier key box (Tab, Enter, Shift, Space, Backspace).
+fn modifier_key_style(
+    is_depressed: bool,
+    is_next: bool,
+    is_selected: bool,
+    colors: &crate::ui::theme::ThemeColors,
+) -> Style {
+    if is_depressed {
+        Style::default()
+            .fg(Color::White)
+            .bg(brighten_color(colors.accent_dim()))
+            .add_modifier(Modifier::BOLD)
+    } else if is_next {
+        let bg = blend_toward_bg(colors.accent(), colors.bg(), 0.35);
+        Style::default().fg(colors.accent()).bg(bg)
+    } else if is_selected {
+        Style::default()
+            .fg(colors.fg())
+            .bg(colors.accent_dim())
+    } else {
+        Style::default().fg(colors.fg()).bg(colors.bg())
+    }
+}
+
+fn key_style(
+    is_depressed: bool,
+    is_next: bool,
+    is_selected: bool,
+    is_unlocked: bool,
+    colors: &crate::ui::theme::ThemeColors,
+) -> Style {
+    if is_depressed {
+        Style::default()
+            .fg(Color::White)
+            .bg(brighten_color(colors.accent_dim()))
+            .add_modifier(Modifier::BOLD)
+    } else if is_next {
+        let bg = blend_toward_bg(colors.accent(), colors.bg(), 0.35);
+        Style::default().fg(colors.accent()).bg(bg)
+    } else if is_selected {
+        Style::default()
+            .fg(colors.fg())
+            .bg(colors.accent_dim())
+    } else if is_unlocked {
+        Style::default().fg(colors.fg()).bg(colors.bg())
+    } else {
+        Style::default().fg(colors.text_pending()).bg(colors.bg())
     }
 }
 
@@ -90,233 +159,289 @@ impl Widget for KeyboardDiagram<'_> {
         block.render(area, buf);
 
         if self.compact {
-            // Compact mode: letter rows only (rows 1-3 of the model)
-            let letter_rows = self.model.letter_rows();
-            let key_width: u16 = 3;
-            let min_width: u16 = 21;
-
-            if inner.height < 3 || inner.width < min_width {
-                return;
-            }
-
-            let offsets: &[u16] = &[0, 1, 3];
-
-            for (row_idx, row) in letter_rows.iter().enumerate() {
-                let y = inner.y + row_idx as u16;
-                if y >= inner.y + inner.height {
-                    break;
-                }
-
-                let offset = offsets.get(row_idx).copied().unwrap_or(0);
-
-                for (col_idx, physical_key) in row.iter().enumerate() {
-                    let x = inner.x + offset + col_idx as u16 * key_width;
-                    if x + key_width > inner.x + inner.width {
-                        break;
-                    }
-
-                    let display_char = if self.shift_held {
-                        physical_key.shifted
-                    } else {
-                        physical_key.base
-                    };
-                    let base_char = physical_key.base;
-
-                    let is_depressed = self.depressed_keys.contains(&base_char);
-                    let is_unlocked = self.unlocked_keys.contains(&display_char)
-                        || self.unlocked_keys.contains(&base_char);
-                    let is_focused = self.focused_key == Some(display_char)
-                        || self.focused_key == Some(base_char);
-                    let is_next =
-                        self.next_key == Some(display_char) || self.next_key == Some(base_char);
-
-                    let style = key_style(
-                        is_depressed,
-                        is_next,
-                        is_focused,
-                        is_unlocked,
-                        base_char,
-                        self.model,
-                        colors,
-                    );
-
-                    let display = format!("[{display_char}]");
-                    buf.set_string(x, y, &display, style);
-                }
-            }
+            self.render_compact(inner, buf);
         } else {
-            // Full mode: all 4 rows
-            let key_width: u16 = 5;
-            let min_width: u16 = 69;
-
-            if inner.height < 4 || inner.width < min_width {
-                // Fallback to compact-style if too narrow for full
-                let letter_rows = self.model.letter_rows();
-                let key_width: u16 = 5;
-                let offsets: &[u16] = &[1, 3, 5];
-
-                if inner.height < 3 || inner.width < 30 {
-                    return;
-                }
-
-                for (row_idx, row) in letter_rows.iter().enumerate() {
-                    let y = inner.y + row_idx as u16;
-                    if y >= inner.y + inner.height {
-                        break;
-                    }
-
-                    let offset = offsets.get(row_idx).copied().unwrap_or(0);
-
-                    for (col_idx, physical_key) in row.iter().enumerate() {
-                        let x = inner.x + offset + col_idx as u16 * key_width;
-                        if x + key_width > inner.x + inner.width {
-                            break;
-                        }
-
-                        let display_char = if self.shift_held {
-                            physical_key.shifted
-                        } else {
-                            physical_key.base
-                        };
-                        let base_char = physical_key.base;
-
-                        let is_depressed = self.depressed_keys.contains(&base_char);
-                        let is_unlocked = self.unlocked_keys.contains(&display_char)
-                            || self.unlocked_keys.contains(&base_char);
-                        let is_focused = self.focused_key == Some(display_char)
-                            || self.focused_key == Some(base_char);
-                        let is_next =
-                            self.next_key == Some(display_char) || self.next_key == Some(base_char);
-
-                        let style = key_style(
-                            is_depressed,
-                            is_next,
-                            is_focused,
-                            is_unlocked,
-                            base_char,
-                            self.model,
-                            colors,
-                        );
-
-                        let display = format!("[ {display_char} ]");
-                        buf.set_string(x, y, &display, style);
-                    }
-                }
-                return;
-            }
-
-            // Row offsets for full layout (staggered keyboard)
-            let offsets: &[u16] = &[0, 2, 3, 4];
-
-            for (row_idx, row) in self.model.rows.iter().enumerate() {
-                let y = inner.y + row_idx as u16;
-                if y >= inner.y + inner.height {
-                    break;
-                }
-
-                let offset = offsets.get(row_idx).copied().unwrap_or(0);
-
-                for (col_idx, physical_key) in row.iter().enumerate() {
-                    let x = inner.x + offset + col_idx as u16 * key_width;
-                    if x + key_width > inner.x + inner.width {
-                        break;
-                    }
-
-                    let display_char = if self.shift_held {
-                        physical_key.shifted
-                    } else {
-                        physical_key.base
-                    };
-                    let base_char = physical_key.base;
-
-                    let is_depressed = self.depressed_keys.contains(&base_char);
-                    let is_unlocked = self.unlocked_keys.contains(&display_char)
-                        || self.unlocked_keys.contains(&base_char);
-                    let is_focused = self.focused_key == Some(display_char)
-                        || self.focused_key == Some(base_char);
-                    let is_next =
-                        self.next_key == Some(display_char) || self.next_key == Some(base_char);
-
-                    let style = key_style(
-                        is_depressed,
-                        is_next,
-                        is_focused,
-                        is_unlocked,
-                        base_char,
-                        self.model,
-                        colors,
-                    );
-
-                    let display = format!("[ {display_char} ]");
-                    buf.set_string(x, y, &display, style);
-                }
-
-                // Modifier labels at row edges (visual only)
-                let label_style = Style::default().fg(colors.text_pending());
-                let after_x = inner.x + offset + row.len() as u16 * key_width + 1;
-                match row_idx {
-                    0 => {
-                        // Backspace after number row
-                        if after_x + 4 <= inner.x + inner.width {
-                            buf.set_string(after_x, y, "Bksp", label_style);
-                        }
-                    }
-                    1 => {
-                        // Tab before top row, backslash already in row
-                        if offset >= 3 {
-                            buf.set_string(inner.x, y, "Tab", label_style);
-                        }
-                    }
-                    2 => {
-                        // Enter after home row
-                        if after_x + 5 <= inner.x + inner.width {
-                            buf.set_string(after_x, y, "Enter", label_style);
-                        }
-                    }
-                    3 => {
-                        // Shift before and after bottom row
-                        if offset >= 5 {
-                            buf.set_string(inner.x, y, "Shft", label_style);
-                        }
-                        if after_x + 4 <= inner.x + inner.width {
-                            buf.set_string(after_x, y, "Shft", label_style);
-                        }
-                    }
-                    _ => {}
-                }
-            }
+            self.render_full(inner, buf);
         }
     }
 }
 
-fn key_style(
-    is_depressed: bool,
-    is_next: bool,
-    is_focused: bool,
-    is_unlocked: bool,
-    base_char: char,
-    model: &KeyboardModel,
-    colors: &crate::ui::theme::ThemeColors,
-) -> Style {
-    if is_depressed {
-        let bg = if is_unlocked {
-            brighten_color(finger_color(model, base_char))
-        } else {
-            brighten_color(colors.accent_dim())
-        };
-        Style::default()
-            .fg(Color::White)
-            .bg(bg)
-            .add_modifier(Modifier::BOLD)
-    } else if is_next {
-        Style::default().fg(colors.bg()).bg(colors.accent())
-    } else if is_focused {
-        Style::default().fg(colors.bg()).bg(colors.focused_key())
-    } else if is_unlocked {
-        Style::default()
-            .fg(colors.fg())
-            .bg(finger_color(model, base_char))
-    } else {
-        Style::default().fg(colors.text_pending()).bg(colors.bg())
+impl KeyboardDiagram<'_> {
+    fn render_compact(&self, inner: Rect, buf: &mut Buffer) {
+        let colors = &self.theme.colors;
+        let letter_rows = self.model.letter_rows();
+        let key_width: u16 = 3;
+        let min_width: u16 = 21;
+
+        if inner.height < 3 || inner.width < min_width {
+            return;
+        }
+
+        let offsets: &[u16] = &[3, 4, 6];
+
+        for (row_idx, row) in letter_rows.iter().enumerate() {
+            let y = inner.y + row_idx as u16;
+            if y >= inner.y + inner.height {
+                break;
+            }
+
+            let offset = offsets.get(row_idx).copied().unwrap_or(0);
+
+            // Render leading modifier key
+            match row_idx {
+                0 => {
+                    let is_dep = self.depressed_keys.contains(&TAB);
+                    let is_next = self.next_key == Some(TAB);
+                    let is_sel = self.is_sentinel_selected(TAB);
+                    let style = modifier_key_style(is_dep, is_next, is_sel, colors);
+                    buf.set_string(inner.x, y, "[T]", style);
+                }
+                2 => {
+                    let is_dep = self.shift_held;
+                    let style = modifier_key_style(is_dep, false, false, colors);
+                    buf.set_string(inner.x, y, "[S]", style);
+                }
+                _ => {}
+            }
+
+            for (col_idx, physical_key) in row.iter().enumerate() {
+                let x = inner.x + offset + col_idx as u16 * key_width;
+                if x + key_width > inner.x + inner.width {
+                    break;
+                }
+
+                let display_char = if self.shift_held {
+                    physical_key.shifted
+                } else {
+                    physical_key.base
+                };
+                let base_char = physical_key.base;
+
+                let is_depressed = self.depressed_keys.contains(&base_char);
+                let is_unlocked = self.unlocked_keys.contains(&display_char)
+                    || self.unlocked_keys.contains(&base_char);
+                let is_next =
+                    self.next_key == Some(display_char) || self.next_key == Some(base_char);
+                let is_sel = self.is_key_selected(display_char, base_char);
+
+                let style = key_style(is_depressed, is_next, is_sel, is_unlocked, colors);
+
+                let display = format!("[{display_char}]");
+                buf.set_string(x, y, &display, style);
+            }
+
+            // Render trailing modifier key
+            let row_end_x = inner.x + offset + row.len() as u16 * key_width;
+            match row_idx {
+                1 => {
+                    if row_end_x + 3 <= inner.x + inner.width {
+                        let is_dep = self.depressed_keys.contains(&ENTER);
+                        let is_next = self.next_key == Some(ENTER);
+                        let is_sel = self.is_sentinel_selected(ENTER);
+                        let style = modifier_key_style(is_dep, is_next, is_sel, colors);
+                        buf.set_string(row_end_x, y, "[E]", style);
+                    }
+                }
+                2 => {
+                    if row_end_x + 3 <= inner.x + inner.width {
+                        let is_dep = self.shift_held;
+                        let style = modifier_key_style(is_dep, false, false, colors);
+                        buf.set_string(row_end_x, y, "[S]", style);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Backspace at end of first row
+        if inner.height >= 3 {
+            let y = inner.y;
+            let row_end_x = inner.x + offsets[0] + letter_rows[0].len() as u16 * key_width;
+            if row_end_x + 3 <= inner.x + inner.width {
+                let is_dep = self.depressed_keys.contains(&BACKSPACE);
+                let is_next = self.next_key == Some(BACKSPACE);
+                let is_sel = self.is_sentinel_selected(BACKSPACE);
+                let style = modifier_key_style(is_dep, is_next, is_sel, colors);
+                buf.set_string(row_end_x, y, "[B]", style);
+            }
+        }
+    }
+
+    fn render_full(&self, inner: Rect, buf: &mut Buffer) {
+        let colors = &self.theme.colors;
+        let key_width: u16 = 5;
+        let min_width: u16 = 75;
+
+        if inner.height < 4 || inner.width < min_width {
+            self.render_full_fallback(inner, buf);
+            return;
+        }
+
+        let offsets: &[u16] = &[0, 5, 5, 6];
+
+        for (row_idx, row) in self.model.rows.iter().enumerate() {
+            let y = inner.y + row_idx as u16;
+            if y >= inner.y + inner.height {
+                break;
+            }
+
+            let offset = offsets.get(row_idx).copied().unwrap_or(0);
+
+            // Render leading modifier keys
+            match row_idx {
+                1 => {
+                    if offset >= 5 {
+                        let is_dep = self.depressed_keys.contains(&TAB);
+                        let is_next = self.next_key == Some(TAB);
+                        let is_sel = self.is_sentinel_selected(TAB);
+                        let style = modifier_key_style(is_dep, is_next, is_sel, colors);
+                        let label = format!("[{}]", display::key_short_label(TAB));
+                        buf.set_string(inner.x, y, &label, style);
+                    }
+                }
+                2 => {
+                    if offset >= 5 {
+                        if self.caps_lock {
+                            let style = Style::default()
+                                .fg(colors.warning())
+                                .bg(colors.accent_dim());
+                            buf.set_string(inner.x, y, "[Cap]", style);
+                        } else {
+                            let style = Style::default().fg(colors.text_pending()).bg(colors.bg());
+                            buf.set_string(inner.x, y, "[   ]", style);
+                        }
+                    }
+                }
+                3 => {
+                    if offset >= 6 {
+                        let is_dep = self.shift_held;
+                        let style = modifier_key_style(is_dep, false, false, colors);
+                        buf.set_string(inner.x, y, "[Shft]", style);
+                    }
+                }
+                _ => {}
+            }
+
+            for (col_idx, physical_key) in row.iter().enumerate() {
+                let x = inner.x + offset + col_idx as u16 * key_width;
+                if x + key_width > inner.x + inner.width {
+                    break;
+                }
+
+                let display_char = if self.shift_held {
+                    physical_key.shifted
+                } else {
+                    physical_key.base
+                };
+                let base_char = physical_key.base;
+
+                let is_depressed = self.depressed_keys.contains(&base_char);
+                let is_unlocked = self.unlocked_keys.contains(&display_char)
+                    || self.unlocked_keys.contains(&base_char);
+                let is_next =
+                    self.next_key == Some(display_char) || self.next_key == Some(base_char);
+                let is_sel = self.is_key_selected(display_char, base_char);
+
+                let style = key_style(is_depressed, is_next, is_sel, is_unlocked, colors);
+
+                let display = format!("[ {display_char} ]");
+                buf.set_string(x, y, &display, style);
+            }
+
+            // Render trailing modifier keys
+            let after_x = inner.x + offset + row.len() as u16 * key_width;
+            match row_idx {
+                0 => {
+                    if after_x + 6 <= inner.x + inner.width {
+                        let is_dep = self.depressed_keys.contains(&BACKSPACE);
+                        let is_next = self.next_key == Some(BACKSPACE);
+                        let is_sel = self.is_sentinel_selected(BACKSPACE);
+                        let style = modifier_key_style(is_dep, is_next, is_sel, colors);
+                        let label = format!("[{}]", display::key_short_label(BACKSPACE));
+                        buf.set_string(after_x, y, &label, style);
+                    }
+                }
+                2 => {
+                    if after_x + 7 <= inner.x + inner.width {
+                        let is_dep = self.depressed_keys.contains(&ENTER);
+                        let is_next = self.next_key == Some(ENTER);
+                        let is_sel = self.is_sentinel_selected(ENTER);
+                        let style = modifier_key_style(is_dep, is_next, is_sel, colors);
+                        let label = format!("[{}]", display::key_display_name(ENTER));
+                        buf.set_string(after_x, y, &label, style);
+                    }
+                }
+                3 => {
+                    if after_x + 6 <= inner.x + inner.width {
+                        let is_dep = self.shift_held;
+                        let style = modifier_key_style(is_dep, false, false, colors);
+                        buf.set_string(after_x, y, "[Shft]", style);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Space bar row (row 4)
+        let space_y = inner.y + 4;
+        if space_y < inner.y + inner.height {
+            let space_name = display::key_display_name(SPACE);
+            let space_label = format!("[       {space_name}       ]");
+            let space_width = space_label.len() as u16;
+            let space_x = inner.x + (inner.width.saturating_sub(space_width)) / 2;
+            if space_x + space_width <= inner.x + inner.width {
+                let is_dep = self.depressed_keys.contains(&SPACE);
+                let is_next = self.next_key == Some(SPACE);
+                let is_sel = self.is_sentinel_selected(SPACE);
+                let style = modifier_key_style(is_dep, is_next, is_sel, colors);
+                buf.set_string(space_x, space_y, space_label, style);
+            }
+        }
+    }
+
+    fn render_full_fallback(&self, inner: Rect, buf: &mut Buffer) {
+        let colors = &self.theme.colors;
+        let letter_rows = self.model.letter_rows();
+        let key_width: u16 = 5;
+        let offsets: &[u16] = &[1, 3, 5];
+
+        if inner.height < 3 || inner.width < 30 {
+            return;
+        }
+
+        for (row_idx, row) in letter_rows.iter().enumerate() {
+            let y = inner.y + row_idx as u16;
+            if y >= inner.y + inner.height {
+                break;
+            }
+
+            let offset = offsets.get(row_idx).copied().unwrap_or(0);
+
+            for (col_idx, physical_key) in row.iter().enumerate() {
+                let x = inner.x + offset + col_idx as u16 * key_width;
+                if x + key_width > inner.x + inner.width {
+                    break;
+                }
+
+                let display_char = if self.shift_held {
+                    physical_key.shifted
+                } else {
+                    physical_key.base
+                };
+                let base_char = physical_key.base;
+
+                let is_depressed = self.depressed_keys.contains(&base_char);
+                let is_unlocked = self.unlocked_keys.contains(&display_char)
+                    || self.unlocked_keys.contains(&base_char);
+                let is_next =
+                    self.next_key == Some(display_char) || self.next_key == Some(base_char);
+                let is_sel = self.is_key_selected(display_char, base_char);
+
+                let style = key_style(is_depressed, is_next, is_sel, is_unlocked, colors);
+
+                let display = format!("[ {display_char} ]");
+                buf.set_string(x, y, &display, style);
+            }
+        }
     }
 }

@@ -26,6 +26,21 @@ impl FingerAssignment {
     pub fn new(hand: Hand, finger: Finger) -> Self {
         Self { hand, finger }
     }
+
+    pub fn description(&self) -> &'static str {
+        match (self.hand, self.finger) {
+            (Hand::Left, Finger::Pinky) => "left pinky",
+            (Hand::Left, Finger::Ring) => "left ring finger",
+            (Hand::Left, Finger::Middle) => "left middle finger",
+            (Hand::Left, Finger::Index) => "left index finger",
+            (Hand::Left, Finger::Thumb) => "left thumb",
+            (Hand::Right, Finger::Pinky) => "right pinky",
+            (Hand::Right, Finger::Ring) => "right ring finger",
+            (Hand::Right, Finger::Middle) => "right middle finger",
+            (Hand::Right, Finger::Index) => "right index finger",
+            (Hand::Right, Finger::Thumb) => "right thumb",
+        }
+    }
 }
 
 #[allow(dead_code)]
