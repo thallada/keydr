@@ -2495,204 +2495,144 @@ fn render_keyboard_detail_panel(frame: &mut ratatui::Frame, app: &App, area: Rec
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let mut lines: Vec<Line> = Vec::new();
-
-    // Finger assignment
     let finger = app.keyboard_model.finger_for_char(selected);
-    lines.push(Line::from(vec![
-        Span::styled("  Finger:      ", Style::default().fg(colors.text_pending())),
-        Span::styled(
-            finger.description(),
-            Style::default().fg(colors.fg()),
-        ),
-    ]));
-
-    // Shift guidance for shifted characters
     let is_shifted = selected.is_uppercase()
         || matches!(
             selected,
             '!' | '@' | '#' | '$' | '%' | '^' | '&' | '*' | '(' | ')' | '_' | '+'
                 | '{' | '}' | '|' | ':' | '"' | '<' | '>' | '?' | '~'
         );
-    if is_shifted {
-        let shift_guidance = if finger.hand == Hand::Left {
-            "Hold Right Shift (right pinky)"
+    let shift_guidance = if is_shifted {
+        if finger.hand == Hand::Left {
+            "Hold Right Shift (right pinky)".to_string()
         } else {
-            "Hold Left Shift (left pinky)"
-        };
-        lines.push(Line::from(vec![
-            Span::styled("  Shift:       ", Style::default().fg(colors.text_pending())),
-            Span::styled(shift_guidance, Style::default().fg(colors.fg())),
-        ]));
-    }
+            "Hold Left Shift (left pinky)".to_string()
+        }
+    } else {
+        "No".to_string()
+    };
 
-    // Unlocked status
     let unlocked_keys = app.skill_tree.unlocked_keys(DrillScope::Global);
     let is_unlocked = unlocked_keys.contains(&selected);
-    lines.push(Line::from(vec![
-        Span::styled("  Unlocked:    ", Style::default().fg(colors.text_pending())),
-        Span::styled(
-            if is_unlocked { "Yes" } else { "No" },
-            Style::default().fg(if is_unlocked {
-                colors.success()
-            } else {
-                colors.text_pending()
-            }),
-        ),
-    ]));
+    let focus_key = app
+        .skill_tree
+        .focused_key(DrillScope::Global, &app.ranked_key_stats);
+    let in_focus = focus_key == Some(selected);
 
-    // Mastery / confidence (overall and ranked)
-    let overall_confidence = app.key_stats.get_confidence(selected);
-    let ranked_confidence = app.ranked_key_stats.get_confidence(selected);
-    if overall_confidence > 0.0 || ranked_confidence > 0.0 {
-        let overall_pct = (overall_confidence * 100.0).min(100.0);
-        let ranked_pct = (ranked_confidence * 100.0).min(100.0);
-        lines.push(Line::from(vec![
-            Span::styled("  Mastery:     ", Style::default().fg(colors.text_pending())),
-            Span::styled(
-                format!("overall {:>3.0}%  ranked {:>3.0}%", overall_pct, ranked_pct),
-                Style::default().fg(colors.fg()),
-            ),
-        ]));
-    }
-
-    // Branch/Level info
-    if let Some((branch, level_name, position)) = find_key_branch(selected) {
-        lines.push(Line::from(vec![
-            Span::styled("  Branch:      ", Style::default().fg(colors.text_pending())),
-            Span::styled(branch.name, Style::default().fg(colors.fg())),
-        ]));
-        lines.push(Line::from(vec![
-            Span::styled("  Level:       ", Style::default().fg(colors.text_pending())),
-            Span::styled(
-                format!("{} (key #{})", level_name, position),
-                Style::default().fg(colors.fg()),
-            ),
-        ]));
-    }
-
-    // Avg time / samples (overall and ranked)
     let overall_stat = app.key_stats.get_stat(selected);
     let ranked_stat = app.ranked_key_stats.get_stat(selected);
-    if overall_stat.is_some() || ranked_stat.is_some() {
-        let fmt_time = |stat: Option<&crate::engine::key_stats::KeyStat>| -> String {
-            if let Some(stat) = stat {
-                if stat.sample_count > 0 {
-                    let best = if stat.best_time_ms < f64::MAX {
-                        stat.best_time_ms
-                    } else {
-                        stat.filtered_time_ms
-                    };
-                    return format!("{:.0}ms/{:.0}ms", stat.filtered_time_ms, best);
-                }
-            }
-            "No data".to_string()
-        };
-        let fmt_samples = |stat: Option<&crate::engine::key_stats::KeyStat>| -> usize {
-            stat.map(|s| s.sample_count).unwrap_or(0)
-        };
-        lines.push(Line::from(vec![
-            Span::styled("  Avg Time:    ", Style::default().fg(colors.text_pending())),
-            Span::styled(
-                format!(
-                    "overall {}  ranked {}",
-                    fmt_time(overall_stat),
-                    fmt_time(ranked_stat)
-                ),
-                Style::default().fg(colors.fg()),
-            ),
-        ]));
-        lines.push(Line::from(vec![
-            Span::styled("  Samples:     ", Style::default().fg(colors.text_pending())),
-            Span::styled(
-                format!(
-                    "overall {}  ranked {}",
-                    fmt_samples(overall_stat),
-                    fmt_samples(ranked_stat)
-                ),
-                Style::default().fg(colors.fg()),
-            ),
-        ]));
-    }
-
-    // Accuracy (overall and ranked) from precomputed caches
     let overall_acc = app
         .explorer_accuracy_cache_overall
         .filter(|(key, _, _)| *key == selected);
     let ranked_acc = app
         .explorer_accuracy_cache_ranked
         .filter(|(key, _, _)| *key == selected);
-    if overall_acc.is_some() || ranked_acc.is_some() {
-        let fmt_acc = |entry: Option<(char, usize, usize)>| -> String {
-            if let Some((_, correct, total)) = entry {
-                if total > 0 {
-                    let pct = (correct as f64 / total as f64) * 100.0;
-                    return format!("{:.1}% ({}/{})", pct, correct, total);
-                }
+
+    let fmt_avg_time = |stat: Option<&crate::engine::key_stats::KeyStat>| -> String {
+        if let Some(stat) = stat {
+            if stat.sample_count > 0 {
+                return format!("{:.0}ms", stat.filtered_time_ms);
             }
-            "No data".to_string()
-        };
-        lines.push(Line::from(vec![
-            Span::styled("  Accuracy:    ", Style::default().fg(colors.text_pending())),
-            Span::styled(
-                format!(
-                    "overall {}  ranked {}",
-                    fmt_acc(overall_acc),
-                    fmt_acc(ranked_acc)
-                ),
-                Style::default().fg(colors.fg()),
-            ),
-        ]));
-    }
-
-    // Ranked progression info (mirrors Skill Tree per-key bar semantics)
-    if is_unlocked {
-        let focus_key = app
-            .skill_tree
-            .focused_key(DrillScope::Global, &app.ranked_key_stats);
-        let in_focus = focus_key == Some(selected);
-        lines.push(Line::from(vec![
-            Span::styled("  Focus:       ", Style::default().fg(colors.text_pending())),
-            Span::styled(
-                if in_focus { "In focus now" } else { "No" },
-                Style::default().fg(if in_focus {
-                    colors.focused_key()
+        }
+        "No data".to_string()
+    };
+    let fmt_best_time = |stat: Option<&crate::engine::key_stats::KeyStat>| -> String {
+        if let Some(stat) = stat {
+            if stat.sample_count > 0 {
+                let best = if stat.best_time_ms < f64::MAX {
+                    stat.best_time_ms
                 } else {
-                    colors.fg()
-                }),
-            ),
-        ]));
+                    stat.filtered_time_ms
+                };
+                return format!("{best:.0}ms");
+            }
+        }
+        "No data".to_string()
+    };
+    let fmt_samples = |stat: Option<&crate::engine::key_stats::KeyStat>| -> String {
+        stat.map(|s| s.sample_count.to_string())
+            .unwrap_or_else(|| "0".to_string())
+    };
+    let fmt_acc = |entry: Option<(char, usize, usize)>| -> String {
+        if let Some((_, correct, total)) = entry {
+            if total > 0 {
+                let pct = (correct as f64 / total as f64) * 100.0;
+                return format!("{:.1}% ({}/{})", pct, correct, total);
+            }
+        }
+        "No data".to_string()
+    };
 
-        let conf = app.ranked_key_stats.get_confidence(selected).min(1.0);
-        let bar_width = 10usize;
-        let filled = (conf * bar_width as f64).round() as usize;
-        let bar = format!(
-            "{}{}",
-            "\u{2588}".repeat(filled),
-            "\u{2591}".repeat(bar_width.saturating_sub(filled))
-        );
+    let (branch_name, level_name) = if let Some((branch, level, pos)) = find_key_branch(selected) {
+        (branch.name.to_string(), format!("{level} (key #{pos})"))
+    } else {
+        ("Unknown".to_string(), "Unknown".to_string())
+    };
+
+    // Ranked-only mastery display (same semantics as skill tree per-key progress)
+    let ranked_conf = app.ranked_key_stats.get_confidence(selected).min(1.0);
+    let mastery_bar_width = 10usize;
+    let filled = (ranked_conf * mastery_bar_width as f64).round() as usize;
+    let mastery_bar = format!(
+        "{}{}",
+        "\u{2588}".repeat(filled),
+        "\u{2591}".repeat(mastery_bar_width.saturating_sub(filled))
+    );
+    let mastery_text = format!("{mastery_bar} {:>3.0}%", ranked_conf * 100.0);
+
+    let mut left_col: Vec<String> = vec![
+        format!("Finger: {}", finger.description()),
+        format!("Shift: {shift_guidance}"),
+        format!("Overall Avg Time: {}", fmt_avg_time(overall_stat)),
+        format!("Overall Best Time: {}", fmt_best_time(overall_stat)),
+        format!("Overall Samples: {}", fmt_samples(overall_stat)),
+        format!("Overall Accuracy: {}", fmt_acc(overall_acc)),
+    ];
+
+    let mut right_col: Vec<String> = vec![
+        format!("Branch: {branch_name}"),
+        format!("Level: {level_name}"),
+        format!("Unlocked: {}", if is_unlocked { "Yes" } else { "No" }),
+        format!("In Focus?: {}", if in_focus { "Yes" } else { "No" }),
+    ];
+    if is_unlocked {
+        right_col.push(format!("Mastery: {mastery_text}"));
+    } else {
+        right_col.push("Mastery: Locked".to_string());
+    }
+    right_col.push(format!("Ranked Avg Time: {}", fmt_avg_time(ranked_stat)));
+    right_col.push(format!("Ranked Best Time: {}", fmt_best_time(ranked_stat)));
+    right_col.push(format!("Ranked Samples: {}", fmt_samples(ranked_stat)));
+    right_col.push(format!("Ranked Accuracy: {}", fmt_acc(ranked_acc)));
+
+    if left_col.is_empty() {
+        left_col.push("No data yet".to_string());
+    }
+    if right_col.is_empty() {
+        right_col.push("No data yet".to_string());
+    }
+
+    let mut lines: Vec<Line> = Vec::new();
+    let split_gap = 3usize;
+    let left_width = inner.width.saturating_sub(split_gap as u16) as usize / 2;
+    let right_width = inner.width as usize - left_width.saturating_sub(0) - split_gap;
+    let row_count = left_col.len().max(right_col.len());
+    for i in 0..row_count {
+        let left = left_col.get(i).map(String::as_str).unwrap_or("");
+        let right = right_col.get(i).map(String::as_str).unwrap_or("");
+        let mut left_fit: String = left.chars().take(left_width).collect();
+        if left_fit.len() < left_width {
+            left_fit.push_str(&" ".repeat(left_width - left_fit.len()));
+        }
+        let right_fit: String = right.chars().take(right_width).collect();
         lines.push(Line::from(vec![
-            Span::styled("  Progress:    ", Style::default().fg(colors.text_pending())),
-            Span::styled(bar, Style::default().fg(colors.accent())),
-            Span::styled(
-                format!(" {:>3.0}%", conf * 100.0),
-                Style::default().fg(colors.fg()),
-            ),
+            Span::styled(" ", Style::default().fg(colors.fg())),
+            Span::styled(left_fit, Style::default().fg(colors.fg())),
+            Span::styled(" | ", Style::default().fg(colors.border())),
+            Span::styled(right_fit, Style::default().fg(colors.fg())),
         ]));
     }
 
-    // If no stats at all
-    if overall_stat.is_none()
-        && ranked_stat.is_none()
-        && overall_acc.is_none()
-        && ranked_acc.is_none()
-    {
-        lines.push(Line::from(Span::styled(
-            "  No data yet",
-            Style::default().fg(colors.text_pending()),
-        )));
-    }
-
-    let paragraph = Paragraph::new(lines);
+    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
     frame.render_widget(paragraph, inner);
 }
