@@ -210,7 +210,13 @@ impl KeyboardDiagram<'_> {
                     break;
                 }
 
-                let display_char = if self.shift_held {
+                // Caps lock inverts shift for alpha keys only
+                let show_shifted = if physical_key.base.is_ascii_alphabetic() {
+                    self.shift_held ^ self.caps_lock
+                } else {
+                    self.shift_held
+                };
+                let display_char = if show_shifted {
                     physical_key.shifted
                 } else {
                     physical_key.base
@@ -328,7 +334,13 @@ impl KeyboardDiagram<'_> {
                     break;
                 }
 
-                let display_char = if self.shift_held {
+                // Caps lock inverts shift for alpha keys only
+                let show_shifted = if physical_key.base.is_ascii_alphabetic() {
+                    self.shift_held ^ self.caps_lock
+                } else {
+                    self.shift_held
+                };
+                let display_char = if show_shifted {
                     physical_key.shifted
                 } else {
                     physical_key.base
@@ -444,7 +456,13 @@ impl KeyboardDiagram<'_> {
                     break;
                 }
 
-                let display_char = if self.shift_held {
+                // Caps lock inverts shift for alpha keys only
+                let show_shifted = if physical_key.base.is_ascii_alphabetic() {
+                    self.shift_held ^ self.caps_lock
+                } else {
+                    self.shift_held
+                };
+                let display_char = if show_shifted {
                     physical_key.shifted
                 } else {
                     physical_key.base

@@ -80,12 +80,22 @@ fn main() -> Result<()> {
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
 
-    // Try to enable keyboard enhancement for Release event support
+    // Request kitty keyboard protocol enhancements from the terminal.
+    // - DISAMBIGUATE_ESCAPE_CODES: CSI u sequences for unambiguous key IDs,
+    //   enables CAPS_LOCK/NUM_LOCK state detection.
+    // - REPORT_EVENT_TYPES: key release and repeat events (for depressed-key
+    //   tracking in the keyboard diagram).
+    // - REPORT_ALL_KEYS_AS_ESCAPE_CODES: standalone modifier key events
+    //   (LeftShift, RightShift, etc.) so we can track shift state independently.
+    // Falls back gracefully in terminals that don't support the protocol (tmux,
+    // mosh, SSH, older emulators) — the execute! returns Err and we use
+    // timer-based fallbacks instead.
     let keyboard_enhanced = execute!(
         io::stdout(),
         PushKeyboardEnhancementFlags(
             KeyboardEnhancementFlags::REPORT_EVENT_TYPES
-                | KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
+                | KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+                | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES,
         )
     )
     .is_ok();
@@ -135,16 +145,24 @@ fn run_app(
                 {
                     app.process_code_download_tick();
                 }
-                // Fallback: clear depressed keys after 150ms if no Release event received
+                // Fallback: clear depressed keys and shift state on a timer.
+                // Needed because not all terminals send Release events (e.g.
+                // WezTerm doesn't implement REPORT_EVENT_TYPES). Terminals that
+                // DO send Release events handle cleanup in handle_key instead,
+                // and the repeated Press events they send while a key is held
+                // keep resetting last_key_time so this fallback never fires.
+                // This causes a brief flicker (key clears, then re-appears when
+                // OS key repeat kicks in after ~300-500ms), but that's an
+                // acceptable tradeoff for responsive key press visualization.
                 if let Some(last) = app.last_key_time {
-                    if last.elapsed() > Duration::from_millis(150) && !app.depressed_keys.is_empty()
-                    {
-                        app.depressed_keys.clear();
+                    if last.elapsed() > Duration::from_millis(150) {
+                        if !app.depressed_keys.is_empty() {
+                            app.depressed_keys.clear();
+                        }
+                        if app.shift_held {
+                            app.shift_held = false;
+                        }
                         app.last_key_time = None;
-                    }
-                    // Clear shift_held after 200ms as fallback
-                    if last.elapsed() > Duration::from_millis(200) && app.shift_held {
-                        app.shift_held = false;
                     }
                 }
             }
@@ -159,15 +177,35 @@ fn run_app(
 
 fn handle_key(app: &mut App, key: KeyEvent) {
     // Track caps lock state via Kitty protocol metadata (KeyEventState::CAPS_LOCK).
-    // This only works in terminals with native Kitty keyboard protocol support
-    // (Kitty, WezTerm, foot, Ghostty). In tmux/mosh/SSH, the protocol is stripped
-    // and crossterm infers SHIFT from character case, making it impossible to
-    // distinguish Shift+a from CapsLock+a.
-    app.caps_lock = key.state.contains(KeyEventState::CAPS_LOCK);
+    // Only Modifier key events reliably report lock state in WezTerm; regular
+    // character events have empty state (0x0). So we only set caps_lock=true
+    // when CAPS_LOCK appears, and only clear it from Modifier events that
+    // reliably report state.
+    if key.state.contains(KeyEventState::CAPS_LOCK) {
+        app.caps_lock = true;
+    } else if matches!(key.code, KeyCode::Modifier(_) | KeyCode::CapsLock) {
+        // Modifier events and CapsLock key events reliably report lock state.
+        // If CAPS_LOCK isn't in state, caps lock was toggled off.
+        app.caps_lock = false;
+    }
+
+    // Determine whether the physical Shift key is held. When caps lock is on,
+    // crossterm infers SHIFT from uppercase chars, so we need a heuristic:
+    // caps lock + shift inverts case, producing lowercase. So if caps lock is
+    // on and the char is uppercase, that's caps lock alone, not shift.
+    let infer_shift = |ch: char, mods: KeyModifiers, caps: bool| -> bool {
+        let has_shift = mods.contains(KeyModifiers::SHIFT);
+        if caps && ch.is_ascii_alphabetic() {
+            // Caps lock on: shift would invert to lowercase
+            has_shift && ch.is_ascii_lowercase()
+        } else {
+            has_shift
+        }
+    };
 
     // Track depressed keys and shift state for keyboard diagram
     match (&key.code, key.kind) {
-        (KeyCode::Modifier(ModifierKeyCode::LeftShift | ModifierKeyCode::RightShift), KeyEventKind::Press) => {
+        (KeyCode::Modifier(ModifierKeyCode::LeftShift | ModifierKeyCode::RightShift), KeyEventKind::Press | KeyEventKind::Repeat) => {
             app.shift_held = true;
             app.last_key_time = Some(Instant::now());
             return; // Don't dispatch bare shift presses to screen handlers
@@ -179,7 +217,7 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         (KeyCode::Char(ch), KeyEventKind::Press) => {
             app.depressed_keys.insert(ch.to_ascii_lowercase());
             app.last_key_time = Some(Instant::now());
-            app.shift_held = key.modifiers.contains(KeyModifiers::SHIFT);
+            app.shift_held = infer_shift(*ch, key.modifiers, app.caps_lock);
         }
         (KeyCode::Char(ch), KeyEventKind::Release) => {
             app.depressed_keys.remove(&ch.to_ascii_lowercase());
@@ -1778,6 +1816,260 @@ mod review_tests {
         let result = next_available_path(custom_path.to_str().unwrap());
         assert!(result.ends_with("my-backup-2.json"));
     }
+
+    // --- Keyboard state tracking tests ---
+
+    /// Helper to build a KeyEvent with specific state flags.
+    fn key_event_with_state(
+        code: KeyCode,
+        modifiers: KeyModifiers,
+        kind: KeyEventKind,
+        state: KeyEventState,
+    ) -> KeyEvent {
+        KeyEvent {
+            code,
+            modifiers,
+            kind,
+            state,
+        }
+    }
+
+    #[test]
+    fn caps_lock_set_from_state_flag() {
+        let mut app = App::new();
+        assert!(!app.caps_lock);
+
+        // Modifier event with CAPS_LOCK in state turns it on
+        handle_key(
+            &mut app,
+            key_event_with_state(
+                KeyCode::Modifier(ModifierKeyCode::LeftShift),
+                KeyModifiers::SHIFT,
+                KeyEventKind::Press,
+                KeyEventState::CAPS_LOCK,
+            ),
+        );
+        assert!(app.caps_lock);
+    }
+
+    #[test]
+    fn caps_lock_not_cleared_by_char_event_with_empty_state() {
+        let mut app = App::new();
+        app.caps_lock = true;
+        app.screen = AppScreen::Drill;
+        app.drill = Some(crate::session::drill::DrillState::new("abc"));
+
+        // Character event with empty state should NOT clear caps_lock
+        handle_key(
+            &mut app,
+            key_event_with_state(
+                KeyCode::Char('A'),
+                KeyModifiers::SHIFT,
+                KeyEventKind::Press,
+                KeyEventState::NONE,
+            ),
+        );
+        assert!(app.caps_lock, "char event with empty state must not clear caps_lock");
+    }
+
+    #[test]
+    fn caps_lock_cleared_by_modifier_event_without_caps_flag() {
+        let mut app = App::new();
+        app.caps_lock = true;
+
+        // Modifier event WITHOUT CAPS_LOCK in state clears it
+        handle_key(
+            &mut app,
+            key_event_with_state(
+                KeyCode::Modifier(ModifierKeyCode::LeftShift),
+                KeyModifiers::SHIFT,
+                KeyEventKind::Press,
+                KeyEventState::NONE,
+            ),
+        );
+        assert!(!app.caps_lock, "modifier event without CAPS_LOCK flag should clear caps_lock");
+    }
+
+    #[test]
+    fn caps_lock_on_uppercase_char_does_not_set_shift() {
+        let mut app = App::new();
+        app.caps_lock = true;
+        app.screen = AppScreen::Drill;
+        app.drill = Some(crate::session::drill::DrillState::new("ABC"));
+
+        // Caps lock on, typing 'A' — crossterm may report SHIFT modifier,
+        // but this is caps lock, not physical shift
+        handle_key(
+            &mut app,
+            key_event_with_state(
+                KeyCode::Char('A'),
+                KeyModifiers::SHIFT,
+                KeyEventKind::Press,
+                KeyEventState::NONE,
+            ),
+        );
+        assert!(!app.shift_held, "uppercase char with caps lock should not set shift_held");
+    }
+
+    #[test]
+    fn caps_lock_on_lowercase_char_with_shift_sets_shift() {
+        let mut app = App::new();
+        app.caps_lock = true;
+        app.screen = AppScreen::Drill;
+        app.drill = Some(crate::session::drill::DrillState::new("abc"));
+
+        // Caps lock on + shift held produces lowercase: shift IS held
+        handle_key(
+            &mut app,
+            key_event_with_state(
+                KeyCode::Char('a'),
+                KeyModifiers::SHIFT,
+                KeyEventKind::Press,
+                KeyEventState::NONE,
+            ),
+        );
+        assert!(app.shift_held, "lowercase char with caps+shift should set shift_held");
+    }
+
+    #[test]
+    fn caps_lock_off_uppercase_char_with_shift_sets_shift() {
+        let mut app = App::new();
+        assert!(!app.caps_lock);
+        app.screen = AppScreen::Drill;
+        app.drill = Some(crate::session::drill::DrillState::new("ABC"));
+
+        // Normal shift+a = 'A', caps lock off
+        handle_key(
+            &mut app,
+            key_event_with_state(
+                KeyCode::Char('A'),
+                KeyModifiers::SHIFT,
+                KeyEventKind::Press,
+                KeyEventState::NONE,
+            ),
+        );
+        assert!(app.shift_held, "uppercase char without caps lock should set shift_held");
+    }
+
+    #[test]
+    fn caps_lock_off_lowercase_char_without_shift_clears_shift() {
+        let mut app = App::new();
+        app.shift_held = true;
+        app.screen = AppScreen::Drill;
+        app.drill = Some(crate::session::drill::DrillState::new("abc"));
+
+        // Normal lowercase typing, no shift
+        handle_key(
+            &mut app,
+            key_event_with_state(
+                KeyCode::Char('a'),
+                KeyModifiers::NONE,
+                KeyEventKind::Press,
+                KeyEventState::NONE,
+            ),
+        );
+        assert!(!app.shift_held, "lowercase char without shift should clear shift_held");
+    }
+
+    #[test]
+    fn shift_modifier_press_sets_shift_held() {
+        let mut app = App::new();
+
+        handle_key(
+            &mut app,
+            key_event_with_state(
+                KeyCode::Modifier(ModifierKeyCode::LeftShift),
+                KeyModifiers::SHIFT,
+                KeyEventKind::Press,
+                KeyEventState::NONE,
+            ),
+        );
+        assert!(app.shift_held);
+    }
+
+    #[test]
+    fn shift_modifier_release_clears_shift_held() {
+        let mut app = App::new();
+        app.shift_held = true;
+
+        handle_key(
+            &mut app,
+            key_event_with_state(
+                KeyCode::Modifier(ModifierKeyCode::RightShift),
+                KeyModifiers::SHIFT,
+                KeyEventKind::Release,
+                KeyEventState::NONE,
+            ),
+        );
+        assert!(!app.shift_held);
+    }
+
+    #[test]
+    fn depressed_keys_tracks_char_press() {
+        let mut app = App::new();
+        app.screen = AppScreen::Drill;
+        app.drill = Some(crate::session::drill::DrillState::new("abc"));
+
+        handle_key(&mut app, KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+        assert!(app.depressed_keys.contains(&'a'));
+    }
+
+    #[test]
+    fn depressed_keys_release_removes_char() {
+        let mut app = App::new();
+        app.depressed_keys.insert('a');
+
+        handle_key(
+            &mut app,
+            key_event_with_state(
+                KeyCode::Char('a'),
+                KeyModifiers::NONE,
+                KeyEventKind::Release,
+                KeyEventState::NONE,
+            ),
+        );
+        assert!(!app.depressed_keys.contains(&'a'));
+    }
+
+    #[test]
+    fn caps_lock_cleared_by_capslock_key_without_caps_flag() {
+        let mut app = App::new();
+        app.caps_lock = true;
+
+        // Pressing CapsLock key to toggle off: event has KeyCode::CapsLock
+        // but state no longer contains CAPS_LOCK
+        handle_key(
+            &mut app,
+            key_event_with_state(
+                KeyCode::CapsLock,
+                KeyModifiers::NONE,
+                KeyEventKind::Press,
+                KeyEventState::NONE,
+            ),
+        );
+        assert!(!app.caps_lock, "CapsLock key event without CAPS_LOCK state should clear caps_lock");
+    }
+
+    #[test]
+    fn caps_lock_non_alpha_char_with_shift_still_sets_shift() {
+        let mut app = App::new();
+        app.caps_lock = true;
+        app.screen = AppScreen::Drill;
+        app.drill = Some(crate::session::drill::DrillState::new("!@#"));
+
+        // Caps lock doesn't affect non-alpha chars like '!', so SHIFT
+        // modifier should be trusted as-is
+        handle_key(
+            &mut app,
+            key_event_with_state(
+                KeyCode::Char('!'),
+                KeyModifiers::SHIFT,
+                KeyEventKind::Press,
+                KeyEventState::NONE,
+            ),
+        );
+        assert!(app.shift_held, "non-alpha char with shift should set shift_held regardless of caps");
+    }
 }
 
 fn render_result(frame: &mut ratatui::Frame, app: &App) {
@@ -3112,11 +3404,8 @@ fn render_keyboard_detail_panel(frame: &mut ratatui::Frame, app: &App, area: Rec
         "No data".to_string()
     };
 
-    let (branch_name, level_name) = if let Some((branch, level, pos)) = find_key_branch(selected) {
-        (branch.name.to_string(), format!("{level} (key #{pos})"))
-    } else {
-        ("Unknown".to_string(), "Unknown".to_string())
-    };
+    let branch_info = find_key_branch(selected)
+        .map(|(branch, level, pos)| (branch.name.to_string(), format!("{level} (key #{pos})")));
 
     // Ranked-only mastery display (same semantics as skill tree per-key progress)
     let ranked_conf = app.ranked_key_stats.get_confidence(selected).min(1.0);
@@ -3138,12 +3427,15 @@ fn render_keyboard_detail_panel(frame: &mut ratatui::Frame, app: &App, area: Rec
         format!("Overall Accuracy: {}", fmt_acc(overall_acc)),
     ];
 
-    let mut right_col: Vec<String> = vec![
-        format!("Branch: {branch_name}"),
-        format!("Level: {level_name}"),
-        format!("Unlocked: {}", if is_unlocked { "Yes" } else { "No" }),
-        format!("In Focus?: {}", if in_focus { "Yes" } else { "No" }),
-    ];
+    let mut right_col: Vec<String> = Vec::new();
+    if let Some((branch_name, level_name)) = branch_info {
+        right_col.push(format!("Branch: {branch_name}"));
+        right_col.push(format!("Level: {level_name}"));
+    } else {
+        right_col.push("Built-in Key".to_string());
+    }
+    right_col.push(format!("Unlocked: {}", if is_unlocked { "Yes" } else { "No" }));
+    right_col.push(format!("In Focus?: {}", if in_focus { "Yes" } else { "No" }));
     if is_unlocked {
         right_col.push(format!("Mastery: {mastery_text}"));
     } else {

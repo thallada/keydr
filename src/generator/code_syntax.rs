@@ -785,7 +785,7 @@ pub fn build_code_download_queue(lang_key: &str, cache_dir: &str) -> Vec<(String
 pub struct CodeSyntaxGenerator {
     rng: SmallRng,
     language: String,
-    fetched_snippets: Vec<String>,
+    fetched_snippets: Vec<(String, String)>, // (snippet, repo_key)
     last_source: String,
 }
 
@@ -816,11 +816,17 @@ impl CodeSyntaxGenerator {
                 let name = entry.file_name();
                 let name_str = name.to_string_lossy();
                 if name_str.starts_with(&prefix) && name_str.ends_with(".txt") {
+                    // Extract repo key from filename: {language}_{repo}.txt
+                    let repo_key = name_str
+                        .strip_prefix(&prefix)
+                        .and_then(|s| s.strip_suffix(".txt"))
+                        .unwrap_or("unknown")
+                        .to_string();
                     if let Ok(content) = fs::read_to_string(entry.path()) {
-                        let snippets: Vec<String> = content
+                        let snippets: Vec<(String, String)> = content
                             .split("\n---SNIPPET---\n")
                             .filter(|s| !s.trim().is_empty())
-                            .map(|s| s.to_string())
+                            .map(|s| (s.to_string(), repo_key.clone()))
                             .collect();
                         self.fetched_snippets.extend(snippets);
                     }
@@ -1660,7 +1666,7 @@ impl TextGenerator for CodeSyntaxGenerator {
                 candidates.push((false, i));
             }
         }
-        for (i, snippet) in self.fetched_snippets.iter().enumerate() {
+        for (i, (snippet, _)) in self.fetched_snippets.iter().enumerate() {
             if approx_token_count(snippet) >= min_units {
                 candidates.push((true, i));
             }
@@ -1681,22 +1687,29 @@ impl TextGenerator for CodeSyntaxGenerator {
 
         let pick = self.rng.gen_range(0..candidates.len());
         let (is_fetched, idx) = candidates[pick];
-        let used_fetched = is_fetched;
 
-        let selected = if is_fetched {
-            self.fetched_snippets
+        let display_name = CODE_LANGUAGES
+            .iter()
+            .find(|l| l.key == self.language)
+            .map(|l| l.display_name)
+            .unwrap_or(&self.language);
+
+        let (selected, repo_key) = if is_fetched {
+            let (snippet, repo) = self
+                .fetched_snippets
                 .get(idx)
-                .map(|s| s.as_str())
-                .unwrap_or_else(|| embedded[0])
+                .map(|(s, r)| (s.as_str(), Some(r.as_str())))
+                .unwrap_or((embedded[0], None));
+            (snippet, repo)
         } else {
-            embedded.get(idx).copied().unwrap_or(embedded[0])
+            (embedded.get(idx).copied().unwrap_or(embedded[0]), None)
         };
         let text = fit_snippet_to_target(selected, target_words);
 
-        self.last_source = if used_fetched {
-            format!("GitHub source cache ({})", self.language)
+        self.last_source = if let Some(repo) = repo_key {
+            format!("{} \u{b7} {}", display_name, repo)
         } else {
-            format!("Built-in snippets ({})", self.language)
+            format!("{} \u{b7} built-in", display_name)
         };
 
         text

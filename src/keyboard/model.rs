@@ -1,3 +1,4 @@
+use crate::keyboard::display::{BACKSPACE, ENTER, SPACE, TAB};
 use crate::keyboard::finger::{Finger, FingerAssignment, Hand};
 
 #[derive(Clone, Debug)]
@@ -732,10 +733,18 @@ impl KeyboardModel {
 
     /// Get finger assignment for a character, looking it up in the model.
     pub fn finger_for_char(&self, ch: char) -> FingerAssignment {
-        if let Some((row_idx, col_idx)) = self.find_key_position(ch) {
-            self.finger_for_position(row_idx, col_idx)
-        } else {
-            FingerAssignment::new(Hand::Right, Finger::Index)
+        match ch {
+            // Built-in/non-grid keys in this app.
+            TAB => FingerAssignment::new(Hand::Left, Finger::Pinky),
+            ENTER | BACKSPACE => FingerAssignment::new(Hand::Right, Finger::Pinky),
+            SPACE => FingerAssignment::new(Hand::Right, Finger::Thumb),
+            _ => {
+                if let Some((row_idx, col_idx)) = self.find_key_position(ch) {
+                    self.finger_for_position(row_idx, col_idx)
+                } else {
+                    FingerAssignment::new(Hand::Right, Finger::Index)
+                }
+            }
         }
     }
 
@@ -815,5 +824,26 @@ mod tests {
         let _ = model.finger_for_char('1');
         let _ = model.finger_for_char('!');
         let _ = model.finger_for_char('{');
+    }
+
+    #[test]
+    fn test_finger_for_meta_keys() {
+        let model = KeyboardModel::qwerty();
+        assert_eq!(
+            model.finger_for_char(TAB),
+            FingerAssignment::new(Hand::Left, Finger::Pinky)
+        );
+        assert_eq!(
+            model.finger_for_char(ENTER),
+            FingerAssignment::new(Hand::Right, Finger::Pinky)
+        );
+        assert_eq!(
+            model.finger_for_char(BACKSPACE),
+            FingerAssignment::new(Hand::Right, Finger::Pinky)
+        );
+        assert_eq!(
+            model.finger_for_char(SPACE),
+            FingerAssignment::new(Hand::Right, Finger::Thumb)
+        );
     }
 }

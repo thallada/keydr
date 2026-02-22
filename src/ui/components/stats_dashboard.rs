@@ -6,7 +6,7 @@ use ratatui::widgets::{Block, Clear, Paragraph, Widget};
 use std::collections::{BTreeSet, HashMap};
 
 use crate::engine::key_stats::KeyStatsStore;
-use crate::keyboard::display::{self, BACKSPACE, ENTER, SPACE, TAB};
+use crate::keyboard::display::{self, BACKSPACE, ENTER, MODIFIER_SENTINELS, SPACE, TAB};
 use crate::keyboard::model::KeyboardModel;
 use crate::session::result::DrillResult;
 use crate::ui::components::activity_heatmap::ActivityHeatmap;
@@ -1052,9 +1052,9 @@ impl StatsDashboard<'_> {
         }
         // Include modifier/whitespace keys
         all_keys.insert(SPACE);
-        all_keys.insert(TAB);
-        all_keys.insert(ENTER);
-        all_keys.insert(BACKSPACE);
+        for &key in MODIFIER_SENTINELS {
+            all_keys.insert(key);
+        }
 
         let mut key_accuracies: Vec<(char, f64)> = all_keys
             .into_iter()
@@ -1130,9 +1130,9 @@ impl StatsDashboard<'_> {
             }
         }
         all_keys.insert(SPACE);
-        all_keys.insert(TAB);
-        all_keys.insert(ENTER);
-        all_keys.insert(BACKSPACE);
+        for &key in MODIFIER_SENTINELS {
+            all_keys.insert(key);
+        }
 
         let mut key_accuracies: Vec<(char, f64)> = all_keys
             .into_iter()
