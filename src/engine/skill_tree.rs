@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::engine::key_stats::KeyStatsStore;
+use crate::keyboard::display::{BACKSPACE, SPACE};
 
 /// Events returned by `SkillTree::update` describing what changed.
 pub struct SkillTreeUpdate {
@@ -278,6 +279,7 @@ pub struct SkillTree {
 
 /// Number of lowercase letters to start with before unlocking one-at-a-time
 const LOWERCASE_MIN_KEYS: usize = 6;
+const ALWAYS_UNLOCKED_KEYS: &[char] = &[SPACE, BACKSPACE];
 
 impl SkillTree {
     pub fn new(progress: SkillTreeProgress) -> Self {
@@ -297,6 +299,7 @@ impl SkillTree {
                 }
             }
         }
+        all_keys.extend(ALWAYS_UNLOCKED_KEYS.iter().copied());
         all_keys.len()
     }
 
@@ -341,7 +344,7 @@ impl SkillTree {
     }
 
     fn global_unlocked_keys(&self) -> Vec<char> {
-        let mut keys = Vec::new();
+        let mut keys = ALWAYS_UNLOCKED_KEYS.to_vec();
         for branch_def in ALL_BRANCHES {
             let bp = self.branch_progress(branch_def.id);
             match bp.status {
@@ -370,7 +373,7 @@ impl SkillTree {
     }
 
     fn branch_unlocked_keys(&self, id: BranchId) -> Vec<char> {
-        let mut keys = Vec::new();
+        let mut keys = ALWAYS_UNLOCKED_KEYS.to_vec();
 
         // Always include a-z background keys
         if id != BranchId::Lowercase {
@@ -638,6 +641,7 @@ impl SkillTree {
     /// Total number of unlocked unique keys across all branches.
     pub fn total_unlocked_count(&self) -> usize {
         let mut keys: HashSet<char> = HashSet::new();
+        keys.extend(ALWAYS_UNLOCKED_KEYS.iter().copied());
         for branch_def in ALL_BRANCHES {
             let bp = self.branch_progress(branch_def.id);
             match bp.status {
@@ -714,6 +718,11 @@ impl SkillTree {
     /// Count of unique confident keys across all branches.
     pub fn total_confident_keys(&self, stats: &KeyStatsStore) -> usize {
         let mut keys: HashSet<char> = HashSet::new();
+        for &ch in ALWAYS_UNLOCKED_KEYS {
+            if stats.get_confidence(ch) >= 1.0 {
+                keys.insert(ch);
+            }
+        }
         for branch_def in ALL_BRANCHES {
             for level in branch_def.levels {
                 for &ch in level.keys {
@@ -772,15 +781,17 @@ mod tests {
     #[test]
     fn test_total_unique_keys() {
         let tree = SkillTree::default();
-        assert_eq!(tree.total_unique_keys, 96);
+        assert_eq!(tree.total_unique_keys, 98);
     }
 
     #[test]
     fn test_initial_lowercase_unlocked() {
         let tree = SkillTree::default();
         let keys = tree.unlocked_keys(DrillScope::Global);
-        assert_eq!(keys.len(), LOWERCASE_MIN_KEYS);
-        assert_eq!(&keys[..6], &['e', 't', 'a', 'o', 'i', 'n']);
+        assert_eq!(keys.len(), LOWERCASE_MIN_KEYS + ALWAYS_UNLOCKED_KEYS.len());
+        assert_eq!(&keys[2..8], &['e', 't', 'a', 'o', 'i', 'n']);
+        assert!(keys.contains(&SPACE));
+        assert!(keys.contains(&BACKSPACE));
     }
 
     #[test]
@@ -794,7 +805,7 @@ mod tests {
 
         // Should unlock 7th key ('s')
         let keys = tree.unlocked_keys(DrillScope::Global);
-        assert_eq!(keys.len(), 7);
+        assert_eq!(keys.len(), 9);
         assert!(keys.contains(&'s'));
     }
 

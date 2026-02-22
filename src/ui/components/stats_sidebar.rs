@@ -12,6 +12,7 @@ pub struct StatsSidebar<'a> {
     drill: &'a DrillState,
     last_result: Option<&'a DrillResult>,
     history: &'a [DrillResult],
+    target_wpm: u32,
     theme: &'a Theme,
 }
 
@@ -20,12 +21,14 @@ impl<'a> StatsSidebar<'a> {
         drill: &'a DrillState,
         last_result: Option<&'a DrillResult>,
         history: &'a [DrillResult],
+        target_wpm: u32,
         theme: &'a Theme,
     ) -> Self {
         Self {
             drill,
             last_result,
             history,
+            target_wpm,
             theme,
         }
     }
@@ -81,6 +84,13 @@ impl Widget for StatsSidebar<'_> {
                 Line::from(vec![
                     Span::styled("WPM: ", Style::default().fg(colors.fg())),
                     Span::styled(wpm_str, Style::default().fg(colors.accent())),
+                ]),
+                Line::from(vec![
+                    Span::styled("Target: ", Style::default().fg(colors.fg())),
+                    Span::styled(
+                        format!("{} WPM", self.target_wpm),
+                        Style::default().fg(colors.text_pending()),
+                    ),
                 ]),
                 Line::from(""),
                 Line::from(vec![

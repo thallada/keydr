@@ -28,7 +28,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget, Wrap};
 
-use app::{App, AppScreen, DrillMode, MilestoneKind};
+use app::{App, AppScreen, DrillMode, MilestoneKind, StatusKind};
 use engine::skill_tree::{DrillScope, find_key_branch};
 use keyboard::display::key_display_name;
 use keyboard::finger::Hand;
@@ -228,6 +228,12 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
+    // Milestone overlays are modal: any key dismisses exactly one popup and is consumed.
+    if !app.milestone_queue.is_empty() {
+        app.milestone_queue.pop_front();
+        return;
+    }
+
     match app.screen {
         AppScreen::Menu => handle_menu_key(app, key),
         AppScreen::Drill => handle_drill_key(app, key),
@@ -304,25 +310,6 @@ fn handle_menu_key(app: &mut App, key: KeyEvent) {
 }
 
 fn handle_drill_key(app: &mut App, key: KeyEvent) {
-    // If a milestone overlay is showing, dismiss it on any key press
-    if !app.milestone_queue.is_empty() {
-        app.milestone_queue.pop_front();
-
-        // Determine what to do with the dismissing key
-        match milestone_dismiss_action(key.code) {
-            MilestoneDismissAction::EscAndExit => {
-                // Esc clears entire queue and exits drill
-                app.milestone_queue.clear();
-                // Fall through to normal Esc handling below
-            }
-            MilestoneDismissAction::Replay => {
-                // Char/Tab/Enter: dismiss and replay into drill
-                // Fall through to normal key handling below
-            }
-            MilestoneDismissAction::DismissOnly => return, // Backspace and others
-        }
-    }
-
     // Route Enter/Tab as typed characters during active drills
     if app.drill.is_some() {
         match key.code {
@@ -354,26 +341,33 @@ fn handle_drill_key(app: &mut App, key: KeyEvent) {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum MilestoneDismissAction {
-    Replay,
-    DismissOnly,
-    EscAndExit,
-}
-
-fn milestone_dismiss_action(code: KeyCode) -> MilestoneDismissAction {
-    match code {
-        KeyCode::Esc => MilestoneDismissAction::EscAndExit,
-        KeyCode::Char(_) | KeyCode::Tab | KeyCode::Enter => MilestoneDismissAction::Replay,
-        _ => MilestoneDismissAction::DismissOnly,
-    }
-}
-
 fn handle_result_key(app: &mut App, key: KeyEvent) {
+    if app.history_confirm_delete {
+        match key.code {
+            KeyCode::Char('y') => {
+                app.delete_session();
+                app.history_confirm_delete = false;
+            }
+            KeyCode::Char('n') | KeyCode::Esc => {
+                app.history_confirm_delete = false;
+            }
+            _ => {}
+        }
+        return;
+    }
+
     match key.code {
+        KeyCode::Char('c') | KeyCode::Enter | KeyCode::Char(' ') => app.continue_drill(),
         KeyCode::Char('r') => app.retry_drill(),
         KeyCode::Char('q') | KeyCode::Esc => app.go_to_menu(),
         KeyCode::Char('s') => app.go_to_stats(),
+        KeyCode::Char('x') => {
+            if !app.drill_history.is_empty() {
+                // On result screen, delete always targets the just-completed (most recent) session.
+                app.history_selected = 0;
+                app.history_confirm_delete = true;
+            }
+        }
         _ => {}
     }
 }
@@ -452,25 +446,78 @@ fn handle_stats_key(app: &mut App, key: KeyEvent) {
 }
 
 fn handle_settings_key(app: &mut App, key: KeyEvent) {
-    const MAX_SETTINGS: usize = 11;
+    const MAX_SETTINGS: usize = 15;
 
-    if app.settings_editing_download_dir {
+    // Priority 1: dismiss status message
+    if app.settings_status_message.is_some() {
+        app.settings_status_message = None;
+        return;
+    }
+
+    // Priority 2: export conflict dialog
+    if app.settings_export_conflict {
+        match key.code {
+            KeyCode::Char('d') => {
+                app.settings_export_conflict = false;
+                app.export_data_overwrite();
+            }
+            KeyCode::Char('r') => {
+                app.settings_export_conflict = false;
+                app.export_data_rename();
+            }
+            KeyCode::Esc => {
+                app.settings_export_conflict = false;
+            }
+            _ => {}
+        }
+        return;
+    }
+
+    // Priority 3: import confirmation dialog
+    if app.settings_confirm_import {
+        match key.code {
+            KeyCode::Char('y') => {
+                app.settings_confirm_import = false;
+                app.import_data();
+            }
+            KeyCode::Char('n') | KeyCode::Esc => {
+                app.settings_confirm_import = false;
+            }
+            _ => {}
+        }
+        return;
+    }
+
+    // Priority 4: editing a path field
+    if app.settings_editing_download_dir || app.settings_editing_export_path || app.settings_editing_import_path {
         match key.code {
             KeyCode::Esc => {
-                app.settings_editing_download_dir = false;
+                app.clear_settings_modals();
             }
             KeyCode::Backspace => {
-                if app.settings_selected == 5 {
-                    app.config.code_download_dir.pop();
-                } else if app.settings_selected == 9 {
-                    app.config.passage_download_dir.pop();
+                if app.settings_editing_download_dir {
+                    if app.settings_selected == 5 {
+                        app.config.code_download_dir.pop();
+                    } else if app.settings_selected == 9 {
+                        app.config.passage_download_dir.pop();
+                    }
+                } else if app.settings_editing_export_path {
+                    app.settings_export_path.pop();
+                } else if app.settings_editing_import_path {
+                    app.settings_import_path.pop();
                 }
             }
             KeyCode::Char(ch) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                if app.settings_selected == 5 {
-                    app.config.code_download_dir.push(ch);
-                } else if app.settings_selected == 9 {
-                    app.config.passage_download_dir.push(ch);
+                if app.settings_editing_download_dir {
+                    if app.settings_selected == 5 {
+                        app.config.code_download_dir.push(ch);
+                    } else if app.settings_selected == 9 {
+                        app.config.passage_download_dir.push(ch);
+                    }
+                } else if app.settings_editing_export_path {
+                    app.settings_export_path.push(ch);
+                } else if app.settings_editing_import_path {
+                    app.settings_import_path.push(ch);
                 }
             }
             _ => {}
@@ -495,22 +542,37 @@ fn handle_settings_key(app: &mut App, key: KeyEvent) {
         }
         KeyCode::Enter => {
             match app.settings_selected {
-                5 | 9 => app.settings_editing_download_dir = true,
+                5 | 9 => {
+                    app.clear_settings_modals();
+                    app.settings_editing_download_dir = true;
+                }
                 7 => app.start_code_downloads_from_settings(),
                 11 => app.start_passage_downloads_from_settings(),
+                12 => {
+                    app.clear_settings_modals();
+                    app.settings_editing_export_path = true;
+                }
+                13 => app.export_data(),
+                14 => {
+                    app.clear_settings_modals();
+                    app.settings_editing_import_path = true;
+                }
+                15 => {
+                    app.clear_settings_modals();
+                    app.settings_confirm_import = true;
+                }
                 _ => app.settings_cycle_forward(),
             }
         }
         KeyCode::Right | KeyCode::Char('l') => {
-            // Allow cycling for non-text, non-button fields
             match app.settings_selected {
-                5 | 7 | 9 | 11 => {} // text fields or action buttons
+                5 | 7 | 9 | 11 | 12 | 13 | 14 | 15 => {} // path/button fields
                 _ => app.settings_cycle_forward(),
             }
         }
         KeyCode::Left | KeyCode::Char('h') => {
             match app.settings_selected {
-                5 | 7 | 9 | 11 => {} // text fields or action buttons
+                5 | 7 | 9 | 11 | 12 | 13 | 14 | 15 => {} // path/button fields
                 _ => app.settings_cycle_backward(),
             }
         }
@@ -935,6 +997,12 @@ fn render(frame: &mut ratatui::Frame, app: &App) {
     let bg = Block::default().style(Style::default().bg(colors.bg()));
     frame.render_widget(bg, area);
 
+    // Milestone overlays are modal and shown before the underlying screen.
+    if let Some(milestone) = app.milestone_queue.front() {
+        render_milestone_overlay(frame, app, milestone);
+        return;
+    }
+
     match app.screen {
         AppScreen::Menu => render_menu(frame, app),
         AppScreen::Drill => render_drill(frame, app),
@@ -974,8 +1042,8 @@ fn render_menu(frame: &mut ratatui::Frame, app: &App) {
     let unlocked = app.skill_tree.total_unlocked_count();
     let mastered = app.skill_tree.total_confident_keys(&app.ranked_key_stats);
     let header_info = format!(
-        " Key Progress {unlocked}/{total_keys} ({mastered} mastered){}",
-        streak_text,
+        " Key Progress {unlocked}/{total_keys} ({mastered} mastered) | Target {} WPM{}",
+        app.config.target_wpm, streak_text,
     );
     let header = Paragraph::new(Line::from(vec![
         Span::styled(
@@ -1176,6 +1244,7 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
                 drill,
                 app.last_result.as_ref(),
                 &app.drill_history,
+                app.config.target_wpm,
                 app.theme,
             );
             frame.render_widget(sidebar, sidebar_area);
@@ -1187,10 +1256,6 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
         )));
         frame.render_widget(footer, app_layout.footer);
 
-        // Render milestone overlay if present
-        if let Some(milestone) = app.milestone_queue.front() {
-            render_milestone_overlay(frame, app, milestone);
-        }
     }
 }
 
@@ -1350,7 +1415,7 @@ fn render_milestone_overlay(
     if footer_y < inner.y + inner.height {
         let footer_area = Rect::new(inner.x, footer_y, inner.width, 1);
         let footer = Paragraph::new(Line::from(Span::styled(
-            "  Press any key to continue (Backspace dismisses only)",
+            "  Press any key to continue",
             Style::default().fg(colors.text_pending()),
         )));
         frame.render_widget(footer, footer_area);
@@ -1370,29 +1435,78 @@ fn overlay_keyboard_mode(height: u16) -> u8 {
 #[cfg(test)]
 mod review_tests {
     use super::*;
+    use crate::session::result::DrillResult;
+    use chrono::{TimeDelta, Utc};
+
+    fn test_result(ts_offset_secs: i64) -> DrillResult {
+        DrillResult {
+            wpm: 60.0,
+            cpm: 300.0,
+            accuracy: 98.0,
+            correct: 49,
+            incorrect: 1,
+            total_chars: 50,
+            elapsed_secs: 10.0,
+            timestamp: Utc::now() + TimeDelta::seconds(ts_offset_secs),
+            per_key_times: vec![],
+            drill_mode: "adaptive".to_string(),
+            ranked: true,
+            partial: false,
+            completion_percent: 100.0,
+        }
+    }
 
     #[test]
-    fn milestone_dismiss_matrix_matches_spec() {
-        assert_eq!(
-            milestone_dismiss_action(KeyCode::Char('a')),
-            MilestoneDismissAction::Replay
-        );
-        assert_eq!(
-            milestone_dismiss_action(KeyCode::Tab),
-            MilestoneDismissAction::Replay
-        );
-        assert_eq!(
-            milestone_dismiss_action(KeyCode::Enter),
-            MilestoneDismissAction::Replay
-        );
-        assert_eq!(
-            milestone_dismiss_action(KeyCode::Backspace),
-            MilestoneDismissAction::DismissOnly
-        );
-        assert_eq!(
-            milestone_dismiss_action(KeyCode::Esc),
-            MilestoneDismissAction::EscAndExit
-        );
+    fn milestone_overlay_blocks_underlying_input() {
+        let mut app = App::new();
+        app.screen = AppScreen::Drill;
+        app.drill = Some(crate::session::drill::DrillState::new("abc"));
+        app.milestone_queue
+            .push_back(crate::app::KeyMilestonePopup {
+                kind: crate::app::MilestoneKind::Unlock,
+                keys: vec!['a'],
+                finger_info: vec![('a', "left pinky".to_string())],
+                message: "msg",
+        });
+
+        let before_cursor = app.drill.as_ref().map(|d| d.cursor).unwrap_or(0);
+        handle_key(&mut app, KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        let after_cursor = app.drill.as_ref().map(|d| d.cursor).unwrap_or(0);
+
+        assert_eq!(before_cursor, after_cursor);
+        assert!(app.milestone_queue.is_empty());
+    }
+
+    #[test]
+    fn milestone_queue_chains_before_result_actions() {
+        let mut app = App::new();
+        app.screen = AppScreen::DrillResult;
+        app.milestone_queue
+            .push_back(crate::app::KeyMilestonePopup {
+                kind: crate::app::MilestoneKind::Unlock,
+                keys: vec!['a'],
+                finger_info: vec![('a', "left pinky".to_string())],
+                message: "msg1",
+            });
+        app.milestone_queue
+            .push_back(crate::app::KeyMilestonePopup {
+                kind: crate::app::MilestoneKind::Mastery,
+                keys: vec!['a'],
+                finger_info: vec![('a', "left pinky".to_string())],
+                message: "msg2",
+            });
+
+        handle_key(&mut app, KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        assert_eq!(app.screen, AppScreen::DrillResult);
+        assert_eq!(app.milestone_queue.len(), 1);
+
+        handle_key(&mut app, KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        assert_eq!(app.screen, AppScreen::DrillResult);
+        assert!(app.milestone_queue.is_empty());
+
+        // Now normal result action should apply.
+        handle_key(&mut app, KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        assert_eq!(app.screen, AppScreen::Menu);
     }
 
     #[test]
@@ -1401,6 +1515,268 @@ mod review_tests {
         assert_eq!(overlay_keyboard_mode(15), 1);
         assert_eq!(overlay_keyboard_mode(24), 1);
         assert_eq!(overlay_keyboard_mode(25), 2);
+    }
+
+    #[test]
+    fn result_delete_shortcut_opens_confirmation_for_latest() {
+        let mut app = App::new();
+        app.screen = AppScreen::DrillResult;
+        app.last_result = Some(test_result(2));
+        app.drill_history = vec![test_result(1), test_result(2)];
+        app.history_selected = 1;
+
+        handle_key(&mut app, KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+
+        assert!(app.history_confirm_delete);
+        assert_eq!(app.history_selected, 0);
+    }
+
+    #[test]
+    fn result_delete_confirmation_yes_deletes_latest() {
+        let mut app = App::new();
+        app.screen = AppScreen::DrillResult;
+        app.last_result = Some(test_result(3));
+        let older = test_result(1);
+        let newer = test_result(2);
+        app.drill_history = vec![older.clone(), newer.clone()];
+
+        handle_key(&mut app, KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        handle_key(&mut app, KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+
+        assert!(!app.history_confirm_delete);
+        assert_eq!(app.drill_history.len(), 1);
+        assert_eq!(app.drill_history[0].timestamp, older.timestamp);
+    }
+
+    #[test]
+    fn result_delete_confirmation_cancel_keeps_history() {
+        let mut app = App::new();
+        app.screen = AppScreen::DrillResult;
+        app.last_result = Some(test_result(2));
+        app.drill_history = vec![test_result(1), test_result(2)];
+
+        handle_key(&mut app, KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        handle_key(&mut app, KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+
+        assert!(!app.history_confirm_delete);
+        assert_eq!(app.drill_history.len(), 2);
+    }
+
+    #[test]
+    fn result_continue_shortcuts_start_next_drill() {
+        let mut app = App::new();
+        app.screen = AppScreen::DrillResult;
+        app.last_result = Some(test_result(2));
+
+        handle_key(&mut app, KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+        assert_eq!(app.screen, AppScreen::Drill);
+
+        app.screen = AppScreen::DrillResult;
+        handle_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.screen, AppScreen::Drill);
+
+        app.screen = AppScreen::DrillResult;
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE),
+        );
+        assert_eq!(app.screen, AppScreen::Drill);
+    }
+
+    #[test]
+    fn result_continue_code_uses_last_language_params() {
+        let mut app = App::new();
+        app.screen = AppScreen::DrillResult;
+        app.last_result = Some(test_result(2));
+        app.drill_mode = DrillMode::Code;
+        app.config.code_downloads_enabled = false;
+        app.config.code_language = "python".to_string();
+        app.last_code_drill_language = Some("rust".to_string());
+
+        handle_key(&mut app, KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+
+        assert_eq!(app.screen, AppScreen::Drill);
+        assert_eq!(app.drill_mode, DrillMode::Code);
+        assert_eq!(app.last_code_drill_language.as_deref(), Some("rust"));
+    }
+
+    /// Helper: count how many settings modal/edit flags are active
+    fn modal_edit_count(app: &App) -> usize {
+        [
+            app.settings_confirm_import,
+            app.settings_export_conflict,
+            app.settings_editing_export_path,
+            app.settings_editing_import_path,
+            app.settings_editing_download_dir,
+        ]
+        .iter()
+        .filter(|&&f| f)
+        .count()
+    }
+
+    #[test]
+    fn settings_modal_invariant_enter_export_path_clears_others() {
+        let mut app = App::new();
+        app.screen = AppScreen::Settings;
+
+        // First, activate import confirmation
+        app.settings_selected = 15; // Import Data
+        handle_settings_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert!(app.settings_confirm_import);
+        assert!(modal_edit_count(&app) <= 1);
+
+        // Cancel it
+        handle_settings_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert!(!app.settings_confirm_import);
+
+        // Enter export path editing
+        app.settings_selected = 12; // Export Path
+        handle_settings_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert!(app.settings_editing_export_path);
+        assert!(modal_edit_count(&app) <= 1);
+
+        // Esc out
+        handle_settings_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert!(!app.settings_editing_export_path);
+    }
+
+    #[test]
+    fn settings_modal_invariant_enter_import_path_clears_others() {
+        let mut app = App::new();
+        app.screen = AppScreen::Settings;
+
+        // Activate export path editing first
+        app.settings_selected = 12;
+        handle_settings_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert!(app.settings_editing_export_path);
+
+        // Esc out, then enter import path editing
+        handle_settings_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        app.settings_selected = 14; // Import Path
+        handle_settings_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert!(app.settings_editing_import_path);
+        assert!(!app.settings_editing_export_path);
+        assert!(modal_edit_count(&app) <= 1);
+    }
+
+    #[test]
+    fn settings_confirm_import_dialog_y_n_esc() {
+        let mut app = App::new();
+        app.screen = AppScreen::Settings;
+
+        // Trigger import confirmation
+        app.settings_selected = 15;
+        handle_settings_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert!(app.settings_confirm_import);
+
+        // 'n' cancels
+        handle_settings_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
+        );
+        assert!(!app.settings_confirm_import);
+
+        // Trigger again
+        app.settings_selected = 15;
+        handle_settings_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert!(app.settings_confirm_import);
+
+        // Esc cancels
+        handle_settings_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert!(!app.settings_confirm_import);
+    }
+
+    #[test]
+    fn settings_status_message_dismissed_on_keypress() {
+        let mut app = App::new();
+        app.screen = AppScreen::Settings;
+
+        // Set a status message
+        app.settings_status_message = Some(crate::app::StatusMessage {
+            kind: StatusKind::Success,
+            text: "test".to_string(),
+        });
+
+        // Any keypress should dismiss it
+        handle_settings_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+        );
+        assert!(app.settings_status_message.is_none());
+    }
+
+    #[test]
+    fn smart_rename_canonical_filename() {
+        use crate::app::next_available_path;
+        let dir = tempfile::TempDir::new().unwrap();
+        let base = dir.path();
+
+        // Create base file
+        let base_path = base.join("keydr-export-2026-01-01.json");
+        std::fs::write(&base_path, "{}").unwrap();
+
+        // First rename: picks -1
+        let result = next_available_path(base_path.to_str().unwrap());
+        assert!(result.ends_with("keydr-export-2026-01-01-1.json"));
+
+        // Create -1
+        std::fs::write(base.join("keydr-export-2026-01-01-1.json"), "{}").unwrap();
+
+        // From base: picks -2
+        let result = next_available_path(base_path.to_str().unwrap());
+        assert!(result.ends_with("keydr-export-2026-01-01-2.json"));
+
+        // From -1 path: normalizes to base stem and picks -2
+        let path_1 = base.join("keydr-export-2026-01-01-1.json");
+        let result = next_available_path(path_1.to_str().unwrap());
+        assert!(result.ends_with("keydr-export-2026-01-01-2.json"));
+    }
+
+    #[test]
+    fn smart_rename_custom_filename() {
+        use crate::app::next_available_path;
+        let dir = tempfile::TempDir::new().unwrap();
+        let base = dir.path();
+
+        let custom_path = base.join("my-backup.json");
+        std::fs::write(&custom_path, "{}").unwrap();
+
+        let result = next_available_path(custom_path.to_str().unwrap());
+        assert!(result.ends_with("my-backup-1.json"));
+
+        std::fs::write(base.join("my-backup-1.json"), "{}").unwrap();
+        let result = next_available_path(custom_path.to_str().unwrap());
+        assert!(result.ends_with("my-backup-2.json"));
     }
 }
 
@@ -1411,6 +1787,35 @@ fn render_result(frame: &mut ratatui::Frame, app: &App) {
         let centered = ui::layout::centered_rect(60, 70, area);
         let dashboard = Dashboard::new(result, app.theme);
         frame.render_widget(dashboard, centered);
+
+        if app.history_confirm_delete && !app.drill_history.is_empty() {
+            let colors = &app.theme.colors;
+            let dialog_width = 34u16;
+            let dialog_height = 5u16;
+            let dialog_x = area.x + area.width.saturating_sub(dialog_width) / 2;
+            let dialog_y = area.y + area.height.saturating_sub(dialog_height) / 2;
+            let dialog_area = Rect::new(dialog_x, dialog_y, dialog_width, dialog_height);
+
+            let idx = app.drill_history.len().saturating_sub(app.history_selected);
+            let dialog_text = format!("Delete session #{idx}? (y/n)");
+
+            frame.render_widget(ratatui::widgets::Clear, dialog_area);
+            let dialog = Paragraph::new(vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    format!("  {dialog_text}  "),
+                    Style::default().fg(colors.fg()),
+                )),
+            ])
+            .style(Style::default().bg(colors.bg()))
+            .block(
+                Block::bordered()
+                    .title(" Confirm ")
+                    .border_style(Style::default().fg(colors.error()))
+                    .style(Style::default().bg(colors.bg())),
+            );
+            frame.render_widget(dialog, dialog_area);
+        }
     }
 }
 
@@ -1518,15 +1923,38 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
             "Run downloader".to_string(),
             false,
         ),
+        (
+            "Export Path".to_string(),
+            app.settings_export_path.clone(),
+            true, // path field
+        ),
+        (
+            "Export Data".to_string(),
+            "Export now".to_string(),
+            false,
+        ),
+        (
+            "Import Path".to_string(),
+            app.settings_import_path.clone(),
+            true, // path field
+        ),
+        (
+            "Import Data".to_string(),
+            "Import now".to_string(),
+            false,
+        ),
     ];
+
+    let header_height = if inner.height > 0 { 1 } else { 0 };
+    let footer_height = if inner.height > header_height { 1 } else { 0 };
+    let field_height = inner.height.saturating_sub(header_height + footer_height);
 
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(2),
-            Constraint::Length(fields.len() as u16 * 3),
-            Constraint::Min(0),
-            Constraint::Length(2),
+            Constraint::Length(header_height),
+            Constraint::Length(field_height),
+            Constraint::Length(footer_height),
         ])
         .split(inner);
 
@@ -1536,22 +1964,33 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
     )));
     header.render(layout[0], frame.buffer_mut());
 
+    let row_height = 2u16;
+    let visible_rows = (layout[1].height / row_height).max(1) as usize;
+    let max_start = fields.len().saturating_sub(visible_rows);
+    let start = app
+        .settings_selected
+        .saturating_sub(visible_rows.saturating_sub(1))
+        .min(max_start);
+    let end = (start + visible_rows).min(fields.len());
+    let visible_fields = &fields[start..end];
+
     let field_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints(
-            fields
+            visible_fields
                 .iter()
-                .map(|_| Constraint::Length(3))
+                .map(|_| Constraint::Length(row_height))
                 .collect::<Vec<_>>(),
         )
         .split(layout[1]);
 
-    for (i, (label, value, is_path)) in fields.iter().enumerate() {
+    for (row, (label, value, is_path)) in visible_fields.iter().enumerate() {
+        let i = start + row;
         let is_selected = i == app.settings_selected;
         let indicator = if is_selected { " > " } else { "   " };
 
         let label_text = format!("{indicator}{label}:");
-        let is_button = i == 7 || i == 11; // Download Code Now, Download Passages Now
+        let is_button = i == 7 || i == 11 || i == 13 || i == 15;
         let value_text = if is_button {
             format!("  [ {value} ]")
         } else {
@@ -1576,15 +2015,20 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
             colors.text_pending()
         });
 
+        let is_editing_this_path = is_selected && *is_path && (
+            app.settings_editing_download_dir
+            || app.settings_editing_export_path
+            || app.settings_editing_import_path
+        );
         let lines = if *is_path {
-            let path_line = if app.settings_editing_download_dir && is_selected {
+            let path_line = if is_editing_this_path {
                 format!("  {value}_")
             } else {
                 format!("  {value}")
             };
             vec![
                 Line::from(Span::styled(
-                    if app.settings_editing_download_dir && is_selected {
+                    if is_editing_this_path {
                         format!("{indicator}{label}: (editing)")
                     } else {
                         label_text
@@ -1599,25 +2043,130 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
                 Line::from(Span::styled(value_text, value_style)),
             ]
         };
-        Paragraph::new(lines).render(field_layout[i], frame.buffer_mut());
+        Paragraph::new(lines).render(field_layout[row], frame.buffer_mut());
     }
 
-    let footer_hints: Vec<&str> = if app.settings_editing_download_dir {
+    let any_path_editing = app.settings_editing_download_dir
+        || app.settings_editing_export_path
+        || app.settings_editing_import_path;
+    let footer_hints: Vec<&str> = if any_path_editing {
         vec!["Editing path:", "[Type/Backspace] Modify", "[ESC] Done editing"]
     } else {
         vec![
             "[ESC] Save & back",
             "[Enter/arrows] Change value",
-            "[Enter on path] Edit dir",
+            "[Enter on path] Edit",
         ]
     };
-    let footer_lines: Vec<Line> = pack_hint_lines(&footer_hints, layout[3].width as usize)
+    let footer_lines: Vec<Line> = pack_hint_lines(&footer_hints, layout[2].width as usize)
         .into_iter()
         .map(|line| Line::from(Span::styled(line, Style::default().fg(colors.accent()))))
         .collect();
     Paragraph::new(footer_lines)
         .wrap(Wrap { trim: false })
-        .render(layout[3], frame.buffer_mut());
+        .render(layout[2], frame.buffer_mut());
+
+    // --- Overlay dialogs (rendered on top of settings) ---
+
+    // Status message takes highest priority
+    if let Some(ref msg) = app.settings_status_message {
+        let border_color = match msg.kind {
+            StatusKind::Success => colors.accent(),
+            StatusKind::Error => colors.error(),
+        };
+        let title = match msg.kind {
+            StatusKind::Success => " Success ",
+            StatusKind::Error => " Error ",
+        };
+        let dialog_width = 56u16.min(area.width.saturating_sub(4));
+        let dialog_height = 6u16;
+        let dialog_x = area.x + area.width.saturating_sub(dialog_width) / 2;
+        let dialog_y = area.y + area.height.saturating_sub(dialog_height) / 2;
+        let dialog_area = Rect::new(dialog_x, dialog_y, dialog_width, dialog_height);
+
+        frame.render_widget(ratatui::widgets::Clear, dialog_area);
+        let dialog = Paragraph::new(vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                format!("  {}  ", msg.text),
+                Style::default().fg(colors.fg()),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Press any key",
+                Style::default().fg(colors.text_pending()),
+            )),
+        ])
+        .wrap(Wrap { trim: false })
+        .style(Style::default().bg(colors.bg()))
+        .block(
+            Block::bordered()
+                .title(title)
+                .border_style(Style::default().fg(border_color))
+                .style(Style::default().bg(colors.bg())),
+        );
+        frame.render_widget(dialog, dialog_area);
+    } else if app.settings_export_conflict {
+        let dialog_width = 52u16.min(area.width.saturating_sub(4));
+        let dialog_height = 6u16;
+        let dialog_x = area.x + area.width.saturating_sub(dialog_width) / 2;
+        let dialog_y = area.y + area.height.saturating_sub(dialog_height) / 2;
+        let dialog_area = Rect::new(dialog_x, dialog_y, dialog_width, dialog_height);
+
+        frame.render_widget(ratatui::widgets::Clear, dialog_area);
+        let dialog = Paragraph::new(vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "  A file already exists at this path.",
+                Style::default().fg(colors.fg()),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  [d] Overwrite  [r] Rename  [Esc] Cancel",
+                Style::default().fg(colors.text_pending()),
+            )),
+        ])
+        .style(Style::default().bg(colors.bg()))
+        .block(
+            Block::bordered()
+                .title(" File Exists ")
+                .border_style(Style::default().fg(colors.error()))
+                .style(Style::default().bg(colors.bg())),
+        );
+        frame.render_widget(dialog, dialog_area);
+    } else if app.settings_confirm_import {
+        let dialog_width = 52u16.min(area.width.saturating_sub(4));
+        let dialog_height = 7u16;
+        let dialog_x = area.x + area.width.saturating_sub(dialog_width) / 2;
+        let dialog_y = area.y + area.height.saturating_sub(dialog_height) / 2;
+        let dialog_area = Rect::new(dialog_x, dialog_y, dialog_width, dialog_height);
+
+        frame.render_widget(ratatui::widgets::Clear, dialog_area);
+        let dialog = Paragraph::new(vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "  This will erase your current data.",
+                Style::default().fg(colors.fg()),
+            )),
+            Line::from(Span::styled(
+                "  Export first if you want to keep it.",
+                Style::default().fg(colors.text_pending()),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Proceed? (y/n)",
+                Style::default().fg(colors.fg()),
+            )),
+        ])
+        .style(Style::default().bg(colors.bg()))
+        .block(
+            Block::bordered()
+                .title(" Confirm Import ")
+                .border_style(Style::default().fg(colors.error()))
+                .style(Style::default().bg(colors.bg())),
+        );
+        frame.render_widget(dialog, dialog_area);
+    }
 }
 
 fn wrapped_line_count(text: &str, width: usize) -> usize {

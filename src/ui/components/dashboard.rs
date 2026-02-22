@@ -115,9 +115,14 @@ impl Widget for Dashboard<'_> {
         Paragraph::new(chars_line).render(layout[4], buf);
 
         let help = Paragraph::new(Line::from(vec![
-            Span::styled("  [r] Retry  ", Style::default().fg(colors.accent())),
+            Span::styled(
+                "  [c/Enter/Space] Continue  ",
+                Style::default().fg(colors.accent()),
+            ),
+            Span::styled("[r] Retry  ", Style::default().fg(colors.accent())),
             Span::styled("[q] Menu  ", Style::default().fg(colors.accent())),
-            Span::styled("[s] Stats", Style::default().fg(colors.accent())),
+            Span::styled("[s] Stats  ", Style::default().fg(colors.accent())),
+            Span::styled("[x] Delete", Style::default().fg(colors.accent())),
         ]));
         help.render(layout[6], buf);
     }

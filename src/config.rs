@@ -122,7 +122,6 @@ impl Config {
         }
     }
 
-    #[allow(dead_code)]
     pub fn save(&self) -> Result<()> {
         let path = Self::config_path();
         if let Some(parent) = path.parent() {
@@ -142,6 +141,14 @@ impl Config {
 
     pub fn target_cpm(&self) -> f64 {
         self.target_wpm as f64 * 5.0
+    }
+
+    /// Clamp and normalize all config values to valid ranges.
+    /// Call after importing config from an external source.
+    pub fn validate(&mut self, valid_language_keys: &[&str]) {
+        self.target_wpm = self.target_wpm.clamp(10, 200);
+        self.word_count = self.word_count.clamp(5, 100);
+        self.normalize_code_language(valid_language_keys);
     }
 
     /// Validate `code_language` against known options, resetting to default if invalid.

@@ -966,7 +966,8 @@ impl StatsDashboard<'_> {
             if y >= inner.y + inner.height {
                 break;
             }
-            let label = format!(" {ch} {time:>4.0}ms ");
+            let key_name = display_key_short_fixed(*ch);
+            let label = format!(" {key_name} {time:>4.0}ms ");
             let label_len = label.len() as u16;
             buf.set_string(inner.x, y, &label, Style::default().fg(colors.error()));
             let bar_space = inner.width.saturating_sub(label_len) as usize;
@@ -1013,7 +1014,8 @@ impl StatsDashboard<'_> {
             if y >= inner.y + inner.height {
                 break;
             }
-            let label = format!(" {ch} {time:>4.0}ms ");
+            let key_name = display_key_short_fixed(*ch);
+            let label = format!(" {key_name} {time:>4.0}ms ");
             let label_len = label.len() as u16;
             buf.set_string(inner.x, y, &label, Style::default().fg(colors.success()));
             let bar_space = inner.width.saturating_sub(label_len) as usize;
@@ -1056,6 +1058,7 @@ impl StatsDashboard<'_> {
         all_keys.insert(SPACE);
         all_keys.insert(TAB);
         all_keys.insert(ENTER);
+        all_keys.insert(BACKSPACE);
 
         let mut key_accuracies: Vec<(char, f64)> = all_keys
             .into_iter()
@@ -1091,7 +1094,8 @@ impl StatsDashboard<'_> {
             if y >= inner.y + inner.height {
                 break;
             }
-            let label = format!(" {ch} {acc:>5.1}% ");
+            let key_name = display_key_short_fixed(*ch);
+            let label = format!(" {key_name} {acc:>5.1}% ");
             let label_len = label.len() as u16;
             let color = if *acc >= 95.0 {
                 colors.warning()
@@ -1132,6 +1136,7 @@ impl StatsDashboard<'_> {
         all_keys.insert(SPACE);
         all_keys.insert(TAB);
         all_keys.insert(ENTER);
+        all_keys.insert(BACKSPACE);
 
         let mut key_accuracies: Vec<(char, f64)> = all_keys
             .into_iter()
@@ -1166,7 +1171,8 @@ impl StatsDashboard<'_> {
             if y >= inner.y + inner.height {
                 break;
             }
-            let label = format!(" {ch} {acc:>5.1}% ");
+            let key_name = display_key_short_fixed(*ch);
+            let label = format!(" {key_name} {acc:>5.1}% ");
             let label_len = label.len() as u16;
             let color = if *acc >= 98.0 {
                 colors.success()
@@ -1306,6 +1312,16 @@ fn timing_color(time_ms: f64, colors: &crate::ui::theme::ThemeColors) -> ratatui
 fn required_kbd_width(key_width: u16, key_step: u16) -> u16 {
     let max_offset: u16 = 4;
     max_offset + 12 * key_step + key_width
+}
+
+fn display_key_short_fixed(ch: char) -> String {
+    let special = display::key_short_label(ch);
+    let raw = if special.is_empty() {
+        ch.to_string()
+    } else {
+        special.to_string()
+    };
+    format!("{raw:<4}")
 }
 
 fn compute_streaks(active_days: &BTreeSet<chrono::NaiveDate>) -> (usize, usize) {

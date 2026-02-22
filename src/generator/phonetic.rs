@@ -213,10 +213,26 @@ impl TextGenerator for PhoneticGenerator {
 
         for _ in 0..word_count {
             if use_real_words {
-                // Pick a real word (avoid consecutive duplicates)
+                // Pick a real word (avoid consecutive duplicates).
+                // If focused is set, bias sampling toward words containing that key.
+                let focus = focused.filter(|ch| ch.is_ascii_lowercase());
+                let focused_indices: Vec<usize> = if let Some(ch) = focus {
+                    matching_words
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, w)| w.contains(ch).then_some(i))
+                        .collect()
+                } else {
+                    Vec::new()
+                };
                 let mut picked = None;
-                for _ in 0..3 {
-                    let idx = self.rng.gen_range(0..matching_words.len());
+                for _ in 0..6 {
+                    let idx = if !focused_indices.is_empty() && self.rng.gen_bool(0.70) {
+                        let j = self.rng.gen_range(0..focused_indices.len());
+                        focused_indices[j]
+                    } else {
+                        self.rng.gen_range(0..matching_words.len())
+                    };
                     let word = matching_words[idx].clone();
                     if word != last_word {
                         picked = Some(word);
@@ -237,5 +253,42 @@ impl TextGenerator for PhoneticGenerator {
         }
 
         words.join(" ")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::SeedableRng;
+
+    #[test]
+    fn focused_key_biases_real_word_sampling() {
+        let dictionary = Dictionary::load();
+        let table = TransitionTable::build_from_words(&dictionary.words_list());
+        let filter = CharFilter::new(('a'..='z').collect());
+
+        let mut focused_gen = PhoneticGenerator::new(
+            table.clone(),
+            Dictionary::load(),
+            SmallRng::seed_from_u64(42),
+        );
+        let focused_text = focused_gen.generate(&filter, Some('k'), 1200);
+        let focused_count = focused_text
+            .split_whitespace()
+            .filter(|w| w.contains('k'))
+            .count();
+
+        let mut baseline_gen =
+            PhoneticGenerator::new(table, Dictionary::load(), SmallRng::seed_from_u64(42));
+        let baseline_text = baseline_gen.generate(&filter, None, 1200);
+        let baseline_count = baseline_text
+            .split_whitespace()
+            .filter(|w| w.contains('k'))
+            .count();
+
+        assert!(
+            focused_count > baseline_count,
+            "focused_count={focused_count}, baseline_count={baseline_count}"
+        );
     }
 }

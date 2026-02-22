@@ -31,12 +31,13 @@ use crate::generator::phonetic::PhoneticGenerator;
 use crate::generator::punctuate;
 use crate::generator::transition_table::TransitionTable;
 use crate::keyboard::model::KeyboardModel;
+use crate::keyboard::display::BACKSPACE;
 
 use crate::session::drill::DrillState;
 use crate::session::input::{self, KeystrokeEvent};
 use crate::session::result::DrillResult;
 use crate::store::json_store::JsonStore;
-use crate::store::schema::{DrillHistoryData, KeyStatsData, ProfileData};
+use crate::store::schema::{DrillHistoryData, ExportData, KeyStatsData, ProfileData, EXPORT_VERSION};
 use crate::ui::components::menu::Menu;
 use crate::ui::theme::Theme;
 
@@ -110,6 +111,68 @@ struct DownloadJob {
     handle: Option<thread::JoinHandle<()>>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StatusKind {
+    Success,
+    Error,
+}
+
+#[derive(Clone, Debug)]
+pub struct StatusMessage {
+    pub kind: StatusKind,
+    pub text: String,
+}
+
+/// Given a file path, find the next available path by appending/incrementing
+/// a `-N` numeric suffix before the extension. Strips any existing trailing
+/// `-N` suffix to normalize before scanning.
+pub fn next_available_path(path_str: &str) -> String {
+    let path = std::path::Path::new(path_str).to_path_buf();
+    let parent = path.parent().unwrap_or(std::path::Path::new("."));
+    let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("json");
+    let full_stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("export");
+
+    // Strip existing trailing -N suffix to get base stem
+    let base_stem = if let Some(pos) = full_stem.rfind('-') {
+        let suffix = &full_stem[pos + 1..];
+        // Only strip if the suffix is a pure positive integer AND the base before
+        // it also exists as a file (i.e., this is our rename suffix, not part of
+        // the original name like a date component)
+        if suffix.parse::<u32>().is_ok() {
+            let candidate_base = &full_stem[..pos];
+            let base_file = parent.join(format!("{candidate_base}.{extension}"));
+            if base_file.exists() {
+                candidate_base
+            } else {
+                full_stem
+            }
+        } else {
+            full_stem
+        }
+    } else {
+        full_stem
+    };
+
+    let mut n = 1u32;
+    loop {
+        let candidate = parent.join(format!("{base_stem}-{n}.{extension}"));
+        if !candidate.exists() {
+            return candidate.to_string_lossy().to_string();
+        }
+        n += 1;
+    }
+}
+
+fn default_export_path() -> String {
+    let dir = dirs::download_dir()
+        .or_else(dirs::home_dir)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let date = chrono::Utc::now().format("%Y-%m-%d");
+    dir.join(format!("keydr-export-{date}.json"))
+        .to_string_lossy()
+        .to_string()
+}
+
 impl DrillMode {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -166,6 +229,7 @@ pub struct App {
     pub passage_intro_download_bytes_total: u64,
     pub passage_download_queue: Vec<usize>,
     pub passage_drill_selection_override: Option<String>,
+    pub last_passage_drill_selection: Option<String>,
     pub passage_download_action: PassageDownloadCompleteAction,
     pub code_intro_selected: usize,
     pub code_intro_downloads_enabled: bool,
@@ -179,12 +243,20 @@ pub struct App {
     pub code_intro_download_bytes_total: u64,
     pub code_download_queue: Vec<(String, usize)>,
     pub code_drill_language_override: Option<String>,
+    pub last_code_drill_language: Option<String>,
     pub code_download_attempted: bool,
     pub code_download_action: CodeDownloadCompleteAction,
     pub shift_held: bool,
     pub caps_lock: bool,
     pub keyboard_model: KeyboardModel,
     pub milestone_queue: VecDeque<KeyMilestonePopup>,
+    pub settings_confirm_import: bool,
+    pub settings_export_conflict: bool,
+    pub settings_status_message: Option<StatusMessage>,
+    pub settings_export_path: String,
+    pub settings_import_path: String,
+    pub settings_editing_export_path: bool,
+    pub settings_editing_import_path: bool,
     pub keyboard_explorer_selected: Option<char>,
     pub explorer_accuracy_cache_overall: Option<(char, usize, usize)>,
     pub explorer_accuracy_cache_ranked: Option<(char, usize, usize)>,
@@ -299,6 +371,7 @@ impl App {
             passage_intro_download_bytes_total: 0,
             passage_download_queue: Vec::new(),
             passage_drill_selection_override: None,
+            last_passage_drill_selection: None,
             passage_download_action: PassageDownloadCompleteAction::StartPassageDrill,
             code_intro_selected: 0,
             code_intro_downloads_enabled,
@@ -312,12 +385,20 @@ impl App {
             code_intro_download_bytes_total: 0,
             code_download_queue: Vec::new(),
             code_drill_language_override: None,
+            last_code_drill_language: None,
             code_download_attempted: false,
             code_download_action: CodeDownloadCompleteAction::StartCodeDrill,
             shift_held: false,
             caps_lock: false,
             keyboard_model,
             milestone_queue: VecDeque::new(),
+            settings_confirm_import: false,
+            settings_export_conflict: false,
+            settings_status_message: None,
+            settings_export_path: default_export_path(),
+            settings_import_path: default_export_path(),
+            settings_editing_export_path: false,
+            settings_editing_import_path: false,
             keyboard_explorer_selected: None,
             explorer_accuracy_cache_overall: None,
             explorer_accuracy_cache_ranked: None,
@@ -327,8 +408,213 @@ impl App {
             passage_download_job: None,
             code_download_job: None,
         };
+
+        // Check for leftover .bak files from interrupted import
+        if let Some(ref s) = app.store
+            && s.check_interrupted_import()
+        {
+            app.settings_status_message = Some(StatusMessage {
+                kind: StatusKind::Error,
+                text: "Recovery files found from interrupted import. Data may be inconsistent — consider re-importing.".to_string(),
+            });
+        }
+
         app.start_drill();
         app
+    }
+
+    /// Clear all import/export modal and edit states.
+    pub fn clear_settings_modals(&mut self) {
+        self.settings_confirm_import = false;
+        self.settings_export_conflict = false;
+        self.settings_editing_export_path = false;
+        self.settings_editing_import_path = false;
+        self.settings_editing_download_dir = false;
+    }
+
+    pub fn export_data(&mut self) {
+        let path = std::path::Path::new(&self.settings_export_path);
+
+        // Check for existing file
+        if path.exists() {
+            self.settings_export_conflict = true;
+            return;
+        }
+
+        self.write_export_to_path();
+    }
+
+    pub fn export_data_overwrite(&mut self) {
+        self.write_export_to_path();
+    }
+
+    pub fn export_data_rename(&mut self) {
+        self.settings_export_path = next_available_path(&self.settings_export_path);
+        self.write_export_to_path();
+    }
+
+    fn write_export_to_path(&mut self) {
+        // Check parent directory exists
+        let path = std::path::Path::new(&self.settings_export_path);
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+            && !parent.exists()
+        {
+            self.settings_status_message = Some(StatusMessage {
+                kind: StatusKind::Error,
+                text: format!("Directory does not exist: {}", parent.display()),
+            });
+            return;
+        }
+
+        let Some(ref store) = self.store else {
+            self.settings_status_message = Some(StatusMessage {
+                kind: StatusKind::Error,
+                text: "No data store available".to_string(),
+            });
+            return;
+        };
+
+        let export = store.export_all(&self.config);
+        let json = match serde_json::to_string_pretty(&export) {
+            Ok(j) => j,
+            Err(e) => {
+                self.settings_status_message = Some(StatusMessage {
+                    kind: StatusKind::Error,
+                    text: format!("Serialization error: {e}"),
+                });
+                return;
+            }
+        };
+
+        let path = std::path::Path::new(&self.settings_export_path);
+        let tmp_path = path.with_extension("json.tmp");
+
+        let result = (|| -> anyhow::Result<()> {
+            let mut file = std::fs::File::create(&tmp_path)?;
+            std::io::Write::write_all(&mut file, json.as_bytes())?;
+            file.sync_all()?;
+            std::fs::rename(&tmp_path, path)?;
+            Ok(())
+        })();
+
+        match result {
+            Ok(()) => {
+                self.settings_status_message = Some(StatusMessage {
+                    kind: StatusKind::Success,
+                    text: format!("Exported to {}", self.settings_export_path),
+                });
+            }
+            Err(e) => {
+                let _ = std::fs::remove_file(&tmp_path);
+                self.settings_status_message = Some(StatusMessage {
+                    kind: StatusKind::Error,
+                    text: format!("Export failed: {e}"),
+                });
+            }
+        }
+    }
+
+    pub fn import_data(&mut self) {
+        let path = std::path::Path::new(&self.settings_import_path);
+
+        // Read and parse
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(e) => {
+                self.settings_status_message = Some(StatusMessage {
+                    kind: StatusKind::Error,
+                    text: format!("Could not read file: {e}"),
+                });
+                return;
+            }
+        };
+
+        let export: ExportData = match serde_json::from_str(&content) {
+            Ok(d) => d,
+            Err(e) => {
+                self.settings_status_message = Some(StatusMessage {
+                    kind: StatusKind::Error,
+                    text: format!("Invalid export file: {e}"),
+                });
+                return;
+            }
+        };
+
+        // Version check
+        if export.keydr_export_version != EXPORT_VERSION {
+            self.settings_status_message = Some(StatusMessage {
+                kind: StatusKind::Error,
+                text: format!(
+                    "Unsupported export version: {} (expected {})",
+                    export.keydr_export_version, EXPORT_VERSION
+                ),
+            });
+            return;
+        }
+
+        // Write data files transactionally
+        let Some(ref store) = self.store else {
+            self.settings_status_message = Some(StatusMessage {
+                kind: StatusKind::Error,
+                text: "No data store available".to_string(),
+            });
+            return;
+        };
+        if let Err(e) = store.import_all(&export) {
+            self.settings_status_message = Some(StatusMessage {
+                kind: StatusKind::Error,
+                text: format!("Import failed: {e}"),
+            });
+            return;
+        }
+
+        // Merge config: import everything except machine-local paths
+        let preserved_code_dir = self.config.code_download_dir.clone();
+        let preserved_passage_dir = self.config.passage_download_dir.clone();
+        self.config = export.config.clone();
+        self.config.code_download_dir = preserved_code_dir;
+        self.config.passage_download_dir = preserved_passage_dir;
+
+        // Validate and save config
+        let valid_keys: Vec<&str> = code_language_options().iter().map(|(k, _)| *k).collect();
+        self.config.validate(&valid_keys);
+        let _ = self.config.save();
+
+        // Reload in-memory state from imported data
+        self.profile = export.profile;
+        self.key_stats = export.key_stats.stats;
+        self.key_stats.target_cpm = self.config.target_cpm();
+        self.ranked_key_stats = export.ranked_key_stats.stats;
+        self.ranked_key_stats.target_cpm = self.config.target_cpm();
+        self.drill_history = export.drill_history.drills;
+        self.skill_tree = SkillTree::new(self.profile.skill_tree.clone());
+        self.keyboard_model = KeyboardModel::from_name(&self.config.keyboard_layout);
+
+        // Check theme availability
+        let theme_name = self.config.theme.clone();
+        let loaded_theme = Theme::load(&theme_name).unwrap_or_default();
+        let theme_fell_back = loaded_theme.name != theme_name;
+        let theme: &'static Theme = Box::leak(Box::new(loaded_theme));
+        self.theme = theme;
+        self.menu = Menu::new(theme);
+
+        if theme_fell_back {
+            self.config.theme = self.theme.name.clone();
+            let _ = self.config.save();
+            self.settings_status_message = Some(StatusMessage {
+                kind: StatusKind::Success,
+                text: format!(
+                    "Imported successfully (theme '{}' not found, using default)",
+                    theme_name
+                ),
+            });
+        } else {
+            self.settings_status_message = Some(StatusMessage {
+                kind: StatusKind::Success,
+                text: "Imported successfully".to_string(),
+            });
+        }
     }
 
     pub fn start_drill(&mut self) {
@@ -467,6 +753,7 @@ impl App {
                     .code_drill_language_override
                     .clone()
                     .unwrap_or_else(|| self.config.code_language.clone());
+                self.last_code_drill_language = Some(lang.clone());
                 let rng = SmallRng::from_rng(&mut self.rng).unwrap();
                 let mut generator = CodeSyntaxGenerator::new(
                     rng,
@@ -484,6 +771,7 @@ impl App {
                     .passage_drill_selection_override
                     .clone()
                     .unwrap_or_else(|| self.config.passage_book.clone());
+                self.last_passage_drill_selection = Some(selection.clone());
                 let mut generator = PassageGenerator::new(
                     rng,
                     &selection,
@@ -522,6 +810,15 @@ impl App {
 
     pub fn backspace(&mut self) {
         if let Some(ref mut drill) = self.drill {
+            if drill.cursor == 0 {
+                return;
+            }
+            self.drill_events.push(KeystrokeEvent {
+                expected: BACKSPACE,
+                actual: BACKSPACE,
+                timestamp: Instant::now(),
+                correct: true,
+            });
             input::process_backspace(drill);
         }
     }
@@ -629,8 +926,8 @@ impl App {
 
             self.last_result = Some(result);
 
-            // Adaptive mode auto-continues to next drill (like keybr.com)
-            if self.drill_mode == DrillMode::Adaptive {
+            // Adaptive mode auto-continues unless milestone popups must be shown first.
+            if self.drill_mode == DrillMode::Adaptive && self.milestone_queue.is_empty() {
                 self.start_drill();
             } else {
                 self.screen = AppScreen::DrillResult;
@@ -695,6 +992,25 @@ impl App {
             self.screen = AppScreen::Drill;
         } else {
             self.start_drill();
+        }
+    }
+
+    pub fn continue_drill(&mut self) {
+        self.history_confirm_delete = false;
+        match self.drill_mode {
+            DrillMode::Adaptive => self.start_drill(),
+            DrillMode::Code => {
+                if let Some(lang) = self.last_code_drill_language.clone() {
+                    self.code_drill_language_override = Some(lang);
+                }
+                self.start_code_drill();
+            }
+            DrillMode::Passage => {
+                if let Some(selection) = self.last_passage_drill_selection.clone() {
+                    self.passage_drill_selection_override = Some(selection);
+                }
+                self.start_passage_drill();
+            }
         }
     }
 

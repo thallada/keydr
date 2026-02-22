@@ -382,13 +382,34 @@ impl KeyboardDiagram<'_> {
             }
         }
 
+        // Compute full keyboard width from rendered rows (including trailing modifier keys),
+        // so the space bar centers relative to the keyboard, not the container.
+        let keyboard_width = self
+            .model
+            .rows
+            .iter()
+            .enumerate()
+            .map(|(row_idx, row)| {
+                let offset = offsets.get(row_idx).copied().unwrap_or(0);
+                let row_end = offset + row.len() as u16 * key_width;
+                match row_idx {
+                    0 => row_end + 6, // [Bksp]
+                    2 => row_end + 7, // [Enter]
+                    3 => row_end + 6, // [Shft]
+                    _ => row_end,
+                }
+            })
+            .max()
+            .unwrap_or(0)
+            .min(inner.width);
+
         // Space bar row (row 4)
         let space_y = inner.y + 4;
         if space_y < inner.y + inner.height {
             let space_name = display::key_display_name(SPACE);
             let space_label = format!("[       {space_name}       ]");
             let space_width = space_label.len() as u16;
-            let space_x = inner.x + (inner.width.saturating_sub(space_width)) / 2;
+            let space_x = inner.x + (keyboard_width.saturating_sub(space_width)) / 2;
             if space_x + space_width <= inner.x + inner.width {
                 let is_dep = self.depressed_keys.contains(&SPACE);
                 let is_next = self.next_key == Some(SPACE);

@@ -1,5 +1,7 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::config::Config;
 use crate::engine::key_stats::KeyStatsStore;
 use crate::engine::skill_tree::SkillTreeProgress;
 use crate::session::result::DrillResult;
@@ -68,4 +70,17 @@ impl Default for DrillHistoryData {
             drills: Vec::new(),
         }
     }
+}
+
+pub const EXPORT_VERSION: u32 = 1;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExportData {
+    pub keydr_export_version: u32,
+    pub exported_at: DateTime<Utc>,
+    pub config: Config,
+    pub profile: ProfileData,
+    pub key_stats: KeyStatsData,
+    pub ranked_key_stats: KeyStatsData,
+    pub drill_history: DrillHistoryData,
 }
