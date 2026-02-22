@@ -674,8 +674,6 @@ impl StatsDashboard<'_> {
 
         let (key_width, key_step) = if inner.width >= required_kbd_width(5, 6) {
             (5, 6)
-        } else if inner.width >= required_kbd_width(4, 5) {
-            (4, 5)
         } else {
             return;
         };
@@ -832,8 +830,6 @@ impl StatsDashboard<'_> {
 
         let (key_width, key_step) = if inner.width >= required_kbd_width(5, 6) {
             (5, 6)
-        } else if inner.width >= required_kbd_width(4, 5) {
-            (4, 5)
         } else {
             return;
         };
@@ -967,7 +963,7 @@ impl StatsDashboard<'_> {
                 break;
             }
             let key_name = display_key_short_fixed(*ch);
-            let label = format!(" {key_name} {time:>4.0}ms ");
+            let label = format!(" {key_name} {} ", format_ranked_time(*time));
             let label_len = label.len() as u16;
             buf.set_string(inner.x, y, &label, Style::default().fg(colors.error()));
             let bar_space = inner.width.saturating_sub(label_len) as usize;
@@ -1015,7 +1011,7 @@ impl StatsDashboard<'_> {
                 break;
             }
             let key_name = display_key_short_fixed(*ch);
-            let label = format!(" {key_name} {time:>4.0}ms ");
+            let label = format!(" {key_name} {} ", format_ranked_time(*time));
             let label_len = label.len() as u16;
             buf.set_string(inner.x, y, &label, Style::default().fg(colors.success()));
             let bar_space = inner.width.saturating_sub(label_len) as usize;
@@ -1271,12 +1267,12 @@ fn format_accuracy_cell(key: char, accuracy: f64, key_width: u16) -> String {
     if accuracy > 0.0 {
         let pct = accuracy.round() as u32;
         if key_width >= 5 {
-            format!("{key}{pct:>3}")
+            format!("{key} {pct:<3}")
         } else {
             format!("{key}{pct:>2}")
         }
     } else if key_width >= 5 {
-        format!("{key}   ")
+        format!("{key}    ")
     } else {
         format!("{key}  ")
     }
@@ -1286,12 +1282,12 @@ fn format_accuracy_cell_label(label: &str, accuracy: f64, key_width: u16) -> Str
     if accuracy > 0.0 {
         let pct = accuracy.round() as u32;
         if key_width >= 5 {
-            format!("{label}{pct:>3}")
+            format!("{label} {pct:<3}")
         } else {
             format!("{label}{pct:>2}")
         }
     } else if key_width >= 5 {
-        format!("{label}   ")
+        format!("{label}    ")
     } else {
         format!("{label}  ")
     }
@@ -1357,11 +1353,11 @@ fn compute_streaks(active_days: &BTreeSet<chrono::NaiveDate>) -> (usize, usize) 
 
 fn format_timing_cell(key: char, time_ms: f64, key_width: u16) -> String {
     if time_ms > 0.0 {
-        let ms = time_ms.round() as u32;
+        let value = format_timing_visual_value_3(time_ms);
         if key_width >= 5 {
-            format!("{key}{ms:>4}")
+            format!("{key} {value:<3}")
         } else {
-            format!("{key}{:>3}", ms.min(999))
+            format!("{key}{value:>3}")
         }
     } else if key_width >= 5 {
         format!("{key}    ")
@@ -1372,17 +1368,46 @@ fn format_timing_cell(key: char, time_ms: f64, key_width: u16) -> String {
 
 fn format_timing_cell_label(label: &str, time_ms: f64, key_width: u16) -> String {
     if time_ms > 0.0 {
-        let ms = time_ms.round() as u32;
+        let value = format_timing_visual_value_3(time_ms);
         if key_width >= 5 {
-            format!("{label}{ms:>4}")
+            format!("{label} {value:<3}")
         } else {
-            format!("{label}{:>3}", ms.min(999))
+            format!("{label}{value:>3}")
         }
     } else if key_width >= 5 {
         format!("{label}    ")
     } else {
         format!("{label}   ")
     }
+}
+
+fn format_timing_visual_value_3(time_ms: f64) -> String {
+    let ms = time_ms.max(0.0).round() as u32;
+    if ms <= 999 {
+        return format!("{ms:>3}");
+    }
+
+    // Keep visualizer values to exactly 3 chars while signaling second units.
+    // Example: 1.2s => "1s2", 9.0s => "9s0", 12s => "12s".
+    if ms < 10_000 {
+        let tenths = ((ms as f64 / 100.0).round() as u32).min(99);
+        let whole = tenths / 10;
+        let frac = tenths % 10;
+        return format!("{whole}s{frac}");
+    }
+
+    let secs = ((ms as f64) / 1000.0).round() as u32;
+    format!("{:>3}", format!("{}s", secs.min(99)))
+}
+
+fn format_ranked_time(time_ms: f64) -> String {
+    if time_ms > 59_999.0 {
+        return format!("{:.1}m", time_ms / 60_000.0);
+    }
+    if time_ms > 9_999.0 {
+        return format!("{:.1}s", time_ms / 1_000.0);
+    }
+    format!("{time_ms:>4.0}ms")
 }
 
 /// Distribute labels across `total_width`, with the first flush-left
