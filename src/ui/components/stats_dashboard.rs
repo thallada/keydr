@@ -448,7 +448,8 @@ impl StatsDashboard<'_> {
                         .fg(colors.accent())
                         .add_modifier(Modifier::BOLD),
                 )))
-                .border_style(Style::default().fg(colors.accent()));
+                .border_style(Style::default().fg(colors.accent()))
+                .style(Style::default().bg(colors.bg()));
             block.render(area, buf);
             return;
         }
@@ -458,10 +459,11 @@ impl StatsDashboard<'_> {
         let dataset = Dataset::default()
             .marker(symbols::Marker::Braille)
             .graph_type(GraphType::Line)
-            .style(Style::default().fg(colors.success()))
+            .style(Style::default().fg(colors.success()).bg(colors.bg()))
             .data(&data);
 
         let chart = Chart::new(vec![dataset])
+            .style(Style::default().fg(colors.fg()).bg(colors.bg()))
             .block(
                 Block::bordered()
                     .title(Line::from(Span::styled(
@@ -470,22 +472,32 @@ impl StatsDashboard<'_> {
                             .fg(colors.accent())
                             .add_modifier(Modifier::BOLD),
                     )))
-                    .border_style(Style::default().fg(colors.accent())),
+                    .border_style(Style::default().fg(colors.accent()))
+                    .style(Style::default().bg(colors.bg())),
             )
             .x_axis(
                 Axis::default()
                     .title("Drill #")
-                    .style(Style::default().fg(colors.text_pending()))
+                    .style(Style::default().fg(colors.text_pending()).bg(colors.bg()))
                     .bounds([0.0, max_x]),
             )
             .y_axis(
                 Axis::default()
                     .title("Accuracy %")
-                    .style(Style::default().fg(colors.text_pending()))
+                    .style(Style::default().fg(colors.text_pending()).bg(colors.bg()))
                     .labels(vec![
-                        Span::styled("80", Style::default().fg(colors.text_pending())),
-                        Span::styled("90", Style::default().fg(colors.text_pending())),
-                        Span::styled("100", Style::default().fg(colors.text_pending())),
+                        Span::styled(
+                            "80",
+                            Style::default().fg(colors.text_pending()).bg(colors.bg()),
+                        ),
+                        Span::styled(
+                            "90",
+                            Style::default().fg(colors.text_pending()).bg(colors.bg()),
+                        ),
+                        Span::styled(
+                            "100",
+                            Style::default().fg(colors.text_pending()).bg(colors.bg()),
+                        ),
                     ])
                     .bounds([80.0, 100.0]),
             );

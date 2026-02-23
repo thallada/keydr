@@ -385,6 +385,7 @@ fn handle_result_key(app: &mut App, key: KeyEvent) {
             KeyCode::Char('y') => {
                 app.delete_session();
                 app.history_confirm_delete = false;
+                app.continue_drill();
             }
             KeyCode::Char('n') | KeyCode::Esc => {
                 app.history_confirm_delete = false;
@@ -1584,6 +1585,8 @@ mod review_tests {
         assert!(!app.history_confirm_delete);
         assert_eq!(app.drill_history.len(), 1);
         assert_eq!(app.drill_history[0].timestamp, older.timestamp);
+        assert_eq!(app.screen, AppScreen::Drill);
+        assert!(app.drill.is_some());
     }
 
     #[test]
@@ -1598,6 +1601,7 @@ mod review_tests {
 
         assert!(!app.history_confirm_delete);
         assert_eq!(app.drill_history.len(), 2);
+        assert_eq!(app.screen, AppScreen::DrillResult);
     }
 
     #[test]

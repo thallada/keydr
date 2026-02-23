@@ -84,6 +84,95 @@ fn brighten_color(color: Color) -> Color {
     }
 }
 
+fn color_to_rgb(color: Color) -> (u8, u8, u8) {
+    match color {
+        Color::Reset => (0, 0, 0),
+        Color::Black => (0, 0, 0),
+        Color::Red => (205, 49, 49),
+        Color::Green => (13, 188, 121),
+        Color::Yellow => (229, 229, 16),
+        Color::Blue => (36, 114, 200),
+        Color::Magenta => (188, 63, 188),
+        Color::Cyan => (17, 168, 205),
+        Color::Gray => (229, 229, 229),
+        Color::DarkGray => (102, 102, 102),
+        Color::LightRed => (241, 76, 76),
+        Color::LightGreen => (35, 209, 139),
+        Color::LightYellow => (245, 245, 67),
+        Color::LightBlue => (59, 142, 234),
+        Color::LightMagenta => (214, 112, 214),
+        Color::LightCyan => (41, 184, 219),
+        Color::White => (255, 255, 255),
+        Color::Rgb(r, g, b) => (r, g, b),
+        Color::Indexed(i) => {
+            if i < 16 {
+                const ANSI16: [(u8, u8, u8); 16] = [
+                    (0, 0, 0),
+                    (128, 0, 0),
+                    (0, 128, 0),
+                    (128, 128, 0),
+                    (0, 0, 128),
+                    (128, 0, 128),
+                    (0, 128, 128),
+                    (192, 192, 192),
+                    (128, 128, 128),
+                    (255, 0, 0),
+                    (0, 255, 0),
+                    (255, 255, 0),
+                    (0, 0, 255),
+                    (255, 0, 255),
+                    (0, 255, 255),
+                    (255, 255, 255),
+                ];
+                ANSI16[i as usize]
+            } else if i <= 231 {
+                let idx = i - 16;
+                let r = idx / 36;
+                let g = (idx % 36) / 6;
+                let b = idx % 6;
+                let cv = |n: u8| if n == 0 { 0 } else { 55 + n * 40 };
+                (cv(r), cv(g), cv(b))
+            } else {
+                let v = 8 + (i - 232) * 10;
+                (v, v, v)
+            }
+        }
+    }
+}
+
+fn relative_luminance(color: Color) -> f64 {
+    let (r, g, b) = color_to_rgb(color);
+    let to_linear = |c: u8| {
+        let x = c as f64 / 255.0;
+        if x <= 0.03928 {
+            x / 12.92
+        } else {
+            ((x + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * to_linear(r) + 0.7152 * to_linear(g) + 0.0722 * to_linear(b)
+}
+
+fn contrast_ratio(a: Color, b: Color) -> f64 {
+    let la = relative_luminance(a);
+    let lb = relative_luminance(b);
+    let (hi, lo) = if la >= lb { (la, lb) } else { (lb, la) };
+    (hi + 0.05) / (lo + 0.05)
+}
+
+fn readable_fg(bg: Color, preferred: Color) -> Color {
+    let mut best = preferred;
+    let mut best_ratio = contrast_ratio(preferred, bg);
+    for candidate in [Color::White, Color::Black] {
+        let ratio = contrast_ratio(candidate, bg);
+        if ratio > best_ratio {
+            best = candidate;
+            best_ratio = ratio;
+        }
+    }
+    best
+}
+
 /// Blend a color toward the background at the given ratio (0.0 = full bg, 1.0 = full color).
 fn blend_toward_bg(color: Color, bg: Color, ratio: f32) -> Color {
     match (color, bg) {
@@ -105,17 +194,17 @@ fn modifier_key_style(
     colors: &crate::ui::theme::ThemeColors,
 ) -> Style {
     if is_depressed {
+        let bg = brighten_color(colors.accent_dim());
         Style::default()
-            .fg(Color::White)
-            .bg(brighten_color(colors.accent_dim()))
+            .fg(readable_fg(bg, colors.fg()))
+            .bg(bg)
             .add_modifier(Modifier::BOLD)
     } else if is_next {
         let bg = blend_toward_bg(colors.accent(), colors.bg(), 0.35);
-        Style::default().fg(colors.accent()).bg(bg)
+        Style::default().fg(readable_fg(bg, colors.accent())).bg(bg)
     } else if is_selected {
-        Style::default()
-            .fg(colors.fg())
-            .bg(colors.accent_dim())
+        let bg = colors.accent_dim();
+        Style::default().fg(readable_fg(bg, colors.fg())).bg(bg)
     } else {
         Style::default().fg(colors.fg()).bg(colors.bg())
     }
@@ -129,17 +218,17 @@ fn key_style(
     colors: &crate::ui::theme::ThemeColors,
 ) -> Style {
     if is_depressed {
+        let bg = brighten_color(colors.accent_dim());
         Style::default()
-            .fg(Color::White)
-            .bg(brighten_color(colors.accent_dim()))
+            .fg(readable_fg(bg, colors.fg()))
+            .bg(bg)
             .add_modifier(Modifier::BOLD)
     } else if is_next {
         let bg = blend_toward_bg(colors.accent(), colors.bg(), 0.35);
-        Style::default().fg(colors.accent()).bg(bg)
+        Style::default().fg(readable_fg(bg, colors.accent())).bg(bg)
     } else if is_selected {
-        Style::default()
-            .fg(colors.fg())
-            .bg(colors.accent_dim())
+        let bg = colors.accent_dim();
+        Style::default().fg(readable_fg(bg, colors.fg())).bg(bg)
     } else if is_unlocked {
         Style::default().fg(colors.fg()).bg(colors.bg())
     } else {
@@ -308,9 +397,10 @@ impl KeyboardDiagram<'_> {
                 2 => {
                     if offset >= 5 {
                         if self.caps_lock {
+                            let bg = colors.accent_dim();
                             let style = Style::default()
-                                .fg(colors.warning())
-                                .bg(colors.accent_dim());
+                                .fg(readable_fg(bg, colors.warning()))
+                                .bg(bg);
                             buf.set_string(inner.x, y, "[Cap]", style);
                         } else {
                             let style = Style::default().fg(colors.text_pending()).bg(colors.bg());
