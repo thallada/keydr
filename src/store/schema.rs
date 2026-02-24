@@ -74,6 +74,9 @@ impl Default for DrillHistoryData {
 
 pub const EXPORT_VERSION: u32 = 1;
 
+/// Export contract: drill_history is the sole source of truth for n-gram stats.
+/// N-gram data is always rebuilt from history on import/startup, so it is not
+/// included in the export payload.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExportData {
     pub keydr_export_version: u32,

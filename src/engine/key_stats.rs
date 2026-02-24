@@ -11,6 +11,10 @@ pub struct KeyStat {
     pub confidence: f64,
     pub sample_count: usize,
     pub recent_times: Vec<f64>,
+    #[serde(default)]
+    pub error_count: usize,
+    #[serde(default)]
+    pub total_count: usize,
 }
 
 impl Default for KeyStat {
@@ -21,6 +25,8 @@ impl Default for KeyStat {
             confidence: 0.0,
             sample_count: 0,
             recent_times: Vec::new(),
+            error_count: 0,
+            total_count: 0,
         }
     }
 }
@@ -44,6 +50,7 @@ impl KeyStatsStore {
     pub fn update_key(&mut self, key: char, time_ms: f64) {
         let stat = self.stats.entry(key).or_default();
         stat.sample_count += 1;
+        stat.total_count += 1;
 
         if stat.sample_count == 1 {
             stat.filtered_time_ms = time_ms;
@@ -69,6 +76,22 @@ impl KeyStatsStore {
     #[allow(dead_code)]
     pub fn get_stat(&self, key: char) -> Option<&KeyStat> {
         self.stats.get(&key)
+    }
+
+    /// Record an error for a key (increments error_count and total_count).
+    /// Does NOT update timing/confidence (those are only updated for correct strokes).
+    pub fn update_key_error(&mut self, key: char) {
+        let stat = self.stats.entry(key).or_default();
+        stat.error_count += 1;
+        stat.total_count += 1;
+    }
+
+    /// Laplace-smoothed error rate: (errors + 1) / (total + 2).
+    pub fn smoothed_error_rate(&self, key: char) -> f64 {
+        match self.stats.get(&key) {
+            Some(s) => (s.error_count as f64 + 1.0) / (s.total_count as f64 + 2.0),
+            None => 0.5, // (0 + 1) / (0 + 2) = 0.5
+        }
     }
 }
 

@@ -101,6 +101,7 @@ impl JsonStore {
     }
 
     /// Bundle all persisted data + config into an ExportData struct.
+    /// N-gram stats are not included — they are always rebuilt from drill history.
     pub fn export_all(&self, config: &Config) -> ExportData {
         let profile = self.load_profile().unwrap_or_default();
         let key_stats = self.load_key_stats();
