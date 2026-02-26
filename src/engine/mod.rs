@@ -5,4 +5,4 @@ pub mod ngram_stats;
 pub mod scoring;
 pub mod skill_tree;
 
-pub use ngram_stats::FocusTarget;
+pub use ngram_stats::FocusSelection;

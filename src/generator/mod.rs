@@ -12,6 +12,11 @@ pub mod transition_table;
 use crate::engine::filter::CharFilter;
 
 pub trait TextGenerator {
-    fn generate(&mut self, filter: &CharFilter, focused: Option<char>, word_count: usize)
-    -> String;
+    fn generate(
+        &mut self,
+        filter: &CharFilter,
+        focused_char: Option<char>,
+        focused_bigram: Option<[char; 2]>,
+        word_count: usize,
+    ) -> String;
 }

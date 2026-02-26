@@ -118,8 +118,8 @@ impl Widget for SkillTreeWidget<'_> {
         let notice_lines = footer_notice
             .map(|text| wrapped_line_count(text, inner.width as usize))
             .unwrap_or(0);
-        let show_notice =
-            footer_notice.is_some() && (inner.height as usize >= hint_lines.len() + notice_lines + 8);
+        let show_notice = footer_notice.is_some()
+            && (inner.height as usize >= hint_lines.len() + notice_lines + 8);
         let footer_needed = hint_lines.len() + if show_notice { notice_lines } else { 0 } + 1;
         let footer_height = footer_needed
             .min(inner.height.saturating_sub(5) as usize)
@@ -161,7 +161,10 @@ impl Widget for SkillTreeWidget<'_> {
             }
         }
         footer_lines.extend(hint_lines.into_iter().map(|line| {
-            Line::from(Span::styled(line, Style::default().fg(colors.text_pending())))
+            Line::from(Span::styled(
+                line,
+                Style::default().fg(colors.text_pending()),
+            ))
         }));
         let footer = Paragraph::new(footer_lines).wrap(Wrap { trim: false });
         footer.render(layout[3], buf);

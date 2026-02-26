@@ -8,7 +8,7 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use crate::config::Config;
 use crate::store::schema::{
-    DrillHistoryData, ExportData, KeyStatsData, ProfileData, EXPORT_VERSION,
+    DrillHistoryData, EXPORT_VERSION, ExportData, KeyStatsData, ProfileData,
 };
 
 pub struct JsonStore {
@@ -136,9 +136,18 @@ impl JsonStore {
 
         let files: Vec<(&str, String)> = vec![
             ("profile.json", serde_json::to_string_pretty(&data.profile)?),
-            ("key_stats.json", serde_json::to_string_pretty(&data.key_stats)?),
-            ("key_stats_ranked.json", serde_json::to_string_pretty(&data.ranked_key_stats)?),
-            ("lesson_history.json", serde_json::to_string_pretty(&data.drill_history)?),
+            (
+                "key_stats.json",
+                serde_json::to_string_pretty(&data.key_stats)?,
+            ),
+            (
+                "key_stats_ranked.json",
+                serde_json::to_string_pretty(&data.ranked_key_stats)?,
+            ),
+            (
+                "lesson_history.json",
+                serde_json::to_string_pretty(&data.drill_history)?,
+            ),
         ];
 
         // Stage phase: write .tmp files
@@ -172,9 +181,7 @@ impl JsonStore {
             let had_original = final_path.exists();
 
             // Back up existing file if it exists
-            if had_original
-                && let Err(e) = fs::rename(&final_path, &bak_path)
-            {
+            if had_original && let Err(e) = fs::rename(&final_path, &bak_path) {
                 // Rollback: restore already committed files
                 for (committed_final, committed_bak, committed_had) in &committed {
                     if *committed_had {
@@ -335,12 +342,19 @@ mod tests {
         // Now create a store that points to a nonexistent subdir of the same tmpdir
         // so that staging .tmp writes will fail
         let bad_dir = _dir.path().join("nonexistent_subdir");
-        let bad_store = JsonStore { base_dir: bad_dir.clone() };
+        let bad_store = JsonStore {
+            base_dir: bad_dir.clone(),
+        };
         let config = Config::default();
         let export = make_test_export(&config);
         let result = bad_store.import_all(&export);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Import failed during staging"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Import failed during staging")
+        );
 
         // Original file in the real store is unchanged
         let after_content = fs::read_to_string(store.file_path("profile.json")).unwrap();
@@ -390,5 +404,4 @@ mod tests {
         // Should have been cleaned up
         assert!(!store.file_path("profile.json.bak").exists());
     }
-
 }

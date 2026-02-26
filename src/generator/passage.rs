@@ -176,7 +176,8 @@ impl TextGenerator for PassageGenerator {
     fn generate(
         &mut self,
         _filter: &CharFilter,
-        _focused: Option<char>,
+        _focused_char: Option<char>,
+        _focused_bigram: Option<[char; 2]>,
         word_count: usize,
     ) -> String {
         let use_builtin = self.selection == "all" || self.selection == "builtin";

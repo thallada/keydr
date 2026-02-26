@@ -91,8 +91,12 @@ pub fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
     let target_w = requested_w.max(MIN_POPUP_WIDTH).min(area.width);
     let target_h = requested_h.max(MIN_POPUP_HEIGHT).min(area.height);
 
-    let left = area.x.saturating_add((area.width.saturating_sub(target_w)) / 2);
-    let top = area.y.saturating_add((area.height.saturating_sub(target_h)) / 2);
+    let left = area
+        .x
+        .saturating_add((area.width.saturating_sub(target_w)) / 2);
+    let top = area
+        .y
+        .saturating_add((area.height.saturating_sub(target_h)) / 2);
 
     Rect::new(left, top, target_w, target_h)
 }

@@ -10,11 +10,20 @@ use crate::ui::theme::Theme;
 pub struct Dashboard<'a> {
     pub result: &'a DrillResult,
     pub theme: &'a Theme,
+    pub input_lock_remaining_ms: Option<u64>,
 }
 
 impl<'a> Dashboard<'a> {
-    pub fn new(result: &'a DrillResult, theme: &'a Theme) -> Self {
-        Self { result, theme }
+    pub fn new(
+        result: &'a DrillResult,
+        theme: &'a Theme,
+        input_lock_remaining_ms: Option<u64>,
+    ) -> Self {
+        Self {
+            result,
+            theme,
+            input_lock_remaining_ms,
+        }
     }
 }
 
@@ -114,16 +123,31 @@ impl Widget for Dashboard<'_> {
         ]);
         Paragraph::new(chars_line).render(layout[4], buf);
 
-        let help = Paragraph::new(Line::from(vec![
-            Span::styled(
-                "  [c/Enter/Space] Continue  ",
-                Style::default().fg(colors.accent()),
-            ),
-            Span::styled("[r] Retry  ", Style::default().fg(colors.accent())),
-            Span::styled("[q] Menu  ", Style::default().fg(colors.accent())),
-            Span::styled("[s] Stats  ", Style::default().fg(colors.accent())),
-            Span::styled("[x] Delete", Style::default().fg(colors.accent())),
-        ]));
+        let help = if let Some(ms) = self.input_lock_remaining_ms {
+            Paragraph::new(Line::from(vec![
+                Span::styled(
+                    "  Input temporarily blocked ",
+                    Style::default().fg(colors.warning()),
+                ),
+                Span::styled(
+                    format!("({ms}ms remaining)"),
+                    Style::default()
+                        .fg(colors.warning())
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]))
+        } else {
+            Paragraph::new(Line::from(vec![
+                Span::styled(
+                    "  [c/Enter/Space] Continue  ",
+                    Style::default().fg(colors.accent()),
+                ),
+                Span::styled("[r] Retry  ", Style::default().fg(colors.accent())),
+                Span::styled("[q] Menu  ", Style::default().fg(colors.accent())),
+                Span::styled("[s] Stats  ", Style::default().fg(colors.accent())),
+                Span::styled("[x] Delete", Style::default().fg(colors.accent())),
+            ]))
+        };
         help.render(layout[6], buf);
     }
 }

@@ -51,24 +51,39 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         ],
         has_builtin: true,
         block_style: BlockStyle::Braces(&[
-            "fn ", "pub fn ", "async fn ", "pub async fn ", "impl ", "trait ", "struct ", "enum ",
-            "macro_rules! ", "mod ", "const ", "static ", "type ", "pub struct ", "pub enum ",
-            "pub trait ", "pub mod ", "pub const ", "pub static ", "pub type ",
+            "fn ",
+            "pub fn ",
+            "async fn ",
+            "pub async fn ",
+            "impl ",
+            "trait ",
+            "struct ",
+            "enum ",
+            "macro_rules! ",
+            "mod ",
+            "const ",
+            "static ",
+            "type ",
+            "pub struct ",
+            "pub enum ",
+            "pub trait ",
+            "pub mod ",
+            "pub const ",
+            "pub static ",
+            "pub type ",
         ]),
     },
     CodeLanguage {
         key: "python",
         display_name: "Python",
         extensions: &[".py", ".pyi"],
-        repos: &[
-            CodeRepo {
-                key: "cpython",
-                urls: &[
-                    "https://raw.githubusercontent.com/python/cpython/main/Lib/json/encoder.py",
-                    "https://raw.githubusercontent.com/python/cpython/main/Lib/pathlib/__init__.py",
-                ],
-            },
-        ],
+        repos: &[CodeRepo {
+            key: "cpython",
+            urls: &[
+                "https://raw.githubusercontent.com/python/cpython/main/Lib/json/encoder.py",
+                "https://raw.githubusercontent.com/python/cpython/main/Lib/pathlib/__init__.py",
+            ],
+        }],
         has_builtin: true,
         block_style: BlockStyle::Indentation(&["def ", "class ", "async def ", "@"]),
     },
@@ -76,15 +91,13 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "javascript",
         display_name: "JavaScript",
         extensions: &[".js", ".mjs"],
-        repos: &[
-            CodeRepo {
-                key: "node-stdlib",
-                urls: &[
-                    "https://raw.githubusercontent.com/nodejs/node/main/lib/path.js",
-                    "https://raw.githubusercontent.com/nodejs/node/main/lib/url.js",
-                ],
-            },
-        ],
+        repos: &[CodeRepo {
+            key: "node-stdlib",
+            urls: &[
+                "https://raw.githubusercontent.com/nodejs/node/main/lib/path.js",
+                "https://raw.githubusercontent.com/nodejs/node/main/lib/url.js",
+            ],
+        }],
         has_builtin: true,
         block_style: BlockStyle::Braces(&[
             "function ",
@@ -101,14 +114,10 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "go",
         display_name: "Go",
         extensions: &[".go"],
-        repos: &[
-            CodeRepo {
-                key: "go-stdlib",
-                urls: &[
-                    "https://raw.githubusercontent.com/golang/go/master/src/fmt/print.go",
-                ],
-            },
-        ],
+        repos: &[CodeRepo {
+            key: "go-stdlib",
+            urls: &["https://raw.githubusercontent.com/golang/go/master/src/fmt/print.go"],
+        }],
         has_builtin: true,
         block_style: BlockStyle::Braces(&["func ", "type "]),
     },
@@ -119,9 +128,7 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         repos: &[
             CodeRepo {
                 key: "ts-node",
-                urls: &[
-                    "https://raw.githubusercontent.com/TypeStrong/ts-node/main/src/index.ts",
-                ],
+                urls: &["https://raw.githubusercontent.com/TypeStrong/ts-node/main/src/index.ts"],
             },
             CodeRepo {
                 key: "deno-std",
@@ -195,9 +202,7 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
             },
             CodeRepo {
                 key: "jq",
-                urls: &[
-                    "https://raw.githubusercontent.com/jqlang/jq/master/src/builtin.c",
-                ],
+                urls: &["https://raw.githubusercontent.com/jqlang/jq/master/src/builtin.c"],
             },
         ],
         has_builtin: true,
@@ -229,9 +234,7 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
             },
             CodeRepo {
                 key: "fmt",
-                urls: &[
-                    "https://raw.githubusercontent.com/fmtlib/fmt/master/include/fmt/format.h",
-                ],
+                urls: &["https://raw.githubusercontent.com/fmtlib/fmt/master/include/fmt/format.h"],
             },
         ],
         has_builtin: true,
@@ -274,7 +277,13 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         ],
         has_builtin: true,
         block_style: BlockStyle::EndDelimited(&[
-            "def ", "class ", "module ", "attr_", "scope ", "describe ", "it ",
+            "def ",
+            "class ",
+            "module ",
+            "attr_",
+            "scope ",
+            "describe ",
+            "it ",
         ]),
     },
     CodeLanguage {
@@ -319,9 +328,7 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         repos: &[
             CodeRepo {
                 key: "nvm",
-                urls: &[
-                    "https://raw.githubusercontent.com/nvm-sh/nvm/master/nvm.sh",
-                ],
+                urls: &["https://raw.githubusercontent.com/nvm-sh/nvm/master/nvm.sh"],
             },
             CodeRepo {
                 key: "oh-my-zsh",
@@ -340,9 +347,7 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         repos: &[
             CodeRepo {
                 key: "kong",
-                urls: &[
-                    "https://raw.githubusercontent.com/Kong/kong/master/kong/init.lua",
-                ],
+                urls: &["https://raw.githubusercontent.com/Kong/kong/master/kong/init.lua"],
             },
             CodeRepo {
                 key: "luarocks",
@@ -359,41 +364,60 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "kotlin",
         display_name: "Kotlin",
         extensions: &[".kt", ".kts"],
-        repos: &[
-            CodeRepo {
-                key: "kotlinx-coroutines",
-                urls: &[
-                    "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/master/kotlinx-coroutines-core/common/src/flow/Builders.kt",
-                    "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/master/kotlinx-coroutines-core/common/src/channels/Channel.kt",
-                ],
-            },
-        ],
+        repos: &[CodeRepo {
+            key: "kotlinx-coroutines",
+            urls: &[
+                "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/master/kotlinx-coroutines-core/common/src/flow/Builders.kt",
+                "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/master/kotlinx-coroutines-core/common/src/channels/Channel.kt",
+            ],
+        }],
         has_builtin: false,
         block_style: BlockStyle::Braces(&[
-            "fun ", "class ", "object ", "interface ", "suspend fun ",
-            "public ", "private ", "internal ", "override fun ", "open ",
-            "data class ", "sealed ", "abstract ",
-            "val ", "var ", "enum ", "annotation ", "typealias ",
+            "fun ",
+            "class ",
+            "object ",
+            "interface ",
+            "suspend fun ",
+            "public ",
+            "private ",
+            "internal ",
+            "override fun ",
+            "open ",
+            "data class ",
+            "sealed ",
+            "abstract ",
+            "val ",
+            "var ",
+            "enum ",
+            "annotation ",
+            "typealias ",
         ]),
     },
     CodeLanguage {
         key: "scala",
         display_name: "Scala",
         extensions: &[".scala"],
-        repos: &[
-            CodeRepo {
-                key: "scala-stdlib",
-                urls: &[
-                    "https://raw.githubusercontent.com/scala/scala/2.13.x/src/library/scala/collection/immutable/List.scala",
-                    "https://raw.githubusercontent.com/scala/scala/2.13.x/src/library/scala/collection/mutable/HashMap.scala",
-                    "https://raw.githubusercontent.com/scala/scala/2.13.x/src/library/scala/Option.scala",
-                ],
-            },
-        ],
+        repos: &[CodeRepo {
+            key: "scala-stdlib",
+            urls: &[
+                "https://raw.githubusercontent.com/scala/scala/2.13.x/src/library/scala/collection/immutable/List.scala",
+                "https://raw.githubusercontent.com/scala/scala/2.13.x/src/library/scala/collection/mutable/HashMap.scala",
+                "https://raw.githubusercontent.com/scala/scala/2.13.x/src/library/scala/Option.scala",
+            ],
+        }],
         has_builtin: false,
         block_style: BlockStyle::Braces(&[
-            "def ", "class ", "object ", "trait ", "case class ",
-            "val ", "var ", "type ", "implicit ", "given ", "extension ",
+            "def ",
+            "class ",
+            "object ",
+            "trait ",
+            "case class ",
+            "val ",
+            "var ",
+            "type ",
+            "implicit ",
+            "given ",
+            "extension ",
         ]),
     },
     CodeLanguage {
@@ -461,18 +485,29 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "dart",
         display_name: "Dart",
         extensions: &[".dart"],
-        repos: &[
-            CodeRepo {
-                key: "flutter",
-                urls: &[
-                    "https://raw.githubusercontent.com/flutter/flutter/master/packages/flutter/lib/src/widgets/framework.dart",
-                ],
-            },
-        ],
+        repos: &[CodeRepo {
+            key: "flutter",
+            urls: &[
+                "https://raw.githubusercontent.com/flutter/flutter/master/packages/flutter/lib/src/widgets/framework.dart",
+            ],
+        }],
         has_builtin: false,
         block_style: BlockStyle::Braces(&[
-            "void ", "Future ", "Future<", "class ", "int ", "String ", "bool ", "static ", "factory ",
-            "Widget ", "get ", "set ", "enum ", "typedef ", "extension ",
+            "void ",
+            "Future ",
+            "Future<",
+            "class ",
+            "int ",
+            "String ",
+            "bool ",
+            "static ",
+            "factory ",
+            "Widget ",
+            "get ",
+            "set ",
+            "enum ",
+            "typedef ",
+            "extension ",
         ]),
     },
     CodeLanguage {
@@ -495,22 +530,23 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         ],
         has_builtin: false,
         block_style: BlockStyle::EndDelimited(&[
-            "def ", "defp ", "defmodule ",
-            "defmacro ", "defstruct", "defprotocol ", "defimpl ",
+            "def ",
+            "defp ",
+            "defmodule ",
+            "defmacro ",
+            "defstruct",
+            "defprotocol ",
+            "defimpl ",
         ]),
     },
     CodeLanguage {
         key: "perl",
         display_name: "Perl",
         extensions: &[".pl", ".pm"],
-        repos: &[
-            CodeRepo {
-                key: "mojolicious",
-                urls: &[
-                    "https://raw.githubusercontent.com/mojolicious/mojo/main/lib/Mojolicious.pm",
-                ],
-            },
-        ],
+        repos: &[CodeRepo {
+            key: "mojolicious",
+            urls: &["https://raw.githubusercontent.com/mojolicious/mojo/main/lib/Mojolicious.pm"],
+        }],
         has_builtin: false,
         block_style: BlockStyle::Braces(&["sub "]),
     },
@@ -518,30 +554,31 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "zig",
         display_name: "Zig",
         extensions: &[".zig"],
-        repos: &[
-            CodeRepo {
-                key: "zig-stdlib",
-                urls: &[
-                    "https://raw.githubusercontent.com/ziglang/zig/master/lib/std/mem.zig",
-                    "https://raw.githubusercontent.com/ziglang/zig/master/lib/std/fmt.zig",
-                ],
-            },
-        ],
+        repos: &[CodeRepo {
+            key: "zig-stdlib",
+            urls: &[
+                "https://raw.githubusercontent.com/ziglang/zig/master/lib/std/mem.zig",
+                "https://raw.githubusercontent.com/ziglang/zig/master/lib/std/fmt.zig",
+            ],
+        }],
         has_builtin: false,
-        block_style: BlockStyle::Braces(&["pub fn ", "fn ", "const ", "pub const ", "test ", "var "]),
+        block_style: BlockStyle::Braces(&[
+            "pub fn ",
+            "fn ",
+            "const ",
+            "pub const ",
+            "test ",
+            "var ",
+        ]),
     },
     CodeLanguage {
         key: "julia",
         display_name: "Julia",
         extensions: &[".jl"],
-        repos: &[
-            CodeRepo {
-                key: "julia-stdlib",
-                urls: &[
-                    "https://raw.githubusercontent.com/JuliaLang/julia/master/base/array.jl",
-                ],
-            },
-        ],
+        repos: &[CodeRepo {
+            key: "julia-stdlib",
+            urls: &["https://raw.githubusercontent.com/JuliaLang/julia/master/base/array.jl"],
+        }],
         has_builtin: false,
         block_style: BlockStyle::EndDelimited(&["function ", "macro "]),
     },
@@ -549,14 +586,10 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "nim",
         display_name: "Nim",
         extensions: &[".nim"],
-        repos: &[
-            CodeRepo {
-                key: "nim-stdlib",
-                urls: &[
-                    "https://raw.githubusercontent.com/nim-lang/Nim/devel/lib/pure/strutils.nim",
-                ],
-            },
-        ],
+        repos: &[CodeRepo {
+            key: "nim-stdlib",
+            urls: &["https://raw.githubusercontent.com/nim-lang/Nim/devel/lib/pure/strutils.nim"],
+        }],
         has_builtin: false,
         block_style: BlockStyle::Indentation(&["proc ", "func ", "method ", "type "]),
     },
@@ -564,14 +597,10 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "ocaml",
         display_name: "OCaml",
         extensions: &[".ml", ".mli"],
-        repos: &[
-            CodeRepo {
-                key: "ocaml-stdlib",
-                urls: &[
-                    "https://raw.githubusercontent.com/ocaml/ocaml/trunk/stdlib/list.ml",
-                ],
-            },
-        ],
+        repos: &[CodeRepo {
+            key: "ocaml-stdlib",
+            urls: &["https://raw.githubusercontent.com/ocaml/ocaml/trunk/stdlib/list.ml"],
+        }],
         has_builtin: false,
         block_style: BlockStyle::Indentation(&["let ", "type ", "module "]),
     },
@@ -596,21 +625,24 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         has_builtin: false,
         // Haskell: top-level declarations are indented blocks
         block_style: BlockStyle::Indentation(&[
-            "data ", "type ", "class ", "instance ", "newtype ", "module ",
+            "data ",
+            "type ",
+            "class ",
+            "instance ",
+            "newtype ",
+            "module ",
         ]),
     },
     CodeLanguage {
         key: "clojure",
         display_name: "Clojure",
         extensions: &[".clj", ".cljs"],
-        repos: &[
-            CodeRepo {
-                key: "clojure-core",
-                urls: &[
-                    "https://raw.githubusercontent.com/clojure/clojure/master/src/clj/clojure/core.clj",
-                ],
-            },
-        ],
+        repos: &[CodeRepo {
+            key: "clojure-core",
+            urls: &[
+                "https://raw.githubusercontent.com/clojure/clojure/master/src/clj/clojure/core.clj",
+            ],
+        }],
         has_builtin: false,
         block_style: BlockStyle::Indentation(&["(defn ", "(defn- ", "(defmacro "]),
     },
@@ -618,15 +650,13 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "r",
         display_name: "R",
         extensions: &[".r", ".R"],
-        repos: &[
-            CodeRepo {
-                key: "shiny",
-                urls: &[
-                    "https://raw.githubusercontent.com/rstudio/shiny/main/R/bootstrap.R",
-                    "https://raw.githubusercontent.com/rstudio/shiny/main/R/input-text.R",
-                ],
-            },
-        ],
+        repos: &[CodeRepo {
+            key: "shiny",
+            urls: &[
+                "https://raw.githubusercontent.com/rstudio/shiny/main/R/bootstrap.R",
+                "https://raw.githubusercontent.com/rstudio/shiny/main/R/input-text.R",
+            ],
+        }],
         has_builtin: false,
         // R functions are defined as `name <- function(...)`. Since our extractor only
         // supports `starts_with`, we match roxygen doc blocks that precede functions.
@@ -636,36 +666,30 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "erlang",
         display_name: "Erlang",
         extensions: &[".erl"],
-        repos: &[
-            CodeRepo {
-                key: "cowboy",
-                urls: &[
-                    "https://raw.githubusercontent.com/ninenines/cowboy/master/src/cowboy_req.erl",
-                    "https://raw.githubusercontent.com/ninenines/cowboy/master/src/cowboy_http.erl",
-                ],
-            },
-        ],
+        repos: &[CodeRepo {
+            key: "cowboy",
+            urls: &[
+                "https://raw.githubusercontent.com/ninenines/cowboy/master/src/cowboy_req.erl",
+                "https://raw.githubusercontent.com/ninenines/cowboy/master/src/cowboy_http.erl",
+            ],
+        }],
         has_builtin: false,
         // Erlang: -spec and -record use braces for types/fields.
         // Erlang functions themselves don't use braces (they end with `.`),
         // so extraction is limited to type specs and records.
-        block_style: BlockStyle::Braces(&[
-            "-spec ", "-record(", "-type ", "-callback ",
-        ]),
+        block_style: BlockStyle::Braces(&["-spec ", "-record(", "-type ", "-callback "]),
     },
     CodeLanguage {
         key: "groovy",
         display_name: "Groovy",
         extensions: &[".groovy"],
-        repos: &[
-            CodeRepo {
-                key: "nextflow",
-                urls: &[
-                    "https://raw.githubusercontent.com/nextflow-io/nextflow/master/modules/nextflow/src/main/groovy/nextflow/processor/TaskProcessor.groovy",
-                    "https://raw.githubusercontent.com/nextflow-io/nextflow/master/modules/nextflow/src/main/groovy/nextflow/Session.groovy",
-                ],
-            },
-        ],
+        repos: &[CodeRepo {
+            key: "nextflow",
+            urls: &[
+                "https://raw.githubusercontent.com/nextflow-io/nextflow/master/modules/nextflow/src/main/groovy/nextflow/processor/TaskProcessor.groovy",
+                "https://raw.githubusercontent.com/nextflow-io/nextflow/master/modules/nextflow/src/main/groovy/nextflow/Session.groovy",
+            ],
+        }],
         has_builtin: false,
         block_style: BlockStyle::Braces(&["def ", "void ", "static ", "public ", "private "]),
     },
@@ -673,14 +697,12 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "fsharp",
         display_name: "F#",
         extensions: &[".fs", ".fsx"],
-        repos: &[
-            CodeRepo {
-                key: "fsharp-compiler",
-                urls: &[
-                    "https://raw.githubusercontent.com/dotnet/fsharp/main/src/Compiler/Utilities/lib.fs",
-                ],
-            },
-        ],
+        repos: &[CodeRepo {
+            key: "fsharp-compiler",
+            urls: &[
+                "https://raw.githubusercontent.com/dotnet/fsharp/main/src/Compiler/Utilities/lib.fs",
+            ],
+        }],
         has_builtin: false,
         block_style: BlockStyle::Indentation(&["let ", "member ", "type ", "module "]),
     },
@@ -688,18 +710,23 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "objective-c",
         display_name: "Objective-C",
         extensions: &[".m", ".h"],
-        repos: &[
-            CodeRepo {
-                key: "afnetworking",
-                urls: &[
-                    "https://raw.githubusercontent.com/AFNetworking/AFNetworking/master/AFNetworking/AFURLSessionManager.m",
-                ],
-            },
-        ],
+        repos: &[CodeRepo {
+            key: "afnetworking",
+            urls: &[
+                "https://raw.githubusercontent.com/AFNetworking/AFNetworking/master/AFNetworking/AFURLSessionManager.m",
+            ],
+        }],
         has_builtin: false,
         block_style: BlockStyle::Braces(&[
-            "- (", "+ (", "- (void)", "- (id)", "- (BOOL)",
-            "@interface ", "@implementation ", "@protocol ", "typedef ",
+            "- (",
+            "+ (",
+            "- (void)",
+            "- (id)",
+            "- (BOOL)",
+            "@interface ",
+            "@implementation ",
+            "@protocol ",
+            "typedef ",
         ]),
     },
 ];
@@ -767,8 +794,8 @@ pub fn build_code_download_queue(lang_key: &str, cache_dir: &str) -> Vec<(String
     for lk in &languages_to_download {
         if let Some(lang) = language_by_key(lk) {
             for (repo_idx, repo) in lang.repos.iter().enumerate() {
-                let cache_path = std::path::Path::new(cache_dir)
-                    .join(format!("{}_{}.txt", lang.key, repo.key));
+                let cache_path =
+                    std::path::Path::new(cache_dir).join(format!("{}_{}.txt", lang.key, repo.key));
                 if !cache_path.exists()
                     || std::fs::metadata(&cache_path)
                         .map(|m| m.len() == 0)
@@ -1653,7 +1680,8 @@ impl TextGenerator for CodeSyntaxGenerator {
     fn generate(
         &mut self,
         _filter: &CharFilter,
-        _focused: Option<char>,
+        _focused_char: Option<char>,
+        _focused_bigram: Option<[char; 2]>,
         word_count: usize,
     ) -> String {
         let embedded = self.get_snippets();
@@ -1721,7 +1749,10 @@ fn approx_token_count(text: &str) -> usize {
 }
 
 fn fit_snippet_to_target(snippet: &str, target_units: usize) -> String {
-    let max_units = target_units.saturating_mul(3).saturating_div(2).max(target_units);
+    let max_units = target_units
+        .saturating_mul(3)
+        .saturating_div(2)
+        .max(target_units);
     if approx_token_count(snippet) <= max_units {
         return snippet.to_string();
     }
@@ -1777,8 +1808,8 @@ where
 
     all_snippets.truncate(snippets_limit);
 
-    let cache_path = std::path::Path::new(cache_dir)
-        .join(format!("{}_{}.txt", language_key, repo.key));
+    let cache_path =
+        std::path::Path::new(cache_dir).join(format!("{}_{}.txt", language_key, repo.key));
     let combined = all_snippets.join("\n---SNIPPET---\n");
     fs::write(cache_path, combined).is_ok()
 }
@@ -1811,8 +1842,12 @@ fn is_noise_snippet(snippet: &str) -> bool {
         .lines()
         .filter(|l| {
             let t = l.trim();
-            !t.is_empty() && !t.starts_with("//") && !t.starts_with('#') && !t.starts_with("/*")
-                && !t.starts_with('*') && !t.starts_with("*/")
+            !t.is_empty()
+                && !t.starts_with("//")
+                && !t.starts_with('#')
+                && !t.starts_with("/*")
+                && !t.starts_with('*')
+                && !t.starts_with("*/")
         })
         .collect();
 
@@ -1828,8 +1863,15 @@ fn is_noise_snippet(snippet: &str) -> bool {
 
     // Reject if body consists entirely of import/use/require/include statements
     let import_prefixes = [
-        "import ", "from ", "use ", "require", "#include", "using ",
-        "package ", "module ", "extern crate ",
+        "import ",
+        "from ",
+        "use ",
+        "require",
+        "#include",
+        "using ",
+        "package ",
+        "module ",
+        "extern crate ",
     ];
     let body_lines: Vec<&str> = meaningful_lines.iter().skip(1).copied().collect();
     if !body_lines.is_empty()
@@ -2087,7 +2129,10 @@ fn structural_extract_indent(lines: &[&str]) -> Vec<String> {
             }
         }
 
-        while snippet_lines.last().map_or(false, |sl| sl.trim().is_empty()) {
+        while snippet_lines
+            .last()
+            .map_or(false, |sl| sl.trim().is_empty())
+        {
             snippet_lines.pop();
         }
 
@@ -2483,18 +2528,14 @@ z = 99
                             println!("        ({lines} lines, {bytes} bytes)");
                             total_ok += 1;
 
-                            let snippets =
-                                extract_code_snippets(&content, &lang.block_style);
+                            let snippets = extract_code_snippets(&content, &lang.block_style);
                             println!("        Extracted {} snippets", snippets.len());
                             lang_total_snippets += snippets.len();
 
                             // Show first 2 snippets (truncated)
                             for (si, snippet) in snippets.iter().take(2).enumerate() {
-                                let preview: String = snippet
-                                    .lines()
-                                    .take(5)
-                                    .collect::<Vec<_>>()
-                                    .join("\n");
+                                let preview: String =
+                                    snippet.lines().take(5).collect::<Vec<_>>().join("\n");
                                 let suffix = if snippet.lines().count() > 5 {
                                     "\n            ..."
                                 } else {
@@ -2507,7 +2548,9 @@ z = 99
                                     .join("\n");
                                 println!(
                                     "        --- snippet {} ---\n{}{}",
-                                    si + 1, indented, suffix,
+                                    si + 1,
+                                    indented,
+                                    suffix,
                                 );
                             }
                         }

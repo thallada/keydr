@@ -30,15 +30,15 @@ use ratatui::widgets::{Block, Paragraph, Widget, Wrap};
 
 use app::{App, AppScreen, DrillMode, MilestoneKind, StatusKind};
 use engine::skill_tree::{DrillScope, find_key_branch};
-use keyboard::display::key_display_name;
-use keyboard::finger::Hand;
 use event::{AppEvent, EventHandler};
 use generator::code_syntax::{code_language_options, is_language_cached, language_by_key};
 use generator::passage::{is_book_cached, passage_options};
+use keyboard::display::key_display_name;
+use keyboard::finger::Hand;
 use ui::components::dashboard::Dashboard;
 use ui::components::keyboard_diagram::KeyboardDiagram;
 use ui::components::skill_tree::{SkillTreeWidget, detail_line_count, selectable_branches};
-use ui::components::stats_dashboard::StatsDashboard;
+use ui::components::stats_dashboard::{AnomalyBigramRow, NgramTabData, StatsDashboard};
 use ui::components::stats_sidebar::StatsSidebar;
 use ui::components::typing_area::TypingArea;
 use ui::layout::AppLayout;
@@ -205,12 +205,18 @@ fn handle_key(app: &mut App, key: KeyEvent) {
 
     // Track depressed keys and shift state for keyboard diagram
     match (&key.code, key.kind) {
-        (KeyCode::Modifier(ModifierKeyCode::LeftShift | ModifierKeyCode::RightShift), KeyEventKind::Press | KeyEventKind::Repeat) => {
+        (
+            KeyCode::Modifier(ModifierKeyCode::LeftShift | ModifierKeyCode::RightShift),
+            KeyEventKind::Press | KeyEventKind::Repeat,
+        ) => {
             app.shift_held = true;
             app.last_key_time = Some(Instant::now());
             return; // Don't dispatch bare shift presses to screen handlers
         }
-        (KeyCode::Modifier(ModifierKeyCode::LeftShift | ModifierKeyCode::RightShift), KeyEventKind::Release) => {
+        (
+            KeyCode::Modifier(ModifierKeyCode::LeftShift | ModifierKeyCode::RightShift),
+            KeyEventKind::Release,
+        ) => {
             app.shift_held = false;
             return;
         }
@@ -258,6 +264,14 @@ fn handle_key(app: &mut App, key: KeyEvent) {
 
     // Only process Press events — ignore Repeat to avoid inflating input
     if key.kind != KeyEventKind::Press {
+        return;
+    }
+
+    // Briefly block all input right after a drill completes to avoid accidental
+    // popup dismissal or continuation from trailing keystrokes.
+    if app.post_drill_input_lock_remaining_ms().is_some()
+        && (!app.milestone_queue.is_empty() || app.screen == AppScreen::DrillResult)
+    {
         return;
     }
 
@@ -412,7 +426,7 @@ fn handle_result_key(app: &mut App, key: KeyEvent) {
 }
 
 fn handle_stats_key(app: &mut App, key: KeyEvent) {
-    const STATS_TAB_COUNT: usize = 5;
+    const STATS_TAB_COUNT: usize = 6;
 
     // Confirmation dialog takes priority
     if app.history_confirm_delete {
@@ -452,6 +466,7 @@ fn handle_stats_key(app: &mut App, key: KeyEvent) {
             KeyCode::Char('3') => app.stats_tab = 2,
             KeyCode::Char('4') => app.stats_tab = 3,
             KeyCode::Char('5') => app.stats_tab = 4,
+            KeyCode::Char('6') => app.stats_tab = 5,
             KeyCode::Tab => app.stats_tab = (app.stats_tab + 1) % STATS_TAB_COUNT,
             KeyCode::BackTab => {
                 app.stats_tab = if app.stats_tab == 0 {
@@ -472,6 +487,7 @@ fn handle_stats_key(app: &mut App, key: KeyEvent) {
         KeyCode::Char('3') => app.stats_tab = 2,
         KeyCode::Char('4') => app.stats_tab = 3,
         KeyCode::Char('5') => app.stats_tab = 4,
+        KeyCode::Char('6') => app.stats_tab = 5,
         KeyCode::Tab => app.stats_tab = (app.stats_tab + 1) % STATS_TAB_COUNT,
         KeyCode::BackTab => {
             app.stats_tab = if app.stats_tab == 0 {
@@ -528,7 +544,10 @@ fn handle_settings_key(app: &mut App, key: KeyEvent) {
     }
 
     // Priority 4: editing a path field
-    if app.settings_editing_download_dir || app.settings_editing_export_path || app.settings_editing_import_path {
+    if app.settings_editing_download_dir
+        || app.settings_editing_export_path
+        || app.settings_editing_import_path
+    {
         match key.code {
             KeyCode::Esc => {
                 app.clear_settings_modals();
@@ -579,30 +598,28 @@ fn handle_settings_key(app: &mut App, key: KeyEvent) {
                 app.settings_selected += 1;
             }
         }
-        KeyCode::Enter => {
-            match app.settings_selected {
-                5 | 9 => {
-                    app.clear_settings_modals();
-                    app.settings_editing_download_dir = true;
-                }
-                7 => app.start_code_downloads_from_settings(),
-                11 => app.start_passage_downloads_from_settings(),
-                12 => {
-                    app.clear_settings_modals();
-                    app.settings_editing_export_path = true;
-                }
-                13 => app.export_data(),
-                14 => {
-                    app.clear_settings_modals();
-                    app.settings_editing_import_path = true;
-                }
-                15 => {
-                    app.clear_settings_modals();
-                    app.settings_confirm_import = true;
-                }
-                _ => app.settings_cycle_forward(),
+        KeyCode::Enter => match app.settings_selected {
+            5 | 9 => {
+                app.clear_settings_modals();
+                app.settings_editing_download_dir = true;
             }
-        }
+            7 => app.start_code_downloads_from_settings(),
+            11 => app.start_passage_downloads_from_settings(),
+            12 => {
+                app.clear_settings_modals();
+                app.settings_editing_export_path = true;
+            }
+            13 => app.export_data(),
+            14 => {
+                app.clear_settings_modals();
+                app.settings_editing_import_path = true;
+            }
+            15 => {
+                app.clear_settings_modals();
+                app.settings_confirm_import = true;
+            }
+            _ => app.settings_cycle_forward(),
+        },
         KeyCode::Right | KeyCode::Char('l') => {
             match app.settings_selected {
                 5 | 7 | 9 | 11 | 12 | 13 | 14 | 15 => {} // path/button fields
@@ -1126,13 +1143,30 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
             DrillMode::Passage => "Passage (Unranked)",
         };
 
+        // Compute focus text from stored selection (what generated this drill's text)
+        let focus_text = if let Some(ref focus) = app.current_focus {
+            match (&focus.char_focus, &focus.bigram_focus) {
+                (Some(ch), Some((key, _, _))) => {
+                    format!(" | Focus: '{ch}' + \"{}{}\"", key.0[0], key.0[1])
+                }
+                (Some(ch), None) => format!(" | Focus: '{ch}'"),
+                (None, Some((key, _, _))) => {
+                    format!(" | Focus: \"{}{}\"", key.0[0], key.0[1])
+                }
+                (None, None) => String::new(),
+            }
+        } else {
+            String::new()
+        };
+
         // For medium/narrow: show compact stats in header
         if !tier.show_sidebar() {
             let wpm = drill.wpm();
             let accuracy = drill.accuracy();
             let errors = drill.typo_count();
-            let header_text =
-                format!(" {mode_name} | WPM: {wpm:.0} | Acc: {accuracy:.1}% | Errors: {errors}");
+            let header_text = format!(
+                " {mode_name} | WPM: {wpm:.0} | Acc: {accuracy:.1}% | Err: {errors}{focus_text}"
+            );
             let header = Paragraph::new(Line::from(Span::styled(
                 &*header_text,
                 Style::default()
@@ -1144,18 +1178,6 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
             frame.render_widget(header, app_layout.header);
         } else {
             let header_title = format!(" {mode_name} Drill ");
-            let focus_text = if app.drill_mode == DrillMode::Adaptive {
-                let focused = app
-                    .skill_tree
-                    .focused_key(app.drill_scope, &app.ranked_key_stats);
-                if let Some(focused) = focused {
-                    format!(" | Focus: '{focused}'")
-                } else {
-                    String::new()
-                }
-            } else {
-                String::new()
-            };
             let header = Paragraph::new(Line::from(vec![
                 Span::styled(
                     &*header_title,
@@ -1294,7 +1316,6 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
             Style::default().fg(colors.text_pending()),
         )));
         frame.render_widget(footer, app_layout.footer);
-
     }
 }
 
@@ -1422,8 +1443,7 @@ fn render_milestone_overlay(
             let milestone_key = milestone.keys.first().copied();
             let unlocked_keys = app.skill_tree.unlocked_keys(app.drill_scope);
             let is_shifted = milestone_key.is_some_and(|ch| {
-                ch.is_ascii_uppercase()
-                    || app.keyboard_model.shifted_to_base(ch).is_some()
+                ch.is_ascii_uppercase() || app.keyboard_model.shifted_to_base(ch).is_some()
             });
             let kbd = KeyboardDiagram::new(
                 None,
@@ -1453,8 +1473,13 @@ fn render_milestone_overlay(
     let footer_y = inner.y + inner.height.saturating_sub(1);
     if footer_y < inner.y + inner.height {
         let footer_area = Rect::new(inner.x, footer_y, inner.width, 1);
+        let footer_text = if let Some(ms) = app.post_drill_input_lock_remaining_ms() {
+            format!("  Input temporarily blocked ({ms}ms remaining)")
+        } else {
+            "  Press any key to continue".to_string()
+        };
         let footer = Paragraph::new(Line::from(Span::styled(
-            "  Press any key to continue",
+            footer_text,
             Style::default().fg(colors.text_pending()),
         )));
         frame.render_widget(footer, footer_area);
@@ -1477,6 +1502,14 @@ mod review_tests {
     use crate::session::result::DrillResult;
     use chrono::{TimeDelta, Utc};
 
+    /// Create an App for testing with the store disabled so tests never
+    /// read or write the user's real data files.
+    fn test_app() -> App {
+        let mut app = App::new();
+        app.store = None;
+        app
+    }
+
     fn test_result(ts_offset_secs: i64) -> DrillResult {
         DrillResult {
             wpm: 60.0,
@@ -1497,7 +1530,7 @@ mod review_tests {
 
     #[test]
     fn milestone_overlay_blocks_underlying_input() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.screen = AppScreen::Drill;
         app.drill = Some(crate::session::drill::DrillState::new("abc"));
         app.milestone_queue
@@ -1506,10 +1539,13 @@ mod review_tests {
                 keys: vec!['a'],
                 finger_info: vec![('a', "left pinky".to_string())],
                 message: "msg",
-        });
+            });
 
         let before_cursor = app.drill.as_ref().map(|d| d.cursor).unwrap_or(0);
-        handle_key(&mut app, KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
+        );
         let after_cursor = app.drill.as_ref().map(|d| d.cursor).unwrap_or(0);
 
         assert_eq!(before_cursor, after_cursor);
@@ -1518,7 +1554,7 @@ mod review_tests {
 
     #[test]
     fn milestone_queue_chains_before_result_actions() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.screen = AppScreen::DrillResult;
         app.milestone_queue
             .push_back(crate::app::KeyMilestonePopup {
@@ -1535,17 +1571,64 @@ mod review_tests {
                 message: "msg2",
             });
 
-        handle_key(&mut app, KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
+        );
         assert_eq!(app.screen, AppScreen::DrillResult);
         assert_eq!(app.milestone_queue.len(), 1);
 
-        handle_key(&mut app, KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
+        );
         assert_eq!(app.screen, AppScreen::DrillResult);
         assert!(app.milestone_queue.is_empty());
 
         // Now normal result action should apply.
-        handle_key(&mut app, KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
+        );
         assert_eq!(app.screen, AppScreen::Menu);
+    }
+
+    #[test]
+    fn post_drill_lock_blocks_result_shortcuts_temporarily() {
+        let mut app = test_app();
+        app.screen = AppScreen::DrillResult;
+        app.last_result = Some(test_result(1));
+        app.post_drill_input_lock_until =
+            Some(Instant::now() + std::time::Duration::from_millis(500));
+
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE),
+        );
+
+        assert_eq!(app.screen, AppScreen::DrillResult);
+    }
+
+    #[test]
+    fn post_drill_lock_blocks_milestone_dismissal_temporarily() {
+        let mut app = test_app();
+        app.screen = AppScreen::DrillResult;
+        app.milestone_queue
+            .push_back(crate::app::KeyMilestonePopup {
+                kind: crate::app::MilestoneKind::Unlock,
+                keys: vec!['a'],
+                finger_info: vec![('a', "left pinky".to_string())],
+                message: "msg",
+            });
+        app.post_drill_input_lock_until =
+            Some(Instant::now() + std::time::Duration::from_millis(500));
+
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
+        );
+
+        assert_eq!(app.milestone_queue.len(), 1);
     }
 
     #[test]
@@ -1558,13 +1641,16 @@ mod review_tests {
 
     #[test]
     fn result_delete_shortcut_opens_confirmation_for_latest() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.screen = AppScreen::DrillResult;
         app.last_result = Some(test_result(2));
         app.drill_history = vec![test_result(1), test_result(2)];
         app.history_selected = 1;
 
-        handle_key(&mut app, KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
+        );
 
         assert!(app.history_confirm_delete);
         assert_eq!(app.history_selected, 0);
@@ -1572,15 +1658,21 @@ mod review_tests {
 
     #[test]
     fn result_delete_confirmation_yes_deletes_latest() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.screen = AppScreen::DrillResult;
         app.last_result = Some(test_result(3));
         let older = test_result(1);
         let newer = test_result(2);
         app.drill_history = vec![older.clone(), newer.clone()];
 
-        handle_key(&mut app, KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
-        handle_key(&mut app, KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
+        );
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE),
+        );
 
         assert!(!app.history_confirm_delete);
         assert_eq!(app.drill_history.len(), 1);
@@ -1591,13 +1683,19 @@ mod review_tests {
 
     #[test]
     fn result_delete_confirmation_cancel_keeps_history() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.screen = AppScreen::DrillResult;
         app.last_result = Some(test_result(2));
         app.drill_history = vec![test_result(1), test_result(2)];
 
-        handle_key(&mut app, KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
-        handle_key(&mut app, KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
+        );
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
+        );
 
         assert!(!app.history_confirm_delete);
         assert_eq!(app.drill_history.len(), 2);
@@ -1606,11 +1704,14 @@ mod review_tests {
 
     #[test]
     fn result_continue_shortcuts_start_next_drill() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.screen = AppScreen::DrillResult;
         app.last_result = Some(test_result(2));
 
-        handle_key(&mut app, KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE),
+        );
         assert_eq!(app.screen, AppScreen::Drill);
 
         app.screen = AppScreen::DrillResult;
@@ -1627,7 +1728,7 @@ mod review_tests {
 
     #[test]
     fn result_continue_code_uses_last_language_params() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.screen = AppScreen::DrillResult;
         app.last_result = Some(test_result(2));
         app.drill_mode = DrillMode::Code;
@@ -1635,7 +1736,10 @@ mod review_tests {
         app.config.code_language = "python".to_string();
         app.last_code_drill_language = Some("rust".to_string());
 
-        handle_key(&mut app, KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE),
+        );
 
         assert_eq!(app.screen, AppScreen::Drill);
         assert_eq!(app.drill_mode, DrillMode::Code);
@@ -1658,65 +1762,44 @@ mod review_tests {
 
     #[test]
     fn settings_modal_invariant_enter_export_path_clears_others() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.screen = AppScreen::Settings;
 
         // First, activate import confirmation
         app.settings_selected = 15; // Import Data
-        handle_settings_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-        );
+        handle_settings_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(app.settings_confirm_import);
         assert!(modal_edit_count(&app) <= 1);
 
         // Cancel it
-        handle_settings_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-        );
+        handle_settings_key(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(!app.settings_confirm_import);
 
         // Enter export path editing
         app.settings_selected = 12; // Export Path
-        handle_settings_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-        );
+        handle_settings_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(app.settings_editing_export_path);
         assert!(modal_edit_count(&app) <= 1);
 
         // Esc out
-        handle_settings_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-        );
+        handle_settings_key(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(!app.settings_editing_export_path);
     }
 
     #[test]
     fn settings_modal_invariant_enter_import_path_clears_others() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.screen = AppScreen::Settings;
 
         // Activate export path editing first
         app.settings_selected = 12;
-        handle_settings_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-        );
+        handle_settings_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(app.settings_editing_export_path);
 
         // Esc out, then enter import path editing
-        handle_settings_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-        );
+        handle_settings_key(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         app.settings_selected = 14; // Import Path
-        handle_settings_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-        );
+        handle_settings_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(app.settings_editing_import_path);
         assert!(!app.settings_editing_export_path);
         assert!(modal_edit_count(&app) <= 1);
@@ -1724,15 +1807,12 @@ mod review_tests {
 
     #[test]
     fn settings_confirm_import_dialog_y_n_esc() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.screen = AppScreen::Settings;
 
         // Trigger import confirmation
         app.settings_selected = 15;
-        handle_settings_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-        );
+        handle_settings_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(app.settings_confirm_import);
 
         // 'n' cancels
@@ -1744,23 +1824,17 @@ mod review_tests {
 
         // Trigger again
         app.settings_selected = 15;
-        handle_settings_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-        );
+        handle_settings_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(app.settings_confirm_import);
 
         // Esc cancels
-        handle_settings_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-        );
+        handle_settings_key(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(!app.settings_confirm_import);
     }
 
     #[test]
     fn settings_status_message_dismissed_on_keypress() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.screen = AppScreen::Settings;
 
         // Set a status message
@@ -1840,7 +1914,7 @@ mod review_tests {
 
     #[test]
     fn caps_lock_set_from_state_flag() {
-        let mut app = App::new();
+        let mut app = test_app();
         assert!(!app.caps_lock);
 
         // Modifier event with CAPS_LOCK in state turns it on
@@ -1858,7 +1932,7 @@ mod review_tests {
 
     #[test]
     fn caps_lock_not_cleared_by_char_event_with_empty_state() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.caps_lock = true;
         app.screen = AppScreen::Drill;
         app.drill = Some(crate::session::drill::DrillState::new("abc"));
@@ -1873,12 +1947,15 @@ mod review_tests {
                 KeyEventState::NONE,
             ),
         );
-        assert!(app.caps_lock, "char event with empty state must not clear caps_lock");
+        assert!(
+            app.caps_lock,
+            "char event with empty state must not clear caps_lock"
+        );
     }
 
     #[test]
     fn caps_lock_cleared_by_modifier_event_without_caps_flag() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.caps_lock = true;
 
         // Modifier event WITHOUT CAPS_LOCK in state clears it
@@ -1891,12 +1968,15 @@ mod review_tests {
                 KeyEventState::NONE,
             ),
         );
-        assert!(!app.caps_lock, "modifier event without CAPS_LOCK flag should clear caps_lock");
+        assert!(
+            !app.caps_lock,
+            "modifier event without CAPS_LOCK flag should clear caps_lock"
+        );
     }
 
     #[test]
     fn caps_lock_on_uppercase_char_does_not_set_shift() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.caps_lock = true;
         app.screen = AppScreen::Drill;
         app.drill = Some(crate::session::drill::DrillState::new("ABC"));
@@ -1912,12 +1992,15 @@ mod review_tests {
                 KeyEventState::NONE,
             ),
         );
-        assert!(!app.shift_held, "uppercase char with caps lock should not set shift_held");
+        assert!(
+            !app.shift_held,
+            "uppercase char with caps lock should not set shift_held"
+        );
     }
 
     #[test]
     fn caps_lock_on_lowercase_char_with_shift_sets_shift() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.caps_lock = true;
         app.screen = AppScreen::Drill;
         app.drill = Some(crate::session::drill::DrillState::new("abc"));
@@ -1932,12 +2015,15 @@ mod review_tests {
                 KeyEventState::NONE,
             ),
         );
-        assert!(app.shift_held, "lowercase char with caps+shift should set shift_held");
+        assert!(
+            app.shift_held,
+            "lowercase char with caps+shift should set shift_held"
+        );
     }
 
     #[test]
     fn caps_lock_off_uppercase_char_with_shift_sets_shift() {
-        let mut app = App::new();
+        let mut app = test_app();
         assert!(!app.caps_lock);
         app.screen = AppScreen::Drill;
         app.drill = Some(crate::session::drill::DrillState::new("ABC"));
@@ -1952,12 +2038,15 @@ mod review_tests {
                 KeyEventState::NONE,
             ),
         );
-        assert!(app.shift_held, "uppercase char without caps lock should set shift_held");
+        assert!(
+            app.shift_held,
+            "uppercase char without caps lock should set shift_held"
+        );
     }
 
     #[test]
     fn caps_lock_off_lowercase_char_without_shift_clears_shift() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.shift_held = true;
         app.screen = AppScreen::Drill;
         app.drill = Some(crate::session::drill::DrillState::new("abc"));
@@ -1972,12 +2061,15 @@ mod review_tests {
                 KeyEventState::NONE,
             ),
         );
-        assert!(!app.shift_held, "lowercase char without shift should clear shift_held");
+        assert!(
+            !app.shift_held,
+            "lowercase char without shift should clear shift_held"
+        );
     }
 
     #[test]
     fn shift_modifier_press_sets_shift_held() {
-        let mut app = App::new();
+        let mut app = test_app();
 
         handle_key(
             &mut app,
@@ -1993,7 +2085,7 @@ mod review_tests {
 
     #[test]
     fn shift_modifier_release_clears_shift_held() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.shift_held = true;
 
         handle_key(
@@ -2010,17 +2102,20 @@ mod review_tests {
 
     #[test]
     fn depressed_keys_tracks_char_press() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.screen = AppScreen::Drill;
         app.drill = Some(crate::session::drill::DrillState::new("abc"));
 
-        handle_key(&mut app, KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+        );
         assert!(app.depressed_keys.contains(&'a'));
     }
 
     #[test]
     fn depressed_keys_release_removes_char() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.depressed_keys.insert('a');
 
         handle_key(
@@ -2037,7 +2132,7 @@ mod review_tests {
 
     #[test]
     fn caps_lock_cleared_by_capslock_key_without_caps_flag() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.caps_lock = true;
 
         // Pressing CapsLock key to toggle off: event has KeyCode::CapsLock
@@ -2051,12 +2146,15 @@ mod review_tests {
                 KeyEventState::NONE,
             ),
         );
-        assert!(!app.caps_lock, "CapsLock key event without CAPS_LOCK state should clear caps_lock");
+        assert!(
+            !app.caps_lock,
+            "CapsLock key event without CAPS_LOCK state should clear caps_lock"
+        );
     }
 
     #[test]
     fn caps_lock_non_alpha_char_with_shift_still_sets_shift() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.caps_lock = true;
         app.screen = AppScreen::Drill;
         app.drill = Some(crate::session::drill::DrillState::new("!@#"));
@@ -2072,7 +2170,147 @@ mod review_tests {
                 KeyEventState::NONE,
             ),
         );
-        assert!(app.shift_held, "non-alpha char with shift should set shift_held regardless of caps");
+        assert!(
+            app.shift_held,
+            "non-alpha char with shift should set shift_held regardless of caps"
+        );
+    }
+
+    #[test]
+    fn build_ngram_tab_data_maps_fields_correctly() {
+        use crate::engine::ngram_stats::{BigramKey, ANOMALY_STREAK_REQUIRED};
+
+        let mut app = test_app();
+
+        // Set up char stats with known EMA error rates
+        for &ch in &['e', 't', 'a', 'o', 'n', 'i'] {
+            let stat = app.ranked_key_stats.stats.entry(ch).or_default();
+            stat.confidence = 0.95;
+            stat.filtered_time_ms = 360.0;
+            stat.sample_count = 50;
+            stat.total_count = 50;
+            stat.error_rate_ema = 0.03;
+        }
+        // Make 'n' weak so we get a focused char
+        app.ranked_key_stats.stats.get_mut(&'n').unwrap().confidence = 0.5;
+        app.ranked_key_stats
+            .stats
+            .get_mut(&'n')
+            .unwrap()
+            .filtered_time_ms = 686.0;
+
+        // Add a confirmed error anomaly bigram
+        let et_key = BigramKey(['e', 't']);
+        let stat = app
+            .ranked_bigram_stats
+            .stats
+            .entry(et_key.clone())
+            .or_default();
+        stat.sample_count = 30;
+        stat.error_rate_ema = 0.80;
+        stat.error_anomaly_streak = ANOMALY_STREAK_REQUIRED;
+
+        // Add an unconfirmed anomaly bigram (low samples)
+        let ao_key = BigramKey(['a', 'o']);
+        let stat = app
+            .ranked_bigram_stats
+            .stats
+            .entry(ao_key.clone())
+            .or_default();
+        stat.sample_count = 10;
+        stat.error_rate_ema = 0.60;
+        stat.error_anomaly_streak = 1;
+
+        // Add a trigram to verify count
+        let the_key = crate::engine::ngram_stats::TrigramKey(['t', 'h', 'e']);
+        app.ranked_trigram_stats
+            .stats
+            .entry(the_key)
+            .or_default()
+            .sample_count = 5;
+
+        // Set trigram gain history
+        app.trigram_gain_history.push(0.12);
+
+        // Set drill scope
+        app.drill_scope = DrillScope::Global;
+        app.stats_tab = 5;
+
+        let data = build_ngram_tab_data(&app);
+
+        // Verify scope label
+        assert_eq!(data.scope_label, "Global");
+
+        // Verify trigram gain
+        assert_eq!(data.latest_trigram_gain, Some(0.12));
+
+        // Verify bigram/trigram counts
+        assert_eq!(data.total_bigrams, app.ranked_bigram_stats.stats.len());
+        assert!(
+            data.total_trigrams >= 1,
+            "should include at least our test trigram"
+        );
+
+        // Verify hesitation threshold
+        assert!(data.hesitation_threshold_ms >= 800.0);
+
+        // Verify FocusSelection has both char and bigram
+        assert!(data.focus.char_focus.is_some(), "should have char focus");
+        assert!(
+            data.focus.bigram_focus.is_some(),
+            "should have bigram focus"
+        );
+
+        // Verify error anomaly rows have correct fields populated
+        if !data.error_anomalies.is_empty() {
+            let row = &data.error_anomalies[0];
+            assert!(row.anomaly_pct > 0.0, "anomaly_pct should be positive");
+            assert!(row.sample_count > 0, "sample_count should be positive");
+        }
+
+        // Verify 'ao' appears in error anomalies (high error rate, above min samples)
+        let ao_row = data.error_anomalies.iter().find(|r| r.bigram == "ao");
+        if let Some(ao) = ao_row {
+            assert_eq!(ao.sample_count, 10);
+            assert!(!ao.confirmed, "ao should not be confirmed (low samples)");
+        }
+
+        // Add a speed anomaly bigram and verify speed_anomalies mapping
+        let ni_key = BigramKey(['n', 'i']);
+        let stat = app
+            .ranked_bigram_stats
+            .stats
+            .entry(ni_key.clone())
+            .or_default();
+        stat.sample_count = 25;
+        stat.error_rate_ema = 0.02;
+        stat.filtered_time_ms = 600.0; // much slower than char 'i' baseline
+        stat.speed_anomaly_streak = ANOMALY_STREAK_REQUIRED;
+
+        // Make char 'i' baseline fast enough that 600ms is a big anomaly
+        app.ranked_key_stats
+            .stats
+            .get_mut(&'i')
+            .unwrap()
+            .filtered_time_ms = 200.0;
+
+        let data2 = build_ngram_tab_data(&app);
+
+        // Verify speed anomalies contain our bigram with correct field mapping
+        let ni_row = data2.speed_anomalies.iter().find(|r| r.bigram == "ni");
+        assert!(ni_row.is_some(), "ni should appear in speed_anomalies");
+        let ni = ni_row.unwrap();
+        assert_eq!(ni.sample_count, 25);
+        assert!(ni.anomaly_pct > 100.0, "600ms / 200ms => 200% anomaly");
+        assert!(
+            (ni.expected_baseline - 200.0).abs() < 1.0,
+            "expected baseline should be char 'i' speed (200ms), got {}",
+            ni.expected_baseline
+        );
+        assert!(
+            ni.confirmed,
+            "ni should be confirmed (samples >= 20, streak >= required)"
+        );
     }
 }
 
@@ -2081,7 +2319,7 @@ fn render_result(frame: &mut ratatui::Frame, app: &App) {
 
     if let Some(ref result) = app.last_result {
         let centered = ui::layout::centered_rect(60, 70, area);
-        let dashboard = Dashboard::new(result, app.theme);
+        let dashboard = Dashboard::new(result, app.theme, app.post_drill_input_lock_remaining_ms());
         frame.render_widget(dashboard, centered);
 
         if app.history_confirm_delete && !app.drill_history.is_empty() {
@@ -2117,6 +2355,11 @@ fn render_result(frame: &mut ratatui::Frame, app: &App) {
 
 fn render_stats(frame: &mut ratatui::Frame, app: &App) {
     let area = frame.area();
+    let ngram_data = if app.stats_tab == 5 {
+        Some(build_ngram_tab_data(app))
+    } else {
+        None
+    };
     let dashboard = StatsDashboard::new(
         &app.drill_history,
         &app.key_stats,
@@ -2129,8 +2372,77 @@ fn render_stats(frame: &mut ratatui::Frame, app: &App) {
         app.history_selected,
         app.history_confirm_delete,
         &app.keyboard_model,
+        ngram_data.as_ref(),
     );
     frame.render_widget(dashboard, area);
+}
+
+fn build_ngram_tab_data(app: &App) -> NgramTabData {
+    use engine::ngram_stats::{self, select_focus};
+
+    let focus = select_focus(
+        &app.skill_tree,
+        app.drill_scope,
+        &app.ranked_key_stats,
+        &app.ranked_bigram_stats,
+    );
+
+    let unlocked = app.skill_tree.unlocked_keys(app.drill_scope);
+
+    let error_anomalies_raw = app
+        .ranked_bigram_stats
+        .error_anomaly_bigrams(&app.ranked_key_stats, &unlocked);
+    let speed_anomalies_raw = app
+        .ranked_bigram_stats
+        .speed_anomaly_bigrams(&app.ranked_key_stats, &unlocked);
+
+    let error_anomalies: Vec<AnomalyBigramRow> = error_anomalies_raw
+        .iter()
+        .map(|a| AnomalyBigramRow {
+            bigram: format!("{}{}", a.key.0[0], a.key.0[1]),
+            anomaly_pct: a.anomaly_pct,
+            sample_count: a.sample_count,
+            error_count: a.error_count,
+            error_rate_ema: a.error_rate_ema,
+            speed_ms: a.speed_ms,
+            expected_baseline: a.expected_baseline,
+            confirmed: a.confirmed,
+        })
+        .collect();
+
+    let speed_anomalies: Vec<AnomalyBigramRow> = speed_anomalies_raw
+        .iter()
+        .map(|a| AnomalyBigramRow {
+            bigram: format!("{}{}", a.key.0[0], a.key.0[1]),
+            anomaly_pct: a.anomaly_pct,
+            sample_count: a.sample_count,
+            error_count: a.error_count,
+            error_rate_ema: a.error_rate_ema,
+            speed_ms: a.speed_ms,
+            expected_baseline: a.expected_baseline,
+            confirmed: a.confirmed,
+        })
+        .collect();
+
+    let scope_label = match app.drill_scope {
+        DrillScope::Global => "Global".to_string(),
+        DrillScope::Branch(id) => format!("Branch: {}", id.to_key()),
+    };
+
+    let hesitation_threshold_ms = ngram_stats::hesitation_threshold(app.user_median_transition_ms);
+
+    let latest_trigram_gain = app.trigram_gain_history.last().copied();
+
+    NgramTabData {
+        focus,
+        error_anomalies,
+        speed_anomalies,
+        total_bigrams: app.ranked_bigram_stats.stats.len(),
+        total_trigrams: app.ranked_trigram_stats.stats.len(),
+        hesitation_threshold_ms,
+        latest_trigram_gain,
+        scope_label,
+    }
 }
 
 fn render_settings(frame: &mut ratatui::Frame, app: &App) {
@@ -2224,21 +2536,13 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
             app.settings_export_path.clone(),
             true, // path field
         ),
-        (
-            "Export Data".to_string(),
-            "Export now".to_string(),
-            false,
-        ),
+        ("Export Data".to_string(), "Export now".to_string(), false),
         (
             "Import Path".to_string(),
             app.settings_import_path.clone(),
             true, // path field
         ),
-        (
-            "Import Data".to_string(),
-            "Import now".to_string(),
-            false,
-        ),
+        ("Import Data".to_string(), "Import now".to_string(), false),
     ];
 
     let header_height = if inner.height > 0 { 1 } else { 0 };
@@ -2311,11 +2615,11 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
             colors.text_pending()
         });
 
-        let is_editing_this_path = is_selected && *is_path && (
-            app.settings_editing_download_dir
-            || app.settings_editing_export_path
-            || app.settings_editing_import_path
-        );
+        let is_editing_this_path = is_selected
+            && *is_path
+            && (app.settings_editing_download_dir
+                || app.settings_editing_export_path
+                || app.settings_editing_import_path);
         let lines = if *is_path {
             let path_line = if is_editing_this_path {
                 format!("  {value}_")
@@ -2346,7 +2650,11 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
         || app.settings_editing_export_path
         || app.settings_editing_import_path;
     let footer_hints: Vec<&str> = if any_path_editing {
-        vec!["Editing path:", "[Type/Backspace] Modify", "[ESC] Done editing"]
+        vec![
+            "Editing path:",
+            "[Type/Backspace] Modify",
+            "[ESC] Done editing",
+        ]
     } else {
         vec![
             "[ESC] Save & back",
@@ -2635,7 +2943,12 @@ fn render_code_language_select(frame: &mut ratatui::Frame, app: &App) {
     if let Some(footer) = footer_area {
         let mut footer_lines: Vec<Line> = hint_lines_vec
             .iter()
-            .map(|line| Line::from(Span::styled(line.clone(), Style::default().fg(colors.text_pending()))))
+            .map(|line| {
+                Line::from(Span::styled(
+                    line.clone(),
+                    Style::default().fg(colors.text_pending()),
+                ))
+            })
             .collect();
         if show_notice {
             footer_lines.push(Line::from(Span::styled(
@@ -2735,7 +3048,12 @@ fn render_passage_book_select(frame: &mut ratatui::Frame, app: &App) {
     if let Some(footer) = footer_area {
         let mut footer_lines: Vec<Line> = hint_lines_vec
             .iter()
-            .map(|line| Line::from(Span::styled(line.clone(), Style::default().fg(colors.text_pending()))))
+            .map(|line| {
+                Line::from(Span::styled(
+                    line.clone(),
+                    Style::default().fg(colors.text_pending()),
+                ))
+            })
             .collect();
         if show_notice {
             footer_lines.push(Line::from(Span::styled(
@@ -2907,11 +3225,12 @@ fn render_passage_intro(frame: &mut ratatui::Frame, app: &App) {
     Paragraph::new(lines).render(content_area, frame.buffer_mut());
     if let Some(footer) = footer_area {
         let mut footer_lines = vec![Line::from("")];
-        footer_lines.extend(
-            hint_lines
-                .into_iter()
-                .map(|hint| Line::from(Span::styled(hint, Style::default().fg(colors.text_pending())))),
-        );
+        footer_lines.extend(hint_lines.into_iter().map(|hint| {
+            Line::from(Span::styled(
+                hint,
+                Style::default().fg(colors.text_pending()),
+            ))
+        }));
         Paragraph::new(footer_lines)
             .wrap(Wrap { trim: false })
             .render(footer, frame.buffer_mut());
@@ -3131,11 +3450,12 @@ fn render_code_intro(frame: &mut ratatui::Frame, app: &App) {
     Paragraph::new(lines).render(content_area, frame.buffer_mut());
     if let Some(footer) = footer_area {
         let mut footer_lines = vec![Line::from("")];
-        footer_lines.extend(
-            hint_lines
-                .into_iter()
-                .map(|hint| Line::from(Span::styled(hint, Style::default().fg(colors.text_pending())))),
-        );
+        footer_lines.extend(hint_lines.into_iter().map(|hint| {
+            Line::from(Span::styled(
+                hint,
+                Style::default().fg(colors.text_pending()),
+            ))
+        }));
         Paragraph::new(footer_lines)
             .wrap(Wrap { trim: false })
             .render(footer, frame.buffer_mut());
@@ -3252,7 +3572,7 @@ fn render_keyboard_explorer(frame: &mut ratatui::Frame, app: &App) {
         .constraints([
             Constraint::Length(3), // header
             Constraint::Length(8), // keyboard diagram
-            Constraint::Min(3),   // detail panel
+            Constraint::Min(3),    // detail panel
             Constraint::Length(1), // footer
         ])
         .split(area);
@@ -3271,8 +3591,7 @@ fn render_keyboard_explorer(frame: &mut ratatui::Frame, app: &App) {
             Style::default().fg(colors.text_pending()),
         )),
     ];
-    let header = Paragraph::new(header_lines)
-        .alignment(ratatui::layout::Alignment::Center);
+    let header = Paragraph::new(header_lines).alignment(ratatui::layout::Alignment::Center);
     frame.render_widget(header, layout[0]);
 
     // Keyboard diagram
@@ -3344,8 +3663,26 @@ fn render_keyboard_detail_panel(frame: &mut ratatui::Frame, app: &App, area: Rec
     let is_shifted = selected.is_uppercase()
         || matches!(
             selected,
-            '!' | '@' | '#' | '$' | '%' | '^' | '&' | '*' | '(' | ')' | '_' | '+'
-                | '{' | '}' | '|' | ':' | '"' | '<' | '>' | '?' | '~'
+            '!' | '@'
+                | '#'
+                | '$'
+                | '%'
+                | '^'
+                | '&'
+                | '*'
+                | '('
+                | ')'
+                | '_'
+                | '+'
+                | '{'
+                | '}'
+                | '|'
+                | ':'
+                | '"'
+                | '<'
+                | '>'
+                | '?'
+                | '~'
         );
     let shift_guidance = if is_shifted {
         if finger.hand == Hand::Left {
@@ -3438,8 +3775,14 @@ fn render_keyboard_detail_panel(frame: &mut ratatui::Frame, app: &App, area: Rec
     } else {
         right_col.push("Built-in Key".to_string());
     }
-    right_col.push(format!("Unlocked: {}", if is_unlocked { "Yes" } else { "No" }));
-    right_col.push(format!("In Focus?: {}", if in_focus { "Yes" } else { "No" }));
+    right_col.push(format!(
+        "Unlocked: {}",
+        if is_unlocked { "Yes" } else { "No" }
+    ));
+    right_col.push(format!(
+        "In Focus?: {}",
+        if in_focus { "Yes" } else { "No" }
+    ));
     if is_unlocked {
         right_col.push(format!("Mastery: {mastery_text}"));
     } else {

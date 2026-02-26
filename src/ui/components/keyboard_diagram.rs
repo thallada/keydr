@@ -267,6 +267,22 @@ impl KeyboardDiagram<'_> {
         }
 
         let offsets: &[u16] = &[3, 4, 6];
+        let keyboard_width = letter_rows
+            .iter()
+            .enumerate()
+            .map(|(row_idx, row)| {
+                let offset = offsets.get(row_idx).copied().unwrap_or(0);
+                let row_end = offset + row.len() as u16 * key_width;
+                match row_idx {
+                    0 => row_end + 3, // [B]
+                    1 => row_end + 3, // [E]
+                    2 => row_end + 3, // [S]
+                    _ => row_end,
+                }
+            })
+            .max()
+            .unwrap_or(0);
+        let start_x = inner.x + inner.width.saturating_sub(keyboard_width) / 2;
 
         for (row_idx, row) in letter_rows.iter().enumerate() {
             let y = inner.y + row_idx as u16;
@@ -283,18 +299,18 @@ impl KeyboardDiagram<'_> {
                     let is_next = self.next_key == Some(TAB);
                     let is_sel = self.is_sentinel_selected(TAB);
                     let style = modifier_key_style(is_dep, is_next, is_sel, colors);
-                    buf.set_string(inner.x, y, "[T]", style);
+                    buf.set_string(start_x, y, "[T]", style);
                 }
                 2 => {
                     let is_dep = self.shift_held;
                     let style = modifier_key_style(is_dep, false, false, colors);
-                    buf.set_string(inner.x, y, "[S]", style);
+                    buf.set_string(start_x, y, "[S]", style);
                 }
                 _ => {}
             }
 
             for (col_idx, physical_key) in row.iter().enumerate() {
-                let x = inner.x + offset + col_idx as u16 * key_width;
+                let x = start_x + offset + col_idx as u16 * key_width;
                 if x + key_width > inner.x + inner.width {
                     break;
                 }
@@ -326,7 +342,7 @@ impl KeyboardDiagram<'_> {
             }
 
             // Render trailing modifier key
-            let row_end_x = inner.x + offset + row.len() as u16 * key_width;
+            let row_end_x = start_x + offset + row.len() as u16 * key_width;
             match row_idx {
                 1 => {
                     if row_end_x + 3 <= inner.x + inner.width {
@@ -351,7 +367,7 @@ impl KeyboardDiagram<'_> {
         // Backspace at end of first row
         if inner.height >= 3 {
             let y = inner.y;
-            let row_end_x = inner.x + offsets[0] + letter_rows[0].len() as u16 * key_width;
+            let row_end_x = start_x + offsets[0] + letter_rows[0].len() as u16 * key_width;
             if row_end_x + 3 <= inner.x + inner.width {
                 let is_dep = self.depressed_keys.contains(&BACKSPACE);
                 let is_next = self.next_key == Some(BACKSPACE);
@@ -373,6 +389,24 @@ impl KeyboardDiagram<'_> {
         }
 
         let offsets: &[u16] = &[0, 5, 5, 6];
+        let keyboard_width = self
+            .model
+            .rows
+            .iter()
+            .enumerate()
+            .map(|(row_idx, row)| {
+                let offset = offsets.get(row_idx).copied().unwrap_or(0);
+                let row_end = offset + row.len() as u16 * key_width;
+                match row_idx {
+                    0 => row_end + 6, // [Bksp]
+                    2 => row_end + 7, // [Enter]
+                    3 => row_end + 6, // [Shft]
+                    _ => row_end,
+                }
+            })
+            .max()
+            .unwrap_or(0);
+        let start_x = inner.x + inner.width.saturating_sub(keyboard_width) / 2;
 
         for (row_idx, row) in self.model.rows.iter().enumerate() {
             let y = inner.y + row_idx as u16;
@@ -391,7 +425,7 @@ impl KeyboardDiagram<'_> {
                         let is_sel = self.is_sentinel_selected(TAB);
                         let style = modifier_key_style(is_dep, is_next, is_sel, colors);
                         let label = format!("[{}]", display::key_short_label(TAB));
-                        buf.set_string(inner.x, y, &label, style);
+                        buf.set_string(start_x, y, &label, style);
                     }
                 }
                 2 => {
@@ -401,10 +435,10 @@ impl KeyboardDiagram<'_> {
                             let style = Style::default()
                                 .fg(readable_fg(bg, colors.warning()))
                                 .bg(bg);
-                            buf.set_string(inner.x, y, "[Cap]", style);
+                            buf.set_string(start_x, y, "[Cap]", style);
                         } else {
                             let style = Style::default().fg(colors.text_pending()).bg(colors.bg());
-                            buf.set_string(inner.x, y, "[   ]", style);
+                            buf.set_string(start_x, y, "[   ]", style);
                         }
                     }
                 }
@@ -412,14 +446,14 @@ impl KeyboardDiagram<'_> {
                     if offset >= 6 {
                         let is_dep = self.shift_held;
                         let style = modifier_key_style(is_dep, false, false, colors);
-                        buf.set_string(inner.x, y, "[Shft]", style);
+                        buf.set_string(start_x, y, "[Shft]", style);
                     }
                 }
                 _ => {}
             }
 
             for (col_idx, physical_key) in row.iter().enumerate() {
-                let x = inner.x + offset + col_idx as u16 * key_width;
+                let x = start_x + offset + col_idx as u16 * key_width;
                 if x + key_width > inner.x + inner.width {
                     break;
                 }
@@ -451,7 +485,7 @@ impl KeyboardDiagram<'_> {
             }
 
             // Render trailing modifier keys
-            let after_x = inner.x + offset + row.len() as u16 * key_width;
+            let after_x = start_x + offset + row.len() as u16 * key_width;
             match row_idx {
                 0 => {
                     if after_x + 6 <= inner.x + inner.width {
@@ -484,34 +518,13 @@ impl KeyboardDiagram<'_> {
             }
         }
 
-        // Compute full keyboard width from rendered rows (including trailing modifier keys),
-        // so the space bar centers relative to the keyboard, not the container.
-        let keyboard_width = self
-            .model
-            .rows
-            .iter()
-            .enumerate()
-            .map(|(row_idx, row)| {
-                let offset = offsets.get(row_idx).copied().unwrap_or(0);
-                let row_end = offset + row.len() as u16 * key_width;
-                match row_idx {
-                    0 => row_end + 6, // [Bksp]
-                    2 => row_end + 7, // [Enter]
-                    3 => row_end + 6, // [Shft]
-                    _ => row_end,
-                }
-            })
-            .max()
-            .unwrap_or(0)
-            .min(inner.width);
-
         // Space bar row (row 4)
         let space_y = inner.y + 4;
         if space_y < inner.y + inner.height {
             let space_name = display::key_display_name(SPACE);
             let space_label = format!("[       {space_name}       ]");
             let space_width = space_label.len() as u16;
-            let space_x = inner.x + (keyboard_width.saturating_sub(space_width)) / 2;
+            let space_x = start_x + (keyboard_width.saturating_sub(space_width)) / 2;
             if space_x + space_width <= inner.x + inner.width {
                 let is_dep = self.depressed_keys.contains(&SPACE);
                 let is_next = self.next_key == Some(SPACE);
@@ -527,6 +540,16 @@ impl KeyboardDiagram<'_> {
         let letter_rows = self.model.letter_rows();
         let key_width: u16 = 5;
         let offsets: &[u16] = &[1, 3, 5];
+        let keyboard_width = letter_rows
+            .iter()
+            .enumerate()
+            .map(|(row_idx, row)| {
+                let offset = offsets.get(row_idx).copied().unwrap_or(0);
+                offset + row.len() as u16 * key_width
+            })
+            .max()
+            .unwrap_or(0);
+        let start_x = inner.x + inner.width.saturating_sub(keyboard_width) / 2;
 
         if inner.height < 3 || inner.width < 30 {
             return;
@@ -541,7 +564,7 @@ impl KeyboardDiagram<'_> {
             let offset = offsets.get(row_idx).copied().unwrap_or(0);
 
             for (col_idx, physical_key) in row.iter().enumerate() {
-                let x = inner.x + offset + col_idx as u16 * key_width;
+                let x = start_x + offset + col_idx as u16 * key_width;
                 if x + key_width > inner.x + inner.width {
                     break;
                 }

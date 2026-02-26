@@ -202,10 +202,19 @@ code_language = "go"
         let config = Config::default();
         let serialized = toml::to_string_pretty(&config).unwrap();
         let deserialized: Config = toml::from_str(&serialized).unwrap();
-        assert_eq!(config.code_downloads_enabled, deserialized.code_downloads_enabled);
+        assert_eq!(
+            config.code_downloads_enabled,
+            deserialized.code_downloads_enabled
+        );
         assert_eq!(config.code_download_dir, deserialized.code_download_dir);
-        assert_eq!(config.code_snippets_per_repo, deserialized.code_snippets_per_repo);
-        assert_eq!(config.code_onboarding_done, deserialized.code_onboarding_done);
+        assert_eq!(
+            config.code_snippets_per_repo,
+            deserialized.code_snippets_per_repo
+        );
+        assert_eq!(
+            config.code_onboarding_done,
+            deserialized.code_onboarding_done
+        );
     }
 
     #[test]

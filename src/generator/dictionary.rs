@@ -39,3 +39,26 @@ impl Dictionary {
         matching
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn find_matching_focused_is_sort_only() {
+        let dictionary = Dictionary::load();
+        let filter = CharFilter::new(('a'..='z').collect());
+
+        let without_focus = dictionary.find_matching(&filter, None);
+        let with_focus = dictionary.find_matching(&filter, Some('k'));
+
+        // Same membership — focused param only reorders, never filters
+        let mut sorted_without: Vec<&str> = without_focus.clone();
+        let mut sorted_with: Vec<&str> = with_focus.clone();
+        sorted_without.sort();
+        sorted_with.sort();
+
+        assert_eq!(sorted_without, sorted_with);
+        assert_eq!(without_focus.len(), with_focus.len());
+    }
+}

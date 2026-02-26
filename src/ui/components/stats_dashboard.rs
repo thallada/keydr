@@ -6,11 +6,38 @@ use ratatui::widgets::{Block, Clear, Paragraph, Widget};
 use std::collections::{BTreeSet, HashMap};
 
 use crate::engine::key_stats::KeyStatsStore;
+use crate::engine::ngram_stats::{AnomalyType, FocusSelection};
 use crate::keyboard::display::{self, BACKSPACE, ENTER, MODIFIER_SENTINELS, SPACE, TAB};
 use crate::keyboard::model::KeyboardModel;
 use crate::session::result::DrillResult;
 use crate::ui::components::activity_heatmap::ActivityHeatmap;
 use crate::ui::theme::Theme;
+
+// ---------------------------------------------------------------------------
+// N-grams tab view models
+// ---------------------------------------------------------------------------
+
+pub struct AnomalyBigramRow {
+    pub bigram: String,
+    pub anomaly_pct: f64,
+    pub sample_count: usize,
+    pub error_count: usize,
+    pub error_rate_ema: f64,
+    pub speed_ms: f64,
+    pub expected_baseline: f64,
+    pub confirmed: bool,
+}
+
+pub struct NgramTabData {
+    pub focus: FocusSelection,
+    pub error_anomalies: Vec<AnomalyBigramRow>,
+    pub speed_anomalies: Vec<AnomalyBigramRow>,
+    pub total_bigrams: usize,
+    pub total_trigrams: usize,
+    pub hesitation_threshold_ms: f64,
+    pub latest_trigram_gain: Option<f64>,
+    pub scope_label: String,
+}
 
 pub struct StatsDashboard<'a> {
     pub history: &'a [DrillResult],
@@ -24,6 +51,7 @@ pub struct StatsDashboard<'a> {
     pub history_selected: usize,
     pub history_confirm_delete: bool,
     pub keyboard_model: &'a KeyboardModel,
+    pub ngram_data: Option<&'a NgramTabData>,
 }
 
 impl<'a> StatsDashboard<'a> {
@@ -39,6 +67,7 @@ impl<'a> StatsDashboard<'a> {
         history_selected: usize,
         history_confirm_delete: bool,
         keyboard_model: &'a KeyboardModel,
+        ngram_data: Option<&'a NgramTabData>,
     ) -> Self {
         Self {
             history,
@@ -52,6 +81,7 @@ impl<'a> StatsDashboard<'a> {
             history_selected,
             history_confirm_delete,
             keyboard_model,
+            ngram_data,
         }
     }
 }
@@ -92,6 +122,7 @@ impl Widget for StatsDashboard<'_> {
             "[3] Activity",
             "[4] Accuracy",
             "[5] Timing",
+            "[6] N-grams",
         ];
         let tab_spans: Vec<Span> = tabs
             .iter()
@@ -114,9 +145,9 @@ impl Widget for StatsDashboard<'_> {
 
         // Footer
         let footer_text = if self.active_tab == 1 {
-            "  [ESC] Back  [Tab] Next tab  [1-5] Switch tab  [j/k] Navigate  [x] Delete"
+            "  [ESC] Back  [Tab] Next tab  [1-6] Switch tab  [j/k] Navigate  [x] Delete"
         } else {
-            "  [ESC] Back  [Tab] Next tab  [1-5] Switch tab"
+            "  [ESC] Back  [Tab] Next tab  [1-6] Switch tab"
         };
         let footer = Paragraph::new(Line::from(Span::styled(
             footer_text,
@@ -163,6 +194,7 @@ impl StatsDashboard<'_> {
             2 => self.render_activity_tab(area, buf),
             3 => self.render_accuracy_tab(area, buf),
             4 => self.render_timing_tab(area, buf),
+            5 => self.render_ngram_tab(area, buf),
             _ => {}
         }
     }
@@ -692,6 +724,17 @@ impl StatsDashboard<'_> {
         let show_shifted = inner.height >= 10; // 4 base + 4 shifted + 1 mod row + 1 spare
         let all_rows = &self.keyboard_model.rows;
         let offsets: &[u16] = &[0, 2, 3, 4];
+        let kbd_width = all_rows
+            .iter()
+            .enumerate()
+            .map(|(i, row)| {
+                let off = offsets.get(i).copied().unwrap_or(0);
+                off + row.len() as u16 * key_step
+            })
+            .max()
+            .unwrap_or(inner.width)
+            .min(inner.width);
+        let keyboard_x = inner.x + inner.width.saturating_sub(kbd_width) / 2;
 
         for (row_idx, row) in all_rows.iter().enumerate() {
             let base_y = if show_shifted {
@@ -711,7 +754,7 @@ impl StatsDashboard<'_> {
                 let shifted_y = base_y - 1;
                 if shifted_y >= inner.y {
                     for (col_idx, physical_key) in row.iter().enumerate() {
-                        let x = inner.x + offset + col_idx as u16 * key_step;
+                        let x = keyboard_x + offset + col_idx as u16 * key_step;
                         if x + key_width > inner.x + inner.width {
                             break;
                         }
@@ -733,7 +776,7 @@ impl StatsDashboard<'_> {
 
             // Base row
             for (col_idx, physical_key) in row.iter().enumerate() {
-                let x = inner.x + offset + col_idx as u16 * key_step;
+                let x = keyboard_x + offset + col_idx as u16 * key_step;
                 if x + key_width > inner.x + inner.width {
                     break;
                 }
@@ -745,20 +788,8 @@ impl StatsDashboard<'_> {
                 let display = format_accuracy_cell(key, accuracy, key_width);
                 buf.set_string(x, base_y, &display, Style::default().fg(fg_color));
             }
-
         }
-
         // Modifier key stats row below the keyboard, spread across keyboard width
-        let kbd_width = all_rows
-            .iter()
-            .enumerate()
-            .map(|(i, row)| {
-                let off = offsets.get(i).copied().unwrap_or(0);
-                off + row.len() as u16 * key_step
-            })
-            .max()
-            .unwrap_or(inner.width)
-            .min(inner.width);
         let mod_y = if show_shifted {
             inner.y + all_rows.len() as u16 * 2 + 1
         } else {
@@ -783,7 +814,7 @@ impl StatsDashboard<'_> {
                 let accuracy = self.get_key_accuracy(key);
                 let fg_color = accuracy_color(accuracy, colors);
                 buf.set_string(
-                    inner.x + positions[i],
+                    keyboard_x + positions[i],
                     mod_y,
                     &labels[i],
                     Style::default().fg(fg_color),
@@ -848,6 +879,17 @@ impl StatsDashboard<'_> {
         let show_shifted = inner.height >= 10; // 4 base + 4 shifted + 1 mod row + 1 spare
         let all_rows = &self.keyboard_model.rows;
         let offsets: &[u16] = &[0, 2, 3, 4];
+        let kbd_width = all_rows
+            .iter()
+            .enumerate()
+            .map(|(i, row)| {
+                let off = offsets.get(i).copied().unwrap_or(0);
+                off + row.len() as u16 * key_step
+            })
+            .max()
+            .unwrap_or(inner.width)
+            .min(inner.width);
+        let keyboard_x = inner.x + inner.width.saturating_sub(kbd_width) / 2;
 
         for (row_idx, row) in all_rows.iter().enumerate() {
             let base_y = if show_shifted {
@@ -866,7 +908,7 @@ impl StatsDashboard<'_> {
                 let shifted_y = base_y - 1;
                 if shifted_y >= inner.y {
                     for (col_idx, physical_key) in row.iter().enumerate() {
-                        let x = inner.x + offset + col_idx as u16 * key_step;
+                        let x = keyboard_x + offset + col_idx as u16 * key_step;
                         if x + key_width > inner.x + inner.width {
                             break;
                         }
@@ -886,7 +928,7 @@ impl StatsDashboard<'_> {
             }
 
             for (col_idx, physical_key) in row.iter().enumerate() {
-                let x = inner.x + offset + col_idx as u16 * key_step;
+                let x = keyboard_x + offset + col_idx as u16 * key_step;
                 if x + key_width > inner.x + inner.width {
                     break;
                 }
@@ -897,20 +939,8 @@ impl StatsDashboard<'_> {
                 let display = format_timing_cell(key, time_ms, key_width);
                 buf.set_string(x, base_y, &display, Style::default().fg(fg_color));
             }
-
         }
-
         // Modifier key stats row below the keyboard, spread across keyboard width
-        let kbd_width = all_rows
-            .iter()
-            .enumerate()
-            .map(|(i, row)| {
-                let off = offsets.get(i).copied().unwrap_or(0);
-                off + row.len() as u16 * key_step
-            })
-            .max()
-            .unwrap_or(inner.width)
-            .min(inner.width);
         let mod_y = if show_shifted {
             inner.y + all_rows.len() as u16 * 2 + 1
         } else {
@@ -935,7 +965,7 @@ impl StatsDashboard<'_> {
                 let time_ms = self.get_key_time_ms(key);
                 let fg_color = timing_color(time_ms, colors);
                 buf.set_string(
-                    inner.x + positions[i],
+                    keyboard_x + positions[i],
                     mod_y,
                     &labels[i],
                     Style::default().fg(fg_color),
@@ -1261,6 +1291,334 @@ impl StatsDashboard<'_> {
 
         Paragraph::new(lines).render(inner, buf);
     }
+
+    // --- N-grams tab ---
+
+    fn render_ngram_tab(&self, area: Rect, buf: &mut Buffer) {
+        let colors = &self.theme.colors;
+
+        let data = match self.ngram_data {
+            Some(d) => d,
+            None => {
+                let msg = Paragraph::new(Line::from(Span::styled(
+                    "Complete some adaptive drills to see n-gram data",
+                    Style::default().fg(colors.text_pending()),
+                )));
+                msg.render(area, buf);
+                return;
+            }
+        };
+
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(4), // focus box
+                Constraint::Min(5),    // lists
+                Constraint::Length(2), // summary
+            ])
+            .split(area);
+
+        self.render_ngram_focus(data, layout[0], buf);
+
+        let wide = layout[1].width >= 60;
+        if wide {
+            let lists = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(layout[1]);
+            self.render_error_anomalies(data, lists[0], buf);
+            self.render_speed_anomalies(data, lists[1], buf);
+        } else {
+            // Stacked vertically for narrow terminals
+            let available = layout[1].height;
+            if available < 10 {
+                // Only show error anomalies if very little space
+                self.render_error_anomalies(data, layout[1], buf);
+            } else {
+                let half = available / 2;
+                let lists = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Length(half), Constraint::Min(0)])
+                    .split(layout[1]);
+                self.render_error_anomalies(data, lists[0], buf);
+                self.render_speed_anomalies(data, lists[1], buf);
+            }
+        }
+        self.render_ngram_summary(data, layout[2], buf);
+    }
+
+    fn render_ngram_focus(&self, data: &NgramTabData, area: Rect, buf: &mut Buffer) {
+        let colors = &self.theme.colors;
+
+        let block = Block::bordered()
+            .title(Line::from(Span::styled(
+                " Active Focus ",
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
+            )))
+            .border_style(Style::default().fg(colors.accent()));
+        let inner = block.inner(area);
+        block.render(area, buf);
+
+        if inner.height < 1 {
+            return;
+        }
+
+        let mut lines = Vec::new();
+
+        match (&data.focus.char_focus, &data.focus.bigram_focus) {
+            (Some(ch), Some((key, anomaly_pct, anomaly_type))) => {
+                let bigram_label = format!("\"{}{}\"", key.0[0], key.0[1]);
+                // Line 1: both focuses
+                lines.push(Line::from(vec![
+                    Span::styled("  Focus: ", Style::default().fg(colors.fg())),
+                    Span::styled(
+                        format!("Char '{ch}'"),
+                        Style::default()
+                            .fg(colors.focused_key())
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(" + ", Style::default().fg(colors.fg())),
+                    Span::styled(
+                        format!("Bigram {bigram_label}"),
+                        Style::default()
+                            .fg(colors.focused_key())
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ]));
+                // Line 2: details
+                if inner.height >= 2 {
+                    let type_label = match anomaly_type {
+                        AnomalyType::Error => "error",
+                        AnomalyType::Speed => "speed",
+                    };
+                    let detail = format!(
+                        "  Char '{ch}': weakest key | Bigram {bigram_label}: {type_label} anomaly {anomaly_pct:.0}%"
+                    );
+                    lines.push(Line::from(Span::styled(
+                        detail,
+                        Style::default().fg(colors.text_pending()),
+                    )));
+                }
+            }
+            (Some(ch), None) => {
+                lines.push(Line::from(vec![
+                    Span::styled("  Focus: ", Style::default().fg(colors.fg())),
+                    Span::styled(
+                        format!("Char '{ch}'"),
+                        Style::default()
+                            .fg(colors.focused_key())
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ]));
+                if inner.height >= 2 {
+                    lines.push(Line::from(Span::styled(
+                        format!("  Char '{ch}': weakest key, no confirmed bigram anomalies"),
+                        Style::default().fg(colors.text_pending()),
+                    )));
+                }
+            }
+            (None, Some((key, anomaly_pct, anomaly_type))) => {
+                let bigram_label = format!("\"{}{}\"", key.0[0], key.0[1]);
+                let type_label = match anomaly_type {
+                    AnomalyType::Error => "error",
+                    AnomalyType::Speed => "speed",
+                };
+                lines.push(Line::from(vec![
+                    Span::styled("  Focus: ", Style::default().fg(colors.fg())),
+                    Span::styled(
+                        format!("Bigram {bigram_label}"),
+                        Style::default()
+                            .fg(colors.focused_key())
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("  ({type_label} anomaly: {anomaly_pct:.0}%)"),
+                        Style::default().fg(colors.text_pending()),
+                    ),
+                ]));
+            }
+            (None, None) => {
+                lines.push(Line::from(Span::styled(
+                    "  Complete some adaptive drills to see focus data",
+                    Style::default().fg(colors.text_pending()),
+                )));
+            }
+        }
+
+        Paragraph::new(lines).render(inner, buf);
+    }
+
+    fn render_anomaly_panel(
+        &self,
+        title: &str,
+        empty_msg: &str,
+        rows: &[AnomalyBigramRow],
+        is_speed: bool,
+        area: Rect,
+        buf: &mut Buffer,
+    ) {
+        let colors = &self.theme.colors;
+
+        let block = Block::bordered()
+            .title(Line::from(Span::styled(
+                title.to_string(),
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
+            )))
+            .border_style(Style::default().fg(colors.accent()));
+        let inner = block.inner(area);
+        block.render(area, buf);
+
+        if inner.height < 1 {
+            return;
+        }
+
+        if rows.is_empty() {
+            buf.set_string(
+                inner.x,
+                inner.y,
+                empty_msg,
+                Style::default().fg(colors.text_pending()),
+            );
+            return;
+        }
+
+        let narrow = inner.width < 30;
+
+        // Error table: Bigram  Anom%  Rate  Errors  Smp  Strk
+        // Speed table: Bigram  Anom%  Speed  Smp  Strk
+        let header = if narrow {
+            if is_speed {
+                " Bgrm Speed Expct Anom%"
+            } else {
+                " Bgrm Err Smp Rate Exp Anom%"
+            }
+        } else if is_speed {
+            " Bigram   Speed  Expect  Samples  Anom%"
+        } else {
+            " Bigram  Errors  Samples  Rate  Expect  Anom%"
+        };
+        buf.set_string(
+            inner.x,
+            inner.y,
+            header,
+            Style::default()
+                .fg(colors.accent())
+                .add_modifier(Modifier::BOLD),
+        );
+
+        let max_rows = (inner.height as usize).saturating_sub(1);
+        for (i, row) in rows.iter().take(max_rows).enumerate() {
+            let y = inner.y + 1 + i as u16;
+            if y >= inner.y + inner.height {
+                break;
+            }
+
+            let line = if narrow {
+                if is_speed {
+                    format!(
+                        " {:>4} {:>3.0}ms {:>3.0}ms {:>4.0}%",
+                        row.bigram, row.speed_ms, row.expected_baseline, row.anomaly_pct,
+                    )
+                } else {
+                    format!(
+                        " {:>4} {:>3} {:>3} {:>3.0}% {:>2.0}% {:>4.0}%",
+                        row.bigram,
+                        row.error_count,
+                        row.sample_count,
+                        row.error_rate_ema * 100.0,
+                        row.expected_baseline * 100.0,
+                        row.anomaly_pct,
+                    )
+                }
+            } else if is_speed {
+                format!(
+                    " {:>6}  {:>4.0}ms  {:>4.0}ms  {:>5}  {:>4.0}%",
+                    row.bigram,
+                    row.speed_ms,
+                    row.expected_baseline,
+                    row.sample_count,
+                    row.anomaly_pct,
+                )
+            } else {
+                format!(
+                    " {:>6}  {:>5}  {:>5}  {:>4.0}%  {:>4.0}%  {:>5.0}%",
+                    row.bigram,
+                    row.error_count,
+                    row.sample_count,
+                    row.error_rate_ema * 100.0,
+                    row.expected_baseline * 100.0,
+                    row.anomaly_pct,
+                )
+            };
+
+            let color = if row.confirmed {
+                colors.error()
+            } else {
+                colors.warning()
+            };
+
+            buf.set_string(inner.x, y, &line, Style::default().fg(color));
+        }
+    }
+
+    fn render_error_anomalies(&self, data: &NgramTabData, area: Rect, buf: &mut Buffer) {
+        let title = format!(" Error Anomalies ({}) ", data.error_anomalies.len());
+        self.render_anomaly_panel(
+            &title,
+            " No error anomalies detected",
+            &data.error_anomalies,
+            false,
+            area,
+            buf,
+        );
+    }
+
+    fn render_speed_anomalies(&self, data: &NgramTabData, area: Rect, buf: &mut Buffer) {
+        let title = format!(" Speed Anomalies ({}) ", data.speed_anomalies.len());
+        self.render_anomaly_panel(
+            &title,
+            " No speed anomalies detected",
+            &data.speed_anomalies,
+            true,
+            area,
+            buf,
+        );
+    }
+
+    fn render_ngram_summary(&self, data: &NgramTabData, area: Rect, buf: &mut Buffer) {
+        let colors = &self.theme.colors;
+
+        let gain_str = match data.latest_trigram_gain {
+            Some(g) => format!("{:.1}%", g * 100.0),
+            None => "--".to_string(),
+        };
+        let gain_note = if data.latest_trigram_gain.is_none() {
+            " (computed every 50 drills)"
+        } else {
+            ""
+        };
+
+        let line = format!(
+            " Scope: {} | Bigrams: {} | Trigrams: {} | Hesitation: >{:.0}ms | Tri-gain: {}{}",
+            data.scope_label,
+            data.total_bigrams,
+            data.total_trigrams,
+            data.hesitation_threshold_ms,
+            gain_str,
+            gain_note,
+        );
+
+        buf.set_string(
+            area.x,
+            area.y,
+            &line,
+            Style::default().fg(colors.text_pending()),
+        );
+    }
 }
 
 fn accuracy_color(accuracy: f64, colors: &crate::ui::theme::ThemeColors) -> ratatui::style::Color {
@@ -1499,5 +1857,81 @@ fn format_duration(secs: f64) -> String {
         format!("{mins}m {s}s")
     } else {
         format!("{s}s")
+    }
+}
+
+/// Compute the ngram tab panel layout for the given terminal area.
+/// Returns `(wide, lists_area_height)` where:
+/// - `wide` = true means side-by-side anomaly panels (width >= 60)
+/// - `lists_area_height` = height available for the anomaly panels region
+///
+/// When `!wide && lists_area_height < 10`, only error anomalies should render.
+#[cfg(test)]
+fn ngram_panel_layout(area: Rect) -> (bool, u16) {
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(4), // focus box
+            Constraint::Min(5),    // lists
+            Constraint::Length(2), // summary
+        ])
+        .split(area);
+    let wide = layout[1].width >= 60;
+    (wide, layout[1].height)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn narrow_short_terminal_shows_only_error_panel() {
+        // 50 cols × 15 rows: narrow (<60) so panels stack vertically.
+        // lists area = 15 - 4 (focus) - 2 (summary) = 9 rows → < 10 → error only.
+        let area = Rect::new(0, 0, 50, 15);
+        let (wide, lists_height) = ngram_panel_layout(area);
+        assert!(!wide, "50 cols should be narrow layout");
+        assert!(
+            lists_height < 10,
+            "lists_height={lists_height}, expected < 10 so only error panel renders"
+        );
+    }
+
+    #[test]
+    fn narrow_tall_terminal_stacks_both_panels() {
+        // 50 cols × 30 rows: narrow (<60) so panels stack vertically.
+        // lists area = 30 - 4 - 2 = 24 rows → >= 10 → both panels stacked.
+        let area = Rect::new(0, 0, 50, 30);
+        let (wide, lists_height) = ngram_panel_layout(area);
+        assert!(!wide, "50 cols should be narrow layout");
+        assert!(
+            lists_height >= 10,
+            "lists_height={lists_height}, expected >= 10 so both panels stack vertically"
+        );
+    }
+
+    #[test]
+    fn wide_terminal_shows_side_by_side_panels() {
+        // 80 cols × 24 rows: wide (>= 60) so panels render side by side.
+        let area = Rect::new(0, 0, 80, 24);
+        let (wide, _) = ngram_panel_layout(area);
+        assert!(
+            wide,
+            "80 cols should be wide layout with side-by-side panels"
+        );
+    }
+
+    #[test]
+    fn boundary_width_59_is_narrow() {
+        let area = Rect::new(0, 0, 59, 24);
+        let (wide, _) = ngram_panel_layout(area);
+        assert!(!wide, "59 cols should be narrow");
+    }
+
+    #[test]
+    fn boundary_width_60_is_wide() {
+        let area = Rect::new(0, 0, 60, 24);
+        let (wide, _) = ngram_panel_layout(area);
+        assert!(wide, "60 cols should be wide");
     }
 }

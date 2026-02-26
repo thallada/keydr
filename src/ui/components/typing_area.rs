@@ -103,7 +103,9 @@ fn contrast_ratio(a: ratatui::style::Color, b: ratatui::style::Color) -> f64 {
     (hi + 0.05) / (lo + 0.05)
 }
 
-fn choose_cursor_colors(colors: &crate::ui::theme::ThemeColors) -> (ratatui::style::Color, ratatui::style::Color) {
+fn choose_cursor_colors(
+    colors: &crate::ui::theme::ThemeColors,
+) -> (ratatui::style::Color, ratatui::style::Color) {
     use ratatui::style::Color;
 
     let base_bg = colors.bg();
@@ -113,7 +115,13 @@ fn choose_cursor_colors(colors: &crate::ui::theme::ThemeColors) -> (ratatui::sty
     if contrast_ratio(cursor_bg, base_bg) < 1.8 {
         let mut best_bg = cursor_bg;
         let mut best_ratio = contrast_ratio(cursor_bg, base_bg);
-        for candidate in [colors.accent(), colors.focused_key(), colors.warning(), Color::Black, Color::White] {
+        for candidate in [
+            colors.accent(),
+            colors.focused_key(),
+            colors.warning(),
+            Color::Black,
+            Color::White,
+        ] {
             let ratio = contrast_ratio(candidate, base_bg);
             if ratio > best_ratio {
                 best_bg = candidate;

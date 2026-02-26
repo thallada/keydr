@@ -567,9 +567,7 @@ impl SkillTree {
         let newly_mastered: Vec<char> = if let Some(before) = before_stats {
             before_unlocked
                 .iter()
-                .filter(|&&ch| {
-                    before.get_confidence(ch) < 1.0 && stats.get_confidence(ch) >= 1.0
-                })
+                .filter(|&&ch| before.get_confidence(ch) < 1.0 && stats.get_confidence(ch) >= 1.0)
                 .copied()
                 .collect()
         } else {

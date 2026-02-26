@@ -21,9 +21,7 @@ fn bench_extraction(c: &mut Criterion) {
     let keystrokes = make_keystrokes(500);
 
     c.bench_function("extract_ngram_events (500 keystrokes)", |b| {
-        b.iter(|| {
-            extract_ngram_events(black_box(&keystrokes), 800.0)
-        })
+        b.iter(|| extract_ngram_events(black_box(&keystrokes), 800.0))
     });
 }
 
@@ -84,17 +82,13 @@ fn bench_focus_selection(c: &mut Criterion) {
     let unlocked: Vec<char> = all_chars;
 
     c.bench_function("weakest_bigram (3K entries)", |b| {
-        b.iter(|| {
-            bigram_stats.weakest_bigram(black_box(&char_stats), black_box(&unlocked))
-        })
+        b.iter(|| bigram_stats.weakest_bigram(black_box(&char_stats), black_box(&unlocked)))
     });
 }
 
 fn bench_history_replay(c: &mut Criterion) {
     // Build 500 drills of ~300 keystrokes each
-    let drills: Vec<Vec<KeyTime>> = (0..500)
-        .map(|_| make_keystrokes(300))
-        .collect();
+    let drills: Vec<Vec<KeyTime>> = (0..500).map(|_| make_keystrokes(300)).collect();
 
     c.bench_function("history replay (500 drills x 300 keystrokes)", |b| {
         b.iter(|| {
@@ -103,8 +97,7 @@ fn bench_history_replay(c: &mut Criterion) {
             let mut key_stats = KeyStatsStore::default();
 
             for (drill_idx, keystrokes) in drills.iter().enumerate() {
-                let (bigram_events, trigram_events) =
-                    extract_ngram_events(keystrokes, 800.0);
+                let (bigram_events, trigram_events) = extract_ngram_events(keystrokes, 800.0);
 
                 for kt in keystrokes {
                     if kt.correct {
@@ -117,13 +110,19 @@ fn bench_history_replay(c: &mut Criterion) {
 
                 for ev in &bigram_events {
                     bigram_stats.update(
-                        ev.key.clone(), ev.total_time_ms, ev.correct, ev.has_hesitation,
+                        ev.key.clone(),
+                        ev.total_time_ms,
+                        ev.correct,
+                        ev.has_hesitation,
                         drill_idx as u32,
                     );
                 }
                 for ev in &trigram_events {
                     trigram_stats.update(
-                        ev.key.clone(), ev.total_time_ms, ev.correct, ev.has_hesitation,
+                        ev.key.clone(),
+                        ev.total_time_ms,
+                        ev.correct,
+                        ev.has_hesitation,
                         drill_idx as u32,
                     );
                 }

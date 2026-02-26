@@ -2,19 +2,18 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
 
 use crate::config::Config;
+use crate::engine::FocusSelection;
 use crate::engine::filter::CharFilter;
 use crate::engine::key_stats::KeyStatsStore;
-use crate::engine::FocusTarget;
 use crate::engine::ngram_stats::{
-    self, BigramKey, BigramStatsStore, TrigramStatsStore, extract_ngram_events,
-    select_focus_target,
+    self, BigramStatsStore, TrigramStatsStore, extract_ngram_events, select_focus,
 };
 use crate::engine::scoring;
 use crate::engine::skill_tree::{BranchId, BranchStatus, DrillScope, SkillTree};
@@ -35,14 +34,16 @@ use crate::generator::passage::{
 use crate::generator::phonetic::PhoneticGenerator;
 use crate::generator::punctuate;
 use crate::generator::transition_table::TransitionTable;
-use crate::keyboard::model::KeyboardModel;
 use crate::keyboard::display::BACKSPACE;
+use crate::keyboard::model::KeyboardModel;
 
 use crate::session::drill::DrillState;
 use crate::session::input::{self, KeystrokeEvent};
 use crate::session::result::{DrillResult, KeyTime};
 use crate::store::json_store::JsonStore;
-use crate::store::schema::{DrillHistoryData, ExportData, KeyStatsData, ProfileData, EXPORT_VERSION};
+use crate::store::schema::{
+    DrillHistoryData, EXPORT_VERSION, ExportData, KeyStatsData, ProfileData,
+};
 use crate::ui::components::menu::Menu;
 use crate::ui::theme::Theme;
 
@@ -108,6 +109,8 @@ const MASTERY_MESSAGES: &[&str] = &[
     "One more key conquered!",
 ];
 
+const POST_DRILL_INPUT_LOCK_MS: u64 = 800;
+
 struct DownloadJob {
     downloaded_bytes: Arc<AtomicU64>,
     total_bytes: Arc<AtomicU64>,
@@ -135,7 +138,10 @@ pub fn next_available_path(path_str: &str) -> String {
     let path = std::path::Path::new(path_str).to_path_buf();
     let parent = path.parent().unwrap_or(std::path::Path::new("."));
     let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("json");
-    let full_stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("export");
+    let full_stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("export");
 
     // Strip existing trailing -N suffix to get base stem
     let base_stem = if let Some(pos) = full_stem.rfind('-') {
@@ -272,6 +278,8 @@ pub struct App {
     pub user_median_transition_ms: f64,
     pub transition_buffer: Vec<f64>,
     pub trigram_gain_history: Vec<f64>,
+    pub current_focus: Option<FocusSelection>,
+    pub post_drill_input_lock_until: Option<Instant>,
     rng: SmallRng,
     transition_table: TransitionTable,
     #[allow(dead_code)]
@@ -293,38 +301,39 @@ impl App {
 
         let store = JsonStore::new().ok();
 
-        let (key_stats, ranked_key_stats, skill_tree, profile, drill_history) = if let Some(ref s) = store {
-            // load_profile returns None if file exists but can't parse (schema mismatch)
-            let pd = s.load_profile();
+        let (key_stats, ranked_key_stats, skill_tree, profile, drill_history) =
+            if let Some(ref s) = store {
+                // load_profile returns None if file exists but can't parse (schema mismatch)
+                let pd = s.load_profile();
 
-            match pd {
-                Some(pd) if !pd.needs_reset() => {
-                    let ksd = s.load_key_stats();
-                    let rksd = s.load_ranked_key_stats();
-                    let lhd = s.load_drill_history();
-                    let st = SkillTree::new(pd.skill_tree.clone());
-                    (ksd.stats, rksd.stats, st, pd, lhd.drills)
+                match pd {
+                    Some(pd) if !pd.needs_reset() => {
+                        let ksd = s.load_key_stats();
+                        let rksd = s.load_ranked_key_stats();
+                        let lhd = s.load_drill_history();
+                        let st = SkillTree::new(pd.skill_tree.clone());
+                        (ksd.stats, rksd.stats, st, pd, lhd.drills)
+                    }
+                    _ => {
+                        // Schema mismatch or parse failure: full reset of all stores
+                        (
+                            KeyStatsStore::default(),
+                            KeyStatsStore::default(),
+                            SkillTree::default(),
+                            ProfileData::default(),
+                            Vec::new(),
+                        )
+                    }
                 }
-                _ => {
-                    // Schema mismatch or parse failure: full reset of all stores
-                    (
-                        KeyStatsStore::default(),
-                        KeyStatsStore::default(),
-                        SkillTree::default(),
-                        ProfileData::default(),
-                        Vec::new(),
-                    )
-                }
-            }
-        } else {
-            (
-                KeyStatsStore::default(),
-                KeyStatsStore::default(),
-                SkillTree::default(),
-                ProfileData::default(),
-                Vec::new(),
-            )
-        };
+            } else {
+                (
+                    KeyStatsStore::default(),
+                    KeyStatsStore::default(),
+                    SkillTree::default(),
+                    ProfileData::default(),
+                    Vec::new(),
+                )
+            };
 
         let mut key_stats_with_target = key_stats;
         key_stats_with_target.target_cpm = config.target_cpm();
@@ -421,6 +430,8 @@ impl App {
             user_median_transition_ms: 0.0,
             transition_buffer: Vec::new(),
             trigram_gain_history: Vec::new(),
+            current_focus: None,
+            post_drill_input_lock_until: None,
             rng: SmallRng::from_entropy(),
             transition_table,
             dictionary,
@@ -452,6 +463,23 @@ impl App {
         self.settings_editing_export_path = false;
         self.settings_editing_import_path = false;
         self.settings_editing_download_dir = false;
+    }
+
+    pub fn arm_post_drill_input_lock(&mut self) {
+        self.post_drill_input_lock_until =
+            Some(Instant::now() + Duration::from_millis(POST_DRILL_INPUT_LOCK_MS));
+    }
+
+    pub fn clear_post_drill_input_lock(&mut self) {
+        self.post_drill_input_lock_until = None;
+    }
+
+    pub fn post_drill_input_lock_remaining_ms(&self) -> Option<u64> {
+        self.post_drill_input_lock_until.and_then(|until| {
+            until
+                .checked_duration_since(Instant::now())
+                .map(|remaining| remaining.as_millis().max(1) as u64)
+        })
     }
 
     pub fn export_data(&mut self) {
@@ -643,6 +671,7 @@ impl App {
     }
 
     pub fn start_drill(&mut self) {
+        self.clear_post_drill_input_lock();
         let (text, source_info) = self.generate_text();
         self.drill = Some(DrillState::new(&text));
         self.drill_source_info = source_info;
@@ -659,17 +688,16 @@ impl App {
                 let scope = self.drill_scope;
                 let all_keys = self.skill_tree.unlocked_keys(scope);
 
-                // Select focus target: single char or bigram
-                let focus_target = select_focus_target(
+                // Select focus targets: char and bigram independently
+                let selection = select_focus(
                     &self.skill_tree,
                     scope,
                     &self.ranked_key_stats,
                     &self.ranked_bigram_stats,
                 );
-                let (focused_char, focused_bigram) = match &focus_target {
-                    FocusTarget::Char(ch) => (Some(*ch), None),
-                    FocusTarget::Bigram(key) => (Some(key.0[0]), Some(key.clone())),
-                };
+                self.current_focus = Some(selection.clone());
+                let focused_char = selection.char_focus;
+                let focused_bigram = selection.bigram_focus.map(|(k, _, _)| k.0);
 
                 // Generate base lowercase text using only lowercase keys from scope
                 let lowercase_keys: Vec<char> = all_keys
@@ -684,7 +712,8 @@ impl App {
                 let dict = Dictionary::load();
                 let rng = SmallRng::from_rng(&mut self.rng).unwrap();
                 let mut generator = PhoneticGenerator::new(table, dict, rng);
-                let mut text = generator.generate(&filter, lowercase_focused, word_count);
+                let mut text =
+                    generator.generate(&filter, lowercase_focused, focused_bigram, word_count);
 
                 // Apply capitalization if uppercase keys are in scope
                 let cap_keys: Vec<char> = all_keys
@@ -694,7 +723,8 @@ impl App {
                     .collect();
                 if !cap_keys.is_empty() {
                     let mut rng = SmallRng::from_rng(&mut self.rng).unwrap();
-                    text = capitalize::apply_capitalization(&text, &cap_keys, focused_char, &mut rng);
+                    text =
+                        capitalize::apply_capitalization(&text, &cap_keys, focused_char, &mut rng);
                 }
 
                 // Apply punctuation if punctuation keys are in scope
@@ -722,7 +752,8 @@ impl App {
                 if !digit_keys.is_empty() {
                     let has_dot = all_keys.contains(&'.');
                     let mut rng = SmallRng::from_rng(&mut self.rng).unwrap();
-                    text = numbers::apply_numbers(&text, &digit_keys, has_dot, focused_char, &mut rng);
+                    text =
+                        numbers::apply_numbers(&text, &digit_keys, has_dot, focused_char, &mut rng);
                 }
 
                 // Apply code symbols only if this drill is for the CodeSymbols branch,
@@ -781,11 +812,6 @@ impl App {
                     text = insert_line_breaks(&text);
                 }
 
-                // After all generation: if bigram focus, swap some words for bigram-containing words
-                if let Some(ref bigram) = focused_bigram {
-                    text = self.apply_bigram_focus(&text, &filter, bigram);
-                }
-
                 (text, None)
             }
             DrillMode::Code => {
@@ -796,13 +822,10 @@ impl App {
                     .unwrap_or_else(|| self.config.code_language.clone());
                 self.last_code_drill_language = Some(lang.clone());
                 let rng = SmallRng::from_rng(&mut self.rng).unwrap();
-                let mut generator = CodeSyntaxGenerator::new(
-                    rng,
-                    &lang,
-                    &self.config.code_download_dir,
-                );
+                let mut generator =
+                    CodeSyntaxGenerator::new(rng, &lang, &self.config.code_download_dir);
                 self.code_drill_language_override = None;
-                let text = generator.generate(&filter, None, word_count);
+                let text = generator.generate(&filter, None, None, word_count);
                 (text, Some(generator.last_source().to_string()))
             }
             DrillMode::Passage => {
@@ -821,7 +844,7 @@ impl App {
                     self.config.passage_downloads_enabled,
                 );
                 self.passage_drill_selection_override = None;
-                let text = generator.generate(&filter, None, word_count);
+                let text = generator.generate(&filter, None, None, word_count);
                 (text, Some(generator.last_source().to_string()))
             }
         }
@@ -891,18 +914,43 @@ impl App {
 
             // Extract and update n-gram stats for all drill modes
             let drill_index = self.drill_history.len() as u32;
-            let hesitation_thresh = ngram_stats::hesitation_threshold(self.user_median_transition_ms);
+            let hesitation_thresh =
+                ngram_stats::hesitation_threshold(self.user_median_transition_ms);
             let (bigram_events, trigram_events) =
                 extract_ngram_events(&result.per_key_times, hesitation_thresh);
+            // Collect unique bigram keys for per-drill streak updates
+            let mut seen_bigrams: std::collections::HashSet<ngram_stats::BigramKey> =
+                std::collections::HashSet::new();
             for ev in &bigram_events {
-                self.bigram_stats.update(ev.key.clone(), ev.total_time_ms, ev.correct, ev.has_hesitation, drill_index);
-                self.bigram_stats.update_redundancy_streak(&ev.key, &self.key_stats);
+                seen_bigrams.insert(ev.key.clone());
+                self.bigram_stats.update(
+                    ev.key.clone(),
+                    ev.total_time_ms,
+                    ev.correct,
+                    ev.has_hesitation,
+                    drill_index,
+                );
+            }
+            // Update streaks once per drill per unique bigram (not per event)
+            for key in &seen_bigrams {
+                self.bigram_stats
+                    .update_error_anomaly_streak(key, &self.key_stats);
+                self.bigram_stats
+                    .update_speed_anomaly_streak(key, &self.key_stats);
             }
             for ev in &trigram_events {
-                self.trigram_stats.update(ev.key.clone(), ev.total_time_ms, ev.correct, ev.has_hesitation, drill_index);
+                self.trigram_stats.update(
+                    ev.key.clone(),
+                    ev.total_time_ms,
+                    ev.correct,
+                    ev.has_hesitation,
+                    drill_index,
+                );
             }
 
             if ranked {
+                let mut seen_ranked_bigrams: std::collections::HashSet<ngram_stats::BigramKey> =
+                    std::collections::HashSet::new();
                 for kt in &result.per_key_times {
                     if kt.correct {
                         self.ranked_key_stats.update_key(kt.key, kt.time_ms);
@@ -911,11 +959,29 @@ impl App {
                     }
                 }
                 for ev in &bigram_events {
-                    self.ranked_bigram_stats.update(ev.key.clone(), ev.total_time_ms, ev.correct, ev.has_hesitation, drill_index);
-                    self.ranked_bigram_stats.update_redundancy_streak(&ev.key, &self.ranked_key_stats);
+                    seen_ranked_bigrams.insert(ev.key.clone());
+                    self.ranked_bigram_stats.update(
+                        ev.key.clone(),
+                        ev.total_time_ms,
+                        ev.correct,
+                        ev.has_hesitation,
+                        drill_index,
+                    );
+                }
+                for key in &seen_ranked_bigrams {
+                    self.ranked_bigram_stats
+                        .update_error_anomaly_streak(key, &self.ranked_key_stats);
+                    self.ranked_bigram_stats
+                        .update_speed_anomaly_streak(key, &self.ranked_key_stats);
                 }
                 for ev in &trigram_events {
-                    self.ranked_trigram_stats.update(ev.key.clone(), ev.total_time_ms, ev.correct, ev.has_hesitation, drill_index);
+                    self.ranked_trigram_stats.update(
+                        ev.key.clone(),
+                        ev.total_time_ms,
+                        ev.correct,
+                        ev.has_hesitation,
+                        drill_index,
+                    );
                 }
                 let update = self
                     .skill_tree
@@ -1003,6 +1069,9 @@ impl App {
             }
 
             self.last_result = Some(result);
+            if !self.milestone_queue.is_empty() || self.drill_mode != DrillMode::Adaptive {
+                self.arm_post_drill_input_lock();
+            }
 
             // Adaptive mode auto-continues unless milestone popups must be shown first.
             if self.drill_mode == DrillMode::Adaptive && self.milestone_queue.is_empty() {
@@ -1036,15 +1105,36 @@ impl App {
 
             // Extract and update n-gram stats
             let drill_index = self.drill_history.len() as u32;
-            let hesitation_thresh = ngram_stats::hesitation_threshold(self.user_median_transition_ms);
+            let hesitation_thresh =
+                ngram_stats::hesitation_threshold(self.user_median_transition_ms);
             let (bigram_events, trigram_events) =
                 extract_ngram_events(&result.per_key_times, hesitation_thresh);
+            let mut seen_bigrams: std::collections::HashSet<ngram_stats::BigramKey> =
+                std::collections::HashSet::new();
             for ev in &bigram_events {
-                self.bigram_stats.update(ev.key.clone(), ev.total_time_ms, ev.correct, ev.has_hesitation, drill_index);
-                self.bigram_stats.update_redundancy_streak(&ev.key, &self.key_stats);
+                seen_bigrams.insert(ev.key.clone());
+                self.bigram_stats.update(
+                    ev.key.clone(),
+                    ev.total_time_ms,
+                    ev.correct,
+                    ev.has_hesitation,
+                    drill_index,
+                );
+            }
+            for key in &seen_bigrams {
+                self.bigram_stats
+                    .update_error_anomaly_streak(key, &self.key_stats);
+                self.bigram_stats
+                    .update_speed_anomaly_streak(key, &self.key_stats);
             }
             for ev in &trigram_events {
-                self.trigram_stats.update(ev.key.clone(), ev.total_time_ms, ev.correct, ev.has_hesitation, drill_index);
+                self.trigram_stats.update(
+                    ev.key.clone(),
+                    ev.total_time_ms,
+                    ev.correct,
+                    ev.has_hesitation,
+                    drill_index,
+                );
             }
 
             // Update transition buffer for hesitation baseline
@@ -1056,6 +1146,7 @@ impl App {
             }
 
             self.last_result = Some(result);
+            self.arm_post_drill_input_lock();
             self.screen = AppScreen::DrillResult;
             self.save_data();
         }
@@ -1081,52 +1172,6 @@ impl App {
 
     /// Replace up to 40% of words with dictionary words containing the target bigram.
     /// No more than 3 consecutive bigram-focused words to prevent repetitive feel.
-    fn apply_bigram_focus(&mut self, text: &str, filter: &CharFilter, bigram: &BigramKey) -> String {
-        let bigram_str: String = bigram.0.iter().collect();
-        let words: Vec<&str> = text.split(' ').collect();
-        if words.is_empty() {
-            return text.to_string();
-        }
-
-        // Find dictionary words that contain the bigram and pass the filter
-        let dict = Dictionary::load();
-        let candidates: Vec<&str> = dict
-            .find_matching(filter, None)
-            .into_iter()
-            .filter(|w| w.contains(&bigram_str))
-            .collect();
-
-        if candidates.is_empty() {
-            return text.to_string();
-        }
-
-        let max_replacements = (words.len() * 2 + 4) / 5; // ~40%
-        let mut replaced = 0;
-        let mut consecutive = 0;
-        let mut result_words: Vec<String> = Vec::with_capacity(words.len());
-
-        for word in &words {
-            let already_has = word.contains(&bigram_str);
-            if already_has {
-                consecutive += 1;
-                result_words.push(word.to_string());
-                continue;
-            }
-
-            if replaced < max_replacements && consecutive < 3 {
-                let candidate = candidates[self.rng.gen_range(0..candidates.len())];
-                result_words.push(candidate.to_string());
-                replaced += 1;
-                consecutive += 1;
-            } else {
-                consecutive = 0;
-                result_words.push(word.to_string());
-            }
-        }
-
-        result_words.join(" ")
-    }
-
     /// Update the rolling transition buffer with new inter-keystroke intervals.
     fn update_transition_buffer(&mut self, per_key_times: &[KeyTime]) {
         for kt in per_key_times {
@@ -1152,67 +1197,121 @@ impl App {
     fn rebuild_ngram_stats(&mut self) {
         // Reset n-gram stores
         self.bigram_stats = BigramStatsStore::default();
-        self.bigram_stats.target_cpm = self.config.target_cpm();
         self.ranked_bigram_stats = BigramStatsStore::default();
-        self.ranked_bigram_stats.target_cpm = self.config.target_cpm();
         self.trigram_stats = TrigramStatsStore::default();
-        self.trigram_stats.target_cpm = self.config.target_cpm();
         self.ranked_trigram_stats = TrigramStatsStore::default();
-        self.ranked_trigram_stats.target_cpm = self.config.target_cpm();
         self.transition_buffer.clear();
         self.user_median_transition_ms = 0.0;
 
-        // Reset char-level error/total counts (timing fields are untouched)
+        // Reset char-level error/total counts and EMA (timing fields are untouched)
         for stat in self.key_stats.stats.values_mut() {
             stat.error_count = 0;
             stat.total_count = 0;
+            stat.error_rate_ema = 0.5;
         }
         for stat in self.ranked_key_stats.stats.values_mut() {
             stat.error_count = 0;
             stat.total_count = 0;
+            stat.error_rate_ema = 0.5;
         }
 
         // Take drill_history out temporarily to avoid borrow conflict
         let history = std::mem::take(&mut self.drill_history);
 
         for (drill_index, result) in history.iter().enumerate() {
-            let hesitation_thresh = ngram_stats::hesitation_threshold(self.user_median_transition_ms);
+            let hesitation_thresh =
+                ngram_stats::hesitation_threshold(self.user_median_transition_ms);
             let (bigram_events, trigram_events) =
                 extract_ngram_events(&result.per_key_times, hesitation_thresh);
 
-            // Rebuild char-level error/total counts from history
+            // Rebuild char-level error/total counts and EMA from history
             for kt in &result.per_key_times {
                 if kt.correct {
                     let stat = self.key_stats.stats.entry(kt.key).or_default();
                     stat.total_count += 1;
+                    // Update error rate EMA for correct stroke
+                    if stat.total_count == 1 {
+                        stat.error_rate_ema = 0.0;
+                    } else {
+                        stat.error_rate_ema = 0.1 * 0.0 + 0.9 * stat.error_rate_ema;
+                    }
                 } else {
                     self.key_stats.update_key_error(kt.key);
                 }
             }
 
+            // Collect unique bigram keys seen this drill for per-drill streak updates
+            let mut seen_bigrams: std::collections::HashSet<ngram_stats::BigramKey> =
+                std::collections::HashSet::new();
+
             for ev in &bigram_events {
-                self.bigram_stats.update(ev.key.clone(), ev.total_time_ms, ev.correct, ev.has_hesitation, drill_index as u32);
-                self.bigram_stats.update_redundancy_streak(&ev.key, &self.key_stats);
+                seen_bigrams.insert(ev.key.clone());
+                self.bigram_stats.update(
+                    ev.key.clone(),
+                    ev.total_time_ms,
+                    ev.correct,
+                    ev.has_hesitation,
+                    drill_index as u32,
+                );
+            }
+            // Update streaks once per drill per unique bigram (not per event)
+            for key in &seen_bigrams {
+                self.bigram_stats
+                    .update_error_anomaly_streak(key, &self.key_stats);
+                self.bigram_stats
+                    .update_speed_anomaly_streak(key, &self.key_stats);
             }
             for ev in &trigram_events {
-                self.trigram_stats.update(ev.key.clone(), ev.total_time_ms, ev.correct, ev.has_hesitation, drill_index as u32);
+                self.trigram_stats.update(
+                    ev.key.clone(),
+                    ev.total_time_ms,
+                    ev.correct,
+                    ev.has_hesitation,
+                    drill_index as u32,
+                );
             }
 
             if result.ranked {
+                let mut seen_ranked_bigrams: std::collections::HashSet<ngram_stats::BigramKey> =
+                    std::collections::HashSet::new();
+
                 for kt in &result.per_key_times {
                     if kt.correct {
                         let stat = self.ranked_key_stats.stats.entry(kt.key).or_default();
                         stat.total_count += 1;
+                        if stat.total_count == 1 {
+                            stat.error_rate_ema = 0.0;
+                        } else {
+                            stat.error_rate_ema = 0.1 * 0.0 + 0.9 * stat.error_rate_ema;
+                        }
                     } else {
                         self.ranked_key_stats.update_key_error(kt.key);
                     }
                 }
                 for ev in &bigram_events {
-                    self.ranked_bigram_stats.update(ev.key.clone(), ev.total_time_ms, ev.correct, ev.has_hesitation, drill_index as u32);
-                    self.ranked_bigram_stats.update_redundancy_streak(&ev.key, &self.ranked_key_stats);
+                    seen_ranked_bigrams.insert(ev.key.clone());
+                    self.ranked_bigram_stats.update(
+                        ev.key.clone(),
+                        ev.total_time_ms,
+                        ev.correct,
+                        ev.has_hesitation,
+                        drill_index as u32,
+                    );
+                }
+                for key in &seen_ranked_bigrams {
+                    self.ranked_bigram_stats
+                        .update_error_anomaly_streak(key, &self.ranked_key_stats);
+                    self.ranked_bigram_stats
+                        .update_speed_anomaly_streak(key, &self.ranked_key_stats);
                 }
                 for ev in &trigram_events {
-                    self.ranked_trigram_stats.update(ev.key.clone(), ev.total_time_ms, ev.correct, ev.has_hesitation, drill_index as u32);
+                    self.ranked_trigram_stats.update(
+                        ev.key.clone(),
+                        ev.total_time_ms,
+                        ev.correct,
+                        ev.has_hesitation,
+                        drill_index as u32,
+                    );
                 }
             }
 
@@ -1282,6 +1381,7 @@ impl App {
     }
 
     pub fn go_to_menu(&mut self) {
+        self.clear_post_drill_input_lock();
         self.screen = AppScreen::Menu;
         self.drill = None;
         self.drill_source_info = None;
@@ -1289,6 +1389,7 @@ impl App {
     }
 
     pub fn go_to_stats(&mut self) {
+        self.clear_post_drill_input_lock();
         self.stats_tab = 0;
         self.history_selected = 0;
         self.history_confirm_delete = false;
@@ -1562,10 +1663,8 @@ impl App {
     }
 
     pub fn start_code_downloads(&mut self) {
-        let queue = build_code_download_queue(
-            &self.config.code_language,
-            &self.code_intro_download_dir,
-        );
+        let queue =
+            build_code_download_queue(&self.config.code_language, &self.code_intro_download_dir);
 
         self.code_intro_download_total = queue.len();
         self.code_download_queue = queue;
@@ -1662,10 +1761,8 @@ impl App {
         let snippets_limit = self.code_intro_snippets_per_repo;
 
         // Get static references for thread
-        let repo_ref: &'static crate::generator::code_syntax::CodeRepo =
-            &lang.repos[repo_idx];
-        let block_style_ref: &'static crate::generator::code_syntax::BlockStyle =
-            &lang.block_style;
+        let repo_ref: &'static crate::generator::code_syntax::CodeRepo = &lang.repos[repo_idx];
+        let block_style_ref: &'static crate::generator::code_syntax::BlockStyle = &lang.block_style;
 
         let handle = thread::spawn(move || {
             let ok = download_code_repo_to_cache_with_progress(
@@ -1931,12 +2028,11 @@ impl App {
                 // Editable text field handled directly in key handler.
             }
             6 => {
-                self.config.code_snippets_per_repo =
-                    match self.config.code_snippets_per_repo {
-                        0 => 1,
-                        n if n >= 200 => 0,
-                        n => n + 10,
-                    };
+                self.config.code_snippets_per_repo = match self.config.code_snippets_per_repo {
+                    0 => 1,
+                    n if n >= 200 => 0,
+                    n => n + 10,
+                };
             }
             // 7 = Download Code Now (action button)
             8 => {
@@ -1998,12 +2094,11 @@ impl App {
                 // Editable text field handled directly in key handler.
             }
             6 => {
-                self.config.code_snippets_per_repo =
-                    match self.config.code_snippets_per_repo {
-                        0 => 200,
-                        1 => 0,
-                        n => n.saturating_sub(10).max(1),
-                    };
+                self.config.code_snippets_per_repo = match self.config.code_snippets_per_repo {
+                    0 => 200,
+                    1 => 0,
+                    n => n.saturating_sub(10).max(1),
+                };
             }
             // 7 = Download Code Now (action button)
             8 => {
