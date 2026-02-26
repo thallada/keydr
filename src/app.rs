@@ -280,6 +280,7 @@ pub struct App {
     pub trigram_gain_history: Vec<f64>,
     pub current_focus: Option<FocusSelection>,
     pub post_drill_input_lock_until: Option<Instant>,
+    adaptive_word_history: VecDeque<HashSet<String>>,
     rng: SmallRng,
     transition_table: TransitionTable,
     #[allow(dead_code)]
@@ -432,6 +433,7 @@ impl App {
             trigram_gain_history: Vec::new(),
             current_focus: None,
             post_drill_input_lock_until: None,
+            adaptive_word_history: VecDeque::new(),
             rng: SmallRng::from_entropy(),
             transition_table,
             dictionary,
@@ -711,9 +713,20 @@ impl App {
                 let table = self.transition_table.clone();
                 let dict = Dictionary::load();
                 let rng = SmallRng::from_rng(&mut self.rng).unwrap();
-                let mut generator = PhoneticGenerator::new(table, dict, rng);
+                let cross_drill_history: HashSet<String> =
+                    self.adaptive_word_history.iter().flatten().cloned().collect();
+                let mut generator =
+                    PhoneticGenerator::new(table, dict, rng, cross_drill_history);
                 let mut text =
                     generator.generate(&filter, lowercase_focused, focused_bigram, word_count);
+
+                // Track words for cross-drill history (before capitalization/punctuation)
+                let drill_words: HashSet<String> =
+                    text.split_whitespace().map(|w| w.to_string()).collect();
+                self.adaptive_word_history.push_back(drill_words);
+                if self.adaptive_word_history.len() > 5 {
+                    self.adaptive_word_history.pop_front();
+                }
 
                 // Apply capitalization if uppercase keys are in scope
                 let cap_keys: Vec<char> = all_keys
@@ -1497,8 +1510,13 @@ impl App {
         self.save_data();
 
         // Use adaptive mode with branch-specific scope
+        let old_mode = self.drill_mode;
+        let old_scope = self.drill_scope;
         self.drill_mode = DrillMode::Adaptive;
         self.drill_scope = DrillScope::Branch(branch_id);
+        if old_mode != DrillMode::Adaptive || old_scope != self.drill_scope {
+            self.adaptive_word_history.clear();
+        }
         self.start_drill();
     }
 
@@ -1657,6 +1675,7 @@ impl App {
 
         // Step 4: Start the drill
         self.code_download_attempted = false;
+        self.adaptive_word_history.clear();
         self.drill_mode = DrillMode::Code;
         self.drill_scope = DrillScope::Global;
         self.start_drill();
@@ -1846,6 +1865,7 @@ impl App {
             }
         }
 
+        self.adaptive_word_history.clear();
         self.drill_mode = DrillMode::Passage;
         self.drill_scope = DrillScope::Global;
         self.start_drill();
@@ -2148,4 +2168,139 @@ fn insert_line_breaks(text: &str) -> String {
     }
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::skill_tree::BranchId;
+
+    #[test]
+    fn adaptive_word_history_clears_on_code_mode_switch() {
+        let mut app = App::new();
+
+        // App starts in Adaptive/Global; new() calls start_drill() which populates history
+        assert_eq!(app.drill_mode, DrillMode::Adaptive);
+        assert!(
+            !app.adaptive_word_history.is_empty(),
+            "History should be populated after initial adaptive drill"
+        );
+
+        // Use the real start_code_drill path. Pre-set language override to skip
+        // download logic and ensure it reaches the drill-start code path.
+        app.code_drill_language_override = Some("rust".to_string());
+        app.start_code_drill();
+        assert_eq!(app.drill_mode, DrillMode::Code);
+        assert!(
+            app.adaptive_word_history.is_empty(),
+            "History should clear when switching to Code mode via start_code_drill"
+        );
+    }
+
+    #[test]
+    fn adaptive_word_history_clears_on_passage_mode_switch() {
+        let mut app = App::new();
+
+        assert_eq!(app.drill_mode, DrillMode::Adaptive);
+        assert!(!app.adaptive_word_history.is_empty());
+
+        // Use the real start_passage_drill path. Pre-set selection override to
+        // skip download logic and use built-in passages.
+        app.config.passage_downloads_enabled = false;
+        app.passage_drill_selection_override = Some("builtin".to_string());
+        app.start_passage_drill();
+        assert_eq!(app.drill_mode, DrillMode::Passage);
+        assert!(
+            app.adaptive_word_history.is_empty(),
+            "History should clear when switching to Passage mode via start_passage_drill"
+        );
+    }
+
+    #[test]
+    fn adaptive_word_history_clears_on_scope_change() {
+        let mut app = App::new();
+
+        // Start in Adaptive/Global — drill already started in new()
+        assert_eq!(app.drill_scope, DrillScope::Global);
+        assert!(!app.adaptive_word_history.is_empty());
+
+        // Use start_branch_drill to switch from Global to Branch scope.
+        // This is the real production path for scope changes.
+        app.start_branch_drill(BranchId::Lowercase);
+        assert_eq!(app.drill_scope, DrillScope::Branch(BranchId::Lowercase));
+        assert_eq!(app.drill_mode, DrillMode::Adaptive);
+        // History was cleared by the Global->Branch scope change, then repopulated
+        // by the single start_drill call inside start_branch_drill.
+        assert_eq!(
+            app.adaptive_word_history.len(),
+            1,
+            "History should have exactly 1 entry after Global->Branch clear + new drill"
+        );
+
+        // Record history state, then switch to a different branch
+        let history_before = app.adaptive_word_history.clone();
+        app.start_branch_drill(BranchId::Capitals);
+        assert_eq!(app.drill_scope, DrillScope::Branch(BranchId::Capitals));
+        // History was cleared by scope change and repopulated with new drill words.
+        // New history should not contain the old drill's words.
+        let old_words: HashSet<String> = history_before.into_iter().flatten().collect();
+        let new_words: HashSet<String> = app
+            .adaptive_word_history
+            .iter()
+            .flatten()
+            .cloned()
+            .collect();
+        // After clearing, the new history has exactly 1 drill entry (the one just generated).
+        assert_eq!(
+            app.adaptive_word_history.len(),
+            1,
+            "History should have exactly 1 entry after scope-clearing branch switch"
+        );
+        // The new words should mostly differ from old (not a superset or continuation)
+        assert!(
+            !new_words.is_subset(&old_words) || new_words.is_empty(),
+            "New history should not be a subset of old history"
+        );
+    }
+
+    #[test]
+    fn adaptive_word_history_persists_within_same_context() {
+        let mut app = App::new();
+
+        // Adaptive/Global: run multiple drills, history should accumulate
+        let history_after_first = app.adaptive_word_history.len();
+        app.start_drill();
+        let history_after_second = app.adaptive_word_history.len();
+
+        assert!(
+            history_after_second > history_after_first,
+            "History should accumulate across drills: {} -> {}",
+            history_after_first,
+            history_after_second
+        );
+        assert!(
+            app.adaptive_word_history.len() <= 5,
+            "History should be capped at 5 drills"
+        );
+    }
+
+    #[test]
+    fn adaptive_word_history_not_cleared_on_same_branch_redrill() {
+        let mut app = App::new();
+
+        // Start a branch drill
+        app.start_branch_drill(BranchId::Lowercase);
+        let history_after_first = app.adaptive_word_history.len();
+        assert_eq!(history_after_first, 1);
+
+        // Re-drill the same branch via start_branch_drill — scope doesn't change,
+        // so history should NOT clear; it should accumulate.
+        app.start_branch_drill(BranchId::Lowercase);
+        assert!(
+            app.adaptive_word_history.len() > history_after_first,
+            "History should accumulate when re-drilling same branch: {} -> {}",
+            history_after_first,
+            app.adaptive_word_history.len()
+        );
+    }
 }
