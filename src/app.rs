@@ -1089,6 +1089,7 @@ impl App {
             // Adaptive mode auto-continues unless milestone popups must be shown first.
             if self.drill_mode == DrillMode::Adaptive && self.milestone_queue.is_empty() {
                 self.start_drill();
+                self.arm_post_drill_input_lock();
             } else {
                 self.screen = AppScreen::DrillResult;
             }
@@ -2301,6 +2302,64 @@ mod tests {
             "History should accumulate when re-drilling same branch: {} -> {}",
             history_after_first,
             app.adaptive_word_history.len()
+        );
+    }
+
+    /// Helper: make the current drill look "completed" so finish_drill() processes it.
+    fn complete_current_drill(app: &mut App) {
+        if let Some(ref mut drill) = app.drill {
+            let now = Instant::now();
+            drill.started_at = Some(now - Duration::from_millis(500));
+            drill.finished_at = Some(now);
+            drill.cursor = drill.target.len();
+            // Fill input so DrillResult::from_drill doesn't panic on length mismatches
+            drill.input = vec![crate::session::input::CharStatus::Correct; drill.target.len()];
+        }
+    }
+
+    #[test]
+    fn adaptive_auto_continue_arms_input_lock() {
+        let mut app = App::new();
+        assert_eq!(app.drill_mode, DrillMode::Adaptive);
+        assert_eq!(app.screen, AppScreen::Drill);
+        assert!(app.drill.is_some());
+
+        // Make sure no milestones are queued
+        app.milestone_queue.clear();
+
+        complete_current_drill(&mut app);
+        app.finish_drill();
+
+        // Auto-continue should have started a new drill and armed the lock
+        assert_eq!(app.screen, AppScreen::Drill);
+        assert!(
+            app.post_drill_input_lock_remaining_ms().is_some(),
+            "Input lock should be armed after adaptive auto-continue"
+        );
+    }
+
+    #[test]
+    fn adaptive_does_not_auto_continue_with_milestones() {
+        let mut app = App::new();
+        assert_eq!(app.drill_mode, DrillMode::Adaptive);
+
+        // Push a milestone before finishing the drill
+        app.milestone_queue.push_back(KeyMilestonePopup {
+            kind: MilestoneKind::Unlock,
+            keys: vec!['a'],
+            finger_info: vec![('a', "left pinky".to_string())],
+            message: "Test milestone",
+        });
+
+        complete_current_drill(&mut app);
+        app.finish_drill();
+
+        // Should go to DrillResult (not auto-continue) since milestones are queued
+        assert_eq!(app.screen, AppScreen::DrillResult);
+        // Lock IS armed via the existing milestone path
+        assert!(
+            app.post_drill_input_lock_remaining_ms().is_some(),
+            "Input lock should be armed for milestone path"
         );
     }
 }

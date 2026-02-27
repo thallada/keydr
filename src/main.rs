@@ -267,16 +267,19 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
-    // Briefly block all input right after a drill completes to avoid accidental
-    // popup dismissal or continuation from trailing keystrokes.
-    if app.post_drill_input_lock_remaining_ms().is_some()
-        && (!app.milestone_queue.is_empty() || app.screen == AppScreen::DrillResult)
-    {
+    // Ctrl+C always quits, even during input lock.
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+        app.should_quit = true;
         return;
     }
 
-    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
-        app.should_quit = true;
+    // Briefly block all input right after a drill completes to avoid accidental
+    // popup dismissal or continuation from trailing keystrokes.
+    if app.post_drill_input_lock_remaining_ms().is_some()
+        && (!app.milestone_queue.is_empty()
+            || app.screen == AppScreen::DrillResult
+            || app.screen == AppScreen::Drill)
+    {
         return;
     }
 
@@ -1316,6 +1319,27 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
             Style::default().fg(colors.text_pending()),
         )));
         frame.render_widget(footer, app_layout.footer);
+
+        // Show a brief countdown overlay while the post-drill input lock is active.
+        if let Some(ms) = app.post_drill_input_lock_remaining_ms() {
+            let msg = format!("Keys re-enabled in {}ms", ms);
+            let width = msg.len() as u16 + 4; // border + padding
+            let height = 3;
+            let x = area.x + area.width.saturating_sub(width) / 2;
+            let y = area.y + area.height.saturating_sub(height) / 2;
+            let overlay_area = Rect::new(x, y, width.min(area.width), height.min(area.height));
+
+            frame.render_widget(ratatui::widgets::Clear, overlay_area);
+            let block = Block::bordered()
+                .border_style(Style::default().fg(colors.accent()))
+                .style(Style::default().bg(colors.bg()));
+            let inner = block.inner(overlay_area);
+            frame.render_widget(block, overlay_area);
+            frame.render_widget(
+                Paragraph::new(msg).style(Style::default().fg(colors.text_pending())),
+                inner,
+            );
+        }
     }
 }
 
@@ -2311,6 +2335,41 @@ mod review_tests {
             ni.confirmed,
             "ni should be confirmed (samples >= 20, streak >= required)"
         );
+    }
+
+    #[test]
+    fn drill_screen_input_lock_blocks_normal_keys() {
+        let mut app = test_app();
+        app.screen = AppScreen::Drill;
+        app.drill = Some(crate::session::drill::DrillState::new("abc"));
+        app.post_drill_input_lock_until =
+            Some(Instant::now() + std::time::Duration::from_millis(500));
+
+        let before_cursor = app.drill.as_ref().unwrap().cursor;
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+        );
+        let after_cursor = app.drill.as_ref().unwrap().cursor;
+
+        assert_eq!(before_cursor, after_cursor, "Key should be blocked during input lock on Drill screen");
+        assert_eq!(app.screen, AppScreen::Drill);
+    }
+
+    #[test]
+    fn ctrl_c_passes_through_input_lock() {
+        let mut app = test_app();
+        app.screen = AppScreen::Drill;
+        app.drill = Some(crate::session::drill::DrillState::new("abc"));
+        app.post_drill_input_lock_until =
+            Some(Instant::now() + std::time::Duration::from_millis(500));
+
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+        );
+
+        assert!(app.should_quit, "Ctrl+C should set should_quit even during input lock");
     }
 }
 
