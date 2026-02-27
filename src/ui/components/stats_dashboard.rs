@@ -11,6 +11,7 @@ use crate::keyboard::display::{self, BACKSPACE, ENTER, MODIFIER_SENTINELS, SPACE
 use crate::keyboard::model::KeyboardModel;
 use crate::session::result::DrillResult;
 use crate::ui::components::activity_heatmap::ActivityHeatmap;
+use crate::ui::layout::pack_hint_lines;
 use crate::ui::theme::Theme;
 
 // ---------------------------------------------------------------------------
@@ -106,17 +107,8 @@ impl Widget for StatsDashboard<'_> {
             return;
         }
 
-        let layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(2),
-                Constraint::Min(10),
-                Constraint::Length(2),
-            ])
-            .split(inner);
-
-        // Tab header
-        let tabs = [
+        // Tab header — width-aware wrapping
+        let tab_labels = [
             "[1] Dashboard",
             "[2] History",
             "[3] Activity",
@@ -124,10 +116,20 @@ impl Widget for StatsDashboard<'_> {
             "[5] Timing",
             "[6] N-grams",
         ];
-        let tab_spans: Vec<Span> = tabs
-            .iter()
-            .enumerate()
-            .flat_map(|(i, &label)| {
+        let tab_separator = "  ";
+        let width = inner.width as usize;
+        let mut tab_lines: Vec<Line> = Vec::new();
+        {
+            let mut current_spans: Vec<Span> = Vec::new();
+            let mut current_width: usize = 0;
+            for (i, &label) in tab_labels.iter().enumerate() {
+                let styled_label = format!(" {label} ");
+                let item_width = styled_label.chars().count() + tab_separator.len();
+                if current_width > 0 && current_width + item_width > width {
+                    tab_lines.push(Line::from(current_spans));
+                    current_spans = Vec::new();
+                    current_width = 0;
+                }
                 let style = if i == self.active_tab {
                     Style::default()
                         .fg(colors.accent())
@@ -135,25 +137,56 @@ impl Widget for StatsDashboard<'_> {
                 } else {
                     Style::default().fg(colors.text_pending())
                 };
-                vec![Span::styled(format!(" {label} "), style), Span::raw("  ")]
-            })
-            .collect();
-        Paragraph::new(Line::from(tab_spans)).render(layout[0], buf);
+                current_spans.push(Span::styled(styled_label, style));
+                current_spans.push(Span::raw(tab_separator));
+                current_width += item_width;
+            }
+            if !current_spans.is_empty() {
+                tab_lines.push(Line::from(current_spans));
+            }
+        }
+        let tab_line_count = tab_lines.len().max(1) as u16;
+
+        // Footer — width-aware wrapping
+        let footer_hints: Vec<&str> = if self.active_tab == 1 {
+            vec![
+                "[ESC] Back",
+                "[Tab] Next tab",
+                "[1-6] Switch tab",
+                "[j/k] Navigate",
+                "[x] Delete",
+            ]
+        } else {
+            vec!["[ESC] Back", "[Tab] Next tab", "[1-6] Switch tab"]
+        };
+        let footer_lines_vec = pack_hint_lines(&footer_hints, width);
+        let footer_line_count = footer_lines_vec.len().max(1) as u16;
+
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(tab_line_count),
+                Constraint::Min(10),
+                Constraint::Length(footer_line_count),
+            ])
+            .split(inner);
+
+        Paragraph::new(tab_lines).render(layout[0], buf);
 
         // Render only one tab at a time so each tab gets full breathing room.
         self.render_tab(self.active_tab, layout[1], buf);
 
         // Footer
-        let footer_text = if self.active_tab == 1 {
-            "  [ESC] Back  [Tab] Next tab  [1-6] Switch tab  [j/k] Navigate  [x] Delete"
-        } else {
-            "  [ESC] Back  [Tab] Next tab  [1-6] Switch tab"
-        };
-        let footer = Paragraph::new(Line::from(Span::styled(
-            footer_text,
-            Style::default().fg(colors.accent()),
-        )));
-        footer.render(layout[2], buf);
+        let footer_lines: Vec<Line> = footer_lines_vec
+            .into_iter()
+            .map(|line| {
+                Line::from(Span::styled(
+                    line,
+                    Style::default().fg(colors.accent()),
+                ))
+            })
+            .collect();
+        Paragraph::new(footer_lines).render(layout[2], buf);
 
         // Confirmation dialog overlay
         if self.history_confirm_delete && self.active_tab == 1 {
@@ -1591,26 +1624,34 @@ impl StatsDashboard<'_> {
 
     fn render_ngram_summary(&self, data: &NgramTabData, area: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
+        let w = area.width as usize;
 
         let gain_str = match data.latest_trigram_gain {
             Some(g) => format!("{:.1}%", g * 100.0),
             None => "--".to_string(),
         };
+
+        // Build segments from most to least important, progressively drop from the right
+        let scope = format!(" {}", data.scope_label);
+        let bigrams = format!(" | Bi: {}", data.total_bigrams);
+        let trigrams = format!(" | Tri: {}", data.total_trigrams);
+        let hesitation = format!(" | Hes: >{:.0}ms", data.hesitation_threshold_ms);
+        let gain = format!(" | Gain: {}", gain_str);
         let gain_note = if data.latest_trigram_gain.is_none() {
-            " (computed every 50 drills)"
+            " (every 50)"
         } else {
             ""
         };
 
-        let line = format!(
-            " Scope: {} | Bigrams: {} | Trigrams: {} | Hesitation: >{:.0}ms | Tri-gain: {}{}",
-            data.scope_label,
-            data.total_bigrams,
-            data.total_trigrams,
-            data.hesitation_threshold_ms,
-            gain_str,
-            gain_note,
-        );
+        let segments: &[&str] = &[&scope, &bigrams, &trigrams, &hesitation, &gain, gain_note];
+        let mut line = String::new();
+        for seg in segments {
+            if line.len() + seg.len() <= w {
+                line.push_str(seg);
+            } else {
+                break;
+            }
+        }
 
         buf.set_string(
             area.x,

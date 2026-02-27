@@ -36,6 +36,7 @@ use generator::passage::{is_book_cached, passage_options};
 use keyboard::display::key_display_name;
 use keyboard::finger::Hand;
 use ui::components::dashboard::Dashboard;
+use ui::layout::{pack_hint_lines, wrapped_line_count};
 use ui::components::keyboard_diagram::KeyboardDiagram;
 use ui::components::skill_tree::{SkillTreeWidget, detail_line_count, selectable_branches};
 use ui::components::stats_dashboard::{AnomalyBigramRow, NgramTabData, StatsDashboard};
@@ -1083,12 +1084,23 @@ fn render_menu(frame: &mut ratatui::Frame, app: &App) {
     let area = frame.area();
     let colors = &app.theme.colors;
 
+    let menu_hints = [
+        "[1-3] Start",
+        "[t] Skill Tree",
+        "[b] Keyboard",
+        "[s] Stats",
+        "[c] Settings",
+        "[q] Quit",
+    ];
+    let footer_lines_vec = pack_hint_lines(&menu_hints, area.width as usize);
+    let footer_line_count = footer_lines_vec.len().max(1) as u16;
+
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),
             Constraint::Min(0),
-            Constraint::Length(1),
+            Constraint::Length(footer_line_count),
         ])
         .split(area);
 
@@ -1125,10 +1137,16 @@ fn render_menu(frame: &mut ratatui::Frame, app: &App) {
     let menu_area = ui::layout::centered_rect(50, 80, layout[1]);
     frame.render_widget(&app.menu, menu_area);
 
-    let footer = Paragraph::new(Line::from(vec![Span::styled(
-        " [1-3] Start  [t] Skill Tree  [b] Keyboard  [s] Stats  [c] Settings  [q] Quit ",
-        Style::default().fg(colors.text_pending()),
-    )]));
+    let footer_lines: Vec<Line> = footer_lines_vec
+        .into_iter()
+        .map(|line| {
+            Line::from(Span::styled(
+                line,
+                Style::default().fg(colors.text_pending()),
+            ))
+        })
+        .collect();
+    let footer = Paragraph::new(footer_lines);
     frame.render_widget(footer, layout[2]);
 }
 
@@ -1529,9 +1547,7 @@ mod review_tests {
     /// Create an App for testing with the store disabled so tests never
     /// read or write the user's real data files.
     fn test_app() -> App {
-        let mut app = App::new();
-        app.store = None;
-        app
+        App::new_test()
     }
 
     fn test_result(ts_offset_secs: i64) -> DrillResult {
@@ -2832,51 +2848,6 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
     }
 }
 
-fn wrapped_line_count(text: &str, width: usize) -> usize {
-    if width == 0 {
-        return 0;
-    }
-    let chars = text.chars().count().max(1);
-    chars.div_ceil(width)
-}
-
-fn pack_hint_lines(hints: &[&str], width: usize) -> Vec<String> {
-    if width == 0 || hints.is_empty() {
-        return Vec::new();
-    }
-
-    let prefix = "  ";
-    let separator = "  ";
-    let mut out: Vec<String> = Vec::new();
-    let mut current = prefix.to_string();
-    let mut has_hint = false;
-
-    for hint in hints {
-        if hint.is_empty() {
-            continue;
-        }
-        let candidate = if has_hint {
-            format!("{current}{separator}{hint}")
-        } else {
-            format!("{current}{hint}")
-        };
-        if candidate.chars().count() <= width {
-            current = candidate;
-            has_hint = true;
-        } else {
-            if has_hint {
-                out.push(current);
-            }
-            current = format!("{prefix}{hint}");
-            has_hint = true;
-        }
-    }
-
-    if has_hint {
-        out.push(current);
-    }
-    out
-}
 
 fn render_code_language_select(frame: &mut ratatui::Frame, app: &App) {
     let area = frame.area();

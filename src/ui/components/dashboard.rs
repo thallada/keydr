@@ -5,6 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget};
 
 use crate::session::result::DrillResult;
+use crate::ui::layout::pack_hint_lines;
 use crate::ui::theme::Theme;
 
 pub struct Dashboard<'a> {
@@ -38,6 +39,19 @@ impl Widget for Dashboard<'_> {
         let inner = block.inner(area);
         block.render(area, buf);
 
+        let footer_line_count = if self.input_lock_remaining_ms.is_some() {
+            1u16
+        } else {
+            let hints = [
+                "[c/Enter/Space] Continue",
+                "[r] Retry",
+                "[q] Menu",
+                "[s] Stats",
+                "[x] Delete",
+            ];
+            pack_hint_lines(&hints, inner.width as usize).len().max(1) as u16
+        };
+
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -47,7 +61,7 @@ impl Widget for Dashboard<'_> {
                 Constraint::Length(3),
                 Constraint::Length(3),
                 Constraint::Min(0),
-                Constraint::Length(2),
+                Constraint::Length(footer_line_count),
             ])
             .split(inner);
 
@@ -137,16 +151,23 @@ impl Widget for Dashboard<'_> {
                 ),
             ]))
         } else {
-            Paragraph::new(Line::from(vec![
-                Span::styled(
-                    "  [c/Enter/Space] Continue  ",
-                    Style::default().fg(colors.accent()),
-                ),
-                Span::styled("[r] Retry  ", Style::default().fg(colors.accent())),
-                Span::styled("[q] Menu  ", Style::default().fg(colors.accent())),
-                Span::styled("[s] Stats  ", Style::default().fg(colors.accent())),
-                Span::styled("[x] Delete", Style::default().fg(colors.accent())),
-            ]))
+            let hints = [
+                "[c/Enter/Space] Continue",
+                "[r] Retry",
+                "[q] Menu",
+                "[s] Stats",
+                "[x] Delete",
+            ];
+            let lines: Vec<Line> = pack_hint_lines(&hints, inner.width as usize)
+                .into_iter()
+                .map(|line| {
+                    Line::from(Span::styled(
+                        line,
+                        Style::default().fg(colors.accent()),
+                    ))
+                })
+                .collect();
+            Paragraph::new(lines)
         };
         help.render(layout[6], buf);
     }

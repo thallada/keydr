@@ -81,6 +81,52 @@ impl AppLayout {
     }
 }
 
+pub fn wrapped_line_count(text: &str, width: usize) -> usize {
+    if width == 0 {
+        return 0;
+    }
+    let chars = text.chars().count().max(1);
+    chars.div_ceil(width)
+}
+
+pub fn pack_hint_lines(hints: &[&str], width: usize) -> Vec<String> {
+    if width == 0 || hints.is_empty() {
+        return Vec::new();
+    }
+
+    let prefix = "  ";
+    let separator = "  ";
+    let mut out: Vec<String> = Vec::new();
+    let mut current = prefix.to_string();
+    let mut has_hint = false;
+
+    for hint in hints {
+        if hint.is_empty() {
+            continue;
+        }
+        let candidate = if has_hint {
+            format!("{current}{separator}{hint}")
+        } else {
+            format!("{current}{hint}")
+        };
+        if candidate.chars().count() <= width {
+            current = candidate;
+            has_hint = true;
+        } else {
+            if has_hint {
+                out.push(current);
+            }
+            current = format!("{prefix}{hint}");
+            has_hint = true;
+        }
+    }
+
+    if has_hint {
+        out.push(current);
+    }
+    out
+}
+
 pub fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
     const MIN_POPUP_WIDTH: u16 = 72;
     const MIN_POPUP_HEIGHT: u16 = 18;

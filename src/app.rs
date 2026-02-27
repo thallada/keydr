@@ -2172,13 +2172,118 @@ fn insert_line_breaks(text: &str) -> String {
 }
 
 #[cfg(test)]
+impl App {
+    pub fn new_test() -> Self {
+        let config = Config::default();
+        let theme: &'static Theme = Box::leak(Box::new(Theme::default()));
+        let menu = Menu::new(theme);
+        let dictionary = Dictionary::load();
+        let transition_table = TransitionTable::build_from_words(&dictionary.words_list());
+        let keyboard_model = KeyboardModel::from_name(&config.keyboard_layout);
+
+        let mut app = Self {
+            screen: AppScreen::Menu,
+            drill_mode: DrillMode::Adaptive,
+            drill_scope: DrillScope::Global,
+            drill: None,
+            drill_events: Vec::new(),
+            last_result: None,
+            drill_history: Vec::new(),
+            menu,
+            theme,
+            config,
+            key_stats: KeyStatsStore::default(),
+            ranked_key_stats: KeyStatsStore::default(),
+            skill_tree: SkillTree::default(),
+            profile: ProfileData::default(),
+            store: None,
+            should_quit: false,
+            settings_selected: 0,
+            settings_editing_download_dir: false,
+            stats_tab: 0,
+            depressed_keys: HashSet::new(),
+            last_key_time: None,
+            history_selected: 0,
+            history_confirm_delete: false,
+            skill_tree_selected: 0,
+            skill_tree_detail_scroll: 0,
+            drill_source_info: None,
+            code_language_selected: 0,
+            code_language_scroll: 0,
+            passage_book_selected: 0,
+            passage_intro_selected: 0,
+            passage_intro_downloads_enabled: false,
+            passage_intro_download_dir: String::new(),
+            passage_intro_paragraph_limit: 0,
+            passage_intro_downloading: false,
+            passage_intro_download_total: 0,
+            passage_intro_downloaded: 0,
+            passage_intro_current_book: String::new(),
+            passage_intro_download_bytes: 0,
+            passage_intro_download_bytes_total: 0,
+            passage_download_queue: Vec::new(),
+            passage_drill_selection_override: None,
+            last_passage_drill_selection: None,
+            passage_download_action: PassageDownloadCompleteAction::StartPassageDrill,
+            code_intro_selected: 0,
+            code_intro_downloads_enabled: false,
+            code_intro_download_dir: String::new(),
+            code_intro_snippets_per_repo: 0,
+            code_intro_downloading: false,
+            code_intro_download_total: 0,
+            code_intro_downloaded: 0,
+            code_intro_current_repo: String::new(),
+            code_intro_download_bytes: 0,
+            code_intro_download_bytes_total: 0,
+            code_download_queue: Vec::new(),
+            code_drill_language_override: None,
+            last_code_drill_language: None,
+            code_download_attempted: false,
+            code_download_action: CodeDownloadCompleteAction::StartCodeDrill,
+            shift_held: false,
+            caps_lock: false,
+            keyboard_model,
+            milestone_queue: VecDeque::new(),
+            settings_confirm_import: false,
+            settings_export_conflict: false,
+            settings_status_message: None,
+            settings_export_path: default_export_path(),
+            settings_import_path: default_export_path(),
+            settings_editing_export_path: false,
+            settings_editing_import_path: false,
+            keyboard_explorer_selected: None,
+            explorer_accuracy_cache_overall: None,
+            explorer_accuracy_cache_ranked: None,
+            bigram_stats: BigramStatsStore::default(),
+            ranked_bigram_stats: BigramStatsStore::default(),
+            trigram_stats: TrigramStatsStore::default(),
+            ranked_trigram_stats: TrigramStatsStore::default(),
+            user_median_transition_ms: 0.0,
+            transition_buffer: Vec::new(),
+            trigram_gain_history: Vec::new(),
+            current_focus: None,
+            post_drill_input_lock_until: None,
+            adaptive_word_history: VecDeque::new(),
+            rng: SmallRng::from_entropy(),
+            transition_table,
+            dictionary,
+            passage_download_job: None,
+            code_download_job: None,
+        };
+
+        app.start_drill();
+        app
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::engine::skill_tree::BranchId;
 
     #[test]
     fn adaptive_word_history_clears_on_code_mode_switch() {
-        let mut app = App::new();
+        let mut app = App::new_test();
 
         // App starts in Adaptive/Global; new() calls start_drill() which populates history
         assert_eq!(app.drill_mode, DrillMode::Adaptive);
@@ -2200,7 +2305,7 @@ mod tests {
 
     #[test]
     fn adaptive_word_history_clears_on_passage_mode_switch() {
-        let mut app = App::new();
+        let mut app = App::new_test();
 
         assert_eq!(app.drill_mode, DrillMode::Adaptive);
         assert!(!app.adaptive_word_history.is_empty());
@@ -2219,7 +2324,7 @@ mod tests {
 
     #[test]
     fn adaptive_word_history_clears_on_scope_change() {
-        let mut app = App::new();
+        let mut app = App::new_test();
 
         // Start in Adaptive/Global — drill already started in new()
         assert_eq!(app.drill_scope, DrillScope::Global);
@@ -2266,7 +2371,7 @@ mod tests {
 
     #[test]
     fn adaptive_word_history_persists_within_same_context() {
-        let mut app = App::new();
+        let mut app = App::new_test();
 
         // Adaptive/Global: run multiple drills, history should accumulate
         let history_after_first = app.adaptive_word_history.len();
@@ -2287,7 +2392,7 @@ mod tests {
 
     #[test]
     fn adaptive_word_history_not_cleared_on_same_branch_redrill() {
-        let mut app = App::new();
+        let mut app = App::new_test();
 
         // Start a branch drill
         app.start_branch_drill(BranchId::Lowercase);
@@ -2319,7 +2424,7 @@ mod tests {
 
     #[test]
     fn adaptive_auto_continue_arms_input_lock() {
-        let mut app = App::new();
+        let mut app = App::new_test();
         assert_eq!(app.drill_mode, DrillMode::Adaptive);
         assert_eq!(app.screen, AppScreen::Drill);
         assert!(app.drill.is_some());
@@ -2340,7 +2445,7 @@ mod tests {
 
     #[test]
     fn adaptive_does_not_auto_continue_with_milestones() {
-        let mut app = App::new();
+        let mut app = App::new_test();
         assert_eq!(app.drill_mode, DrillMode::Adaptive);
 
         // Push a milestone before finishing the drill
