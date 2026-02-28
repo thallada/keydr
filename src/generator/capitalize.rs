@@ -64,7 +64,52 @@ pub fn apply_capitalization(
         result.push(ch);
     }
 
+    // Focused capitals should show up multiple times when possible so they are
+    // introduced at a similar density to other focused key types.
+    if let Some(focused_upper) = focused_upper.filter(|ch| unlocked_capitals.contains(ch)) {
+        return ensure_min_focused_occurrences(&result, focused_upper, 3);
+    }
+
     result
+}
+
+fn ensure_min_focused_occurrences(text: &str, focused_upper: char, min_count: usize) -> String {
+    let focused_lower = focused_upper.to_ascii_lowercase();
+    let mut chars: Vec<char> = text.chars().collect();
+    let mut count = chars.iter().filter(|&&ch| ch == focused_upper).count();
+
+    if count >= min_count {
+        return text.to_string();
+    }
+
+    // First, capitalize matching word starts.
+    for i in 0..chars.len() {
+        if count >= min_count {
+            break;
+        }
+        if chars[i] != focused_lower {
+            continue;
+        }
+        let is_word_start = i == 0
+            || matches!(chars.get(i.saturating_sub(1)), Some(' ' | '\n' | '\t'));
+        if is_word_start {
+            chars[i] = focused_upper;
+            count += 1;
+        }
+    }
+
+    // If still short, capitalize matching letters anywhere in the text.
+    for ch in &mut chars {
+        if count >= min_count {
+            break;
+        }
+        if *ch == focused_lower {
+            *ch = focused_upper;
+            count += 1;
+        }
+    }
+
+    chars.into_iter().collect()
 }
 
 #[cfg(test)]
@@ -123,6 +168,18 @@ mod tests {
         assert!(
             focused_count > unfocused_count,
             "Focused W count ({focused_count}) should exceed unfocused ({unfocused_count})"
+        );
+    }
+
+    #[test]
+    fn test_focused_capital_has_minimum_presence_when_available() {
+        let mut rng = SmallRng::seed_from_u64(123);
+        let text = "we will work with weird words while we wait";
+        let result = apply_capitalization(text, &['W'], Some('W'), &mut rng);
+        let focused_count = result.chars().filter(|&ch| ch == 'W').count();
+        assert!(
+            focused_count >= 3,
+            "Expected at least 3 focused capitals, got {focused_count} in: {result}"
         );
     }
 }

@@ -220,7 +220,10 @@ fn lowercase_keys(count: usize) -> Vec<char> {
 
 /// Base date for all profiles.
 fn base_date() -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2025, 1, 1, 8, 0, 0).unwrap()
+    // Keep generated fixtures in the recent past so activity heatmaps that show
+    // only recent weeks still light up when importing test profiles.
+    let start_day = Utc::now().date_naive() - chrono::Duration::days(100);
+    Utc.from_utc_datetime(&start_day.and_hms_opt(8, 0, 0).unwrap())
 }
 
 /// Generate drill history spread across `streak_days` days.

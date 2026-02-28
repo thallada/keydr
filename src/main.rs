@@ -40,7 +40,9 @@ use ui::components::dashboard::Dashboard;
 use ui::layout::{pack_hint_lines, wrapped_line_count};
 use ui::components::keyboard_diagram::KeyboardDiagram;
 use ui::components::skill_tree::{SkillTreeWidget, detail_line_count, selectable_branches};
-use ui::components::stats_dashboard::{AnomalyBigramRow, NgramTabData, StatsDashboard};
+use ui::components::stats_dashboard::{
+    AnomalyBigramRow, NgramTabData, StatsDashboard, history_page_size_for_terminal,
+};
 use ui::components::stats_sidebar::StatsSidebar;
 use ui::components::typing_area::TypingArea;
 use ui::layout::AppLayout;
@@ -450,16 +452,30 @@ fn handle_stats_key(app: &mut App, key: KeyEvent) {
 
     // History tab has row navigation
     if app.stats_tab == 1 {
+        let page_size = current_history_page_size();
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') => app.go_to_menu(),
             KeyCode::Char('j') | KeyCode::Down => {
                 if !app.drill_history.is_empty() {
-                    let max_visible = app.drill_history.len().min(20) - 1;
-                    app.history_selected = (app.history_selected + 1).min(max_visible);
+                    let max_idx = app.drill_history.len() - 1;
+                    app.history_selected = (app.history_selected + 1).min(max_idx);
+                    keep_history_selection_visible(app, page_size);
                 }
             }
             KeyCode::Char('k') | KeyCode::Up => {
                 app.history_selected = app.history_selected.saturating_sub(1);
+                keep_history_selection_visible(app, page_size);
+            }
+            KeyCode::PageDown => {
+                if !app.drill_history.is_empty() {
+                    let max_idx = app.drill_history.len() - 1;
+                    app.history_selected = (app.history_selected + page_size).min(max_idx);
+                    keep_history_selection_visible(app, page_size);
+                }
+            }
+            KeyCode::PageUp => {
+                app.history_selected = app.history_selected.saturating_sub(page_size);
+                keep_history_selection_visible(app, page_size);
             }
             KeyCode::Char('x') | KeyCode::Delete => {
                 if !app.drill_history.is_empty() {
@@ -1234,22 +1250,41 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
                 })
                 .collect();
 
-        let progress_height = if show_progress && area.height >= 25 {
-            (active_branches.len().min(6) as u16 + 1).max(2) // +1 for overall line
-        } else if show_progress && area.height >= 20 {
-            2 // active branch + overall
-        } else if show_progress {
-            1 // active branch only
-        } else {
-            0
-        };
-
         let kbd_height = if show_kbd {
             if tier.compact_keyboard() {
                 6 // 3 rows + 2 border + 1 modifier space
             } else {
                 8 // 5 rows (4 + space bar) + 2 border + 1 spacing
             }
+        } else {
+            0
+        };
+
+        let progress_height = if show_progress {
+            // Adaptive progress can use: branch rows + optional separator + overall line.
+            // Prefer the separator when space allows, but degrade if constrained.
+            let branch_rows = if area.height >= 25 {
+                ui::components::branch_progress_list::wrapped_branch_rows(
+                    app_layout.main.width,
+                    active_branches.len(),
+                )
+            } else if !active_branches.is_empty() {
+                1
+            } else {
+                0
+            };
+            let desired = if app.drill_mode == DrillMode::Adaptive {
+                (branch_rows + 2).max(2)
+            } else {
+                1
+            };
+            // Keep at least 5 lines for typing area.
+            let max_budget = app_layout
+                .main
+                .height
+                .saturating_sub(kbd_height)
+                .saturating_sub(5);
+            desired.min(max_budget)
         } else {
             0
         };
@@ -2523,11 +2558,28 @@ fn render_stats(frame: &mut ratatui::Frame, app: &App) {
         app.skill_tree.total_unique_keys,
         app.theme,
         app.history_selected,
+        app.history_scroll,
         app.history_confirm_delete,
         &app.keyboard_model,
         ngram_data.as_ref(),
     );
     frame.render_widget(dashboard, area);
+}
+
+fn keep_history_selection_visible(app: &mut App, page_size: usize) {
+    let viewport = page_size.max(1);
+    if app.history_selected < app.history_scroll {
+        app.history_scroll = app.history_selected;
+    } else if app.history_selected >= app.history_scroll + viewport {
+        app.history_scroll = app.history_selected + 1 - viewport;
+    }
+}
+
+fn current_history_page_size() -> usize {
+    match crossterm::terminal::size() {
+        Ok((w, h)) => history_page_size_for_terminal(w, h),
+        Err(_) => 10,
+    }
 }
 
 fn build_ngram_tab_data(app: &App) -> NgramTabData {

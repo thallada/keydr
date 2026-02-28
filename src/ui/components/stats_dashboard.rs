@@ -1,3 +1,4 @@
+use chrono::{Datelike, Utc};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
@@ -50,6 +51,7 @@ pub struct StatsDashboard<'a> {
     pub overall_total: usize,
     pub theme: &'a Theme,
     pub history_selected: usize,
+    pub history_scroll: usize,
     pub history_confirm_delete: bool,
     pub keyboard_model: &'a KeyboardModel,
     pub ngram_data: Option<&'a NgramTabData>,
@@ -66,6 +68,7 @@ impl<'a> StatsDashboard<'a> {
         overall_total: usize,
         theme: &'a Theme,
         history_selected: usize,
+        history_scroll: usize,
         history_confirm_delete: bool,
         keyboard_model: &'a KeyboardModel,
         ngram_data: Option<&'a NgramTabData>,
@@ -80,6 +83,7 @@ impl<'a> StatsDashboard<'a> {
             overall_total,
             theme,
             history_selected,
+            history_scroll,
             history_confirm_delete,
             keyboard_model,
             ngram_data,
@@ -108,56 +112,39 @@ impl Widget for StatsDashboard<'_> {
         }
 
         // Tab header — width-aware wrapping
-        let tab_labels = [
-            "[1] Dashboard",
-            "[2] History",
-            "[3] Activity",
-            "[4] Accuracy",
-            "[5] Timing",
-            "[6] N-grams",
-        ];
-        let tab_separator = "  ";
         let width = inner.width as usize;
         let mut tab_lines: Vec<Line> = Vec::new();
-        {
-            let mut current_spans: Vec<Span> = Vec::new();
-            let mut current_width: usize = 0;
-            for (i, &label) in tab_labels.iter().enumerate() {
-                let styled_label = format!(" {label} ");
-                let item_width = styled_label.chars().count() + tab_separator.len();
-                if current_width > 0 && current_width + item_width > width {
-                    tab_lines.push(Line::from(current_spans));
-                    current_spans = Vec::new();
-                    current_width = 0;
-                }
-                let style = if i == self.active_tab {
-                    Style::default()
-                        .fg(colors.accent())
-                        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
-                } else {
-                    Style::default().fg(colors.text_pending())
-                };
-                current_spans.push(Span::styled(styled_label, style));
-                current_spans.push(Span::raw(tab_separator));
-                current_width += item_width;
-            }
-            if !current_spans.is_empty() {
+        let mut current_spans: Vec<Span> = Vec::new();
+        let mut current_width: usize = 0;
+        for (i, &label) in TAB_LABELS.iter().enumerate() {
+            let styled_label = format!(" {label} ");
+            let item_width = styled_label.chars().count() + TAB_SEPARATOR.len();
+            if current_width > 0 && current_width + item_width > width {
                 tab_lines.push(Line::from(current_spans));
+                current_spans = Vec::new();
+                current_width = 0;
             }
+            let style = if i == self.active_tab {
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+            } else {
+                Style::default().fg(colors.text_pending())
+            };
+            current_spans.push(Span::styled(styled_label, style));
+            current_spans.push(Span::raw(TAB_SEPARATOR));
+            current_width += item_width;
+        }
+        if !current_spans.is_empty() {
+            tab_lines.push(Line::from(current_spans));
         }
         let tab_line_count = tab_lines.len().max(1) as u16;
 
         // Footer — width-aware wrapping
         let footer_hints: Vec<&str> = if self.active_tab == 1 {
-            vec![
-                "[ESC] Back",
-                "[Tab] Next tab",
-                "[1-6] Switch tab",
-                "[j/k] Navigate",
-                "[x] Delete",
-            ]
+            FOOTER_HINTS_HISTORY.to_vec()
         } else {
-            vec!["[ESC] Back", "[Tab] Next tab", "[1-6] Switch tab"]
+            FOOTER_HINTS_DEFAULT.to_vec()
         };
         let footer_lines_vec = pack_hint_lines(&footer_hints, width);
         let footer_line_count = footer_lines_vec.len().max(1) as u16;
@@ -658,7 +645,7 @@ impl StatsDashboard<'_> {
         table_block.render(area, buf);
 
         let header = Line::from(vec![Span::styled(
-            "   #     WPM    Raw    Acc%    Time      Date       Mode       Ranked  Partial",
+            "   #     WPM    Raw    Acc%    Time      Date/Time         Mode       Ranked  Partial",
             Style::default()
                 .fg(colors.accent())
                 .add_modifier(Modifier::BOLD),
@@ -672,14 +659,19 @@ impl StatsDashboard<'_> {
             )),
         ];
 
-        let recent: Vec<&DrillResult> = self.history.iter().rev().take(20).collect();
+        let visible_rows = history_visible_rows(table_inner);
         let total = self.history.len();
+        let max_scroll = total.saturating_sub(visible_rows);
+        let scroll = self.history_scroll.min(max_scroll);
+        let end = (scroll + visible_rows).min(total);
+        let current_year = Utc::now().year();
 
-        for (i, result) in recent.iter().enumerate() {
-            let idx = total - i;
+        for display_idx in scroll..end {
+            let result = &self.history[total - 1 - display_idx];
+            let idx = total - display_idx;
             let raw_wpm = result.cpm / 5.0;
             let time_str = format!("{:.1}s", result.elapsed_secs);
-            let date_str = result.timestamp.format("%m/%d %H:%M").to_string();
+            let date_str = format_history_timestamp(result.timestamp, current_year);
 
             let idx_str = format!("{idx:>3}");
             let wpm_str = format!("{:>6.0}", result.wpm);
@@ -701,7 +693,7 @@ impl StatsDashboard<'_> {
             };
             let partial_str = format!("{:>6.0}%", partial_pct);
             let row = format!(
-                " {wpm_indicator}{idx_str}  {wpm_str}  {raw_str}  {acc_str}  {time_str:>6}  {date_str}  {mode:<9}  {rank_str:<6}  {partial_str:>7}",
+                " {wpm_indicator}{idx_str}  {wpm_str}  {raw_str}  {acc_str}  {time_str:>6}  {date_str:<14}  {mode:<9}  {rank_str:<6}  {partial_str:>7}",
                 mode = result.drill_mode,
             );
 
@@ -713,7 +705,7 @@ impl StatsDashboard<'_> {
                 colors.error()
             };
 
-            let is_selected = i == self.history_selected;
+            let is_selected = display_idx == self.history_selected;
             let style = if is_selected {
                 Style::default().fg(acc_color).bg(colors.accent_dim())
             } else if result.partial {
@@ -1662,6 +1654,65 @@ impl StatsDashboard<'_> {
     }
 }
 
+const TAB_LABELS: [&str; 6] = [
+    "[1] Dashboard",
+    "[2] History",
+    "[3] Activity",
+    "[4] Accuracy",
+    "[5] Timing",
+    "[6] N-grams",
+];
+const TAB_SEPARATOR: &str = "  ";
+const FOOTER_HINTS_DEFAULT: [&str; 3] = ["[ESC] Back", "[Tab] Next tab", "[1-6] Switch tab"];
+const FOOTER_HINTS_HISTORY: [&str; 6] = [
+    "[ESC] Back",
+    "[Tab] Next tab",
+    "[1-6] Switch tab",
+    "[j/k] Navigate",
+    "[PgUp/PgDn] Page",
+    "[x] Delete",
+];
+
+fn history_visible_rows(table_inner: Rect) -> usize {
+    table_inner.height.saturating_sub(2) as usize
+}
+
+fn wrapped_tab_line_count(width: usize) -> usize {
+    let mut lines = 1usize;
+    let mut current_width = 0usize;
+    for label in TAB_LABELS {
+        let item_width = format!(" {label} ").chars().count() + TAB_SEPARATOR.len();
+        if current_width > 0 && current_width + item_width > width {
+            lines += 1;
+            current_width = 0;
+        }
+        current_width += item_width;
+    }
+    lines.max(1)
+}
+
+fn footer_line_count_for_history(width: usize) -> usize {
+    pack_hint_lines(&FOOTER_HINTS_HISTORY, width).len().max(1)
+}
+
+pub fn history_page_size_for_terminal(width: u16, height: u16) -> usize {
+    let inner_width = width.saturating_sub(2) as usize;
+    let inner_height = height.saturating_sub(2);
+    let tab_lines = wrapped_tab_line_count(inner_width) as u16;
+    let footer_lines = footer_line_count_for_history(inner_width) as u16;
+    let tab_area_height = inner_height.saturating_sub(tab_lines + footer_lines);
+    let table_inner_height = tab_area_height.saturating_sub(2);
+    table_inner_height.saturating_sub(2).max(1) as usize
+}
+
+fn format_history_timestamp(ts: chrono::DateTime<Utc>, current_year: i32) -> String {
+    if ts.year() < current_year {
+        ts.format("%m/%d/%y %H:%M").to_string()
+    } else {
+        ts.format("%m/%d %H:%M").to_string()
+    }
+}
+
 fn accuracy_color(accuracy: f64, colors: &crate::ui::theme::ThemeColors) -> ratatui::style::Color {
     if accuracy <= 0.0 {
         colors.text_pending()
@@ -1924,6 +1975,7 @@ fn ngram_panel_layout(area: Rect) -> (bool, u16) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
 
     #[test]
     fn narrow_short_terminal_shows_only_error_panel() {
@@ -1974,5 +2026,41 @@ mod tests {
         let area = Rect::new(0, 0, 60, 24);
         let (wide, _) = ngram_panel_layout(area);
         assert!(wide, "60 cols should be wide");
+    }
+
+    #[test]
+    fn history_page_size_is_positive() {
+        let page = history_page_size_for_terminal(80, 24);
+        assert!(page >= 1, "history page size should be at least 1");
+    }
+
+    #[test]
+    fn history_page_size_grows_with_terminal_height() {
+        let short_page = history_page_size_for_terminal(100, 20);
+        let tall_page = history_page_size_for_terminal(100, 40);
+        assert!(
+            tall_page > short_page,
+            "expected taller terminal to show more rows ({short_page} -> {tall_page})"
+        );
+    }
+
+    #[test]
+    fn history_date_shows_year_for_previous_year_sessions() {
+        let ts = Utc.with_ymd_and_hms(2025, 12, 31, 23, 59, 0).unwrap();
+        let display = format_history_timestamp(ts, 2026);
+        assert!(
+            display.starts_with("12/31/25"),
+            "expected MM/DD/YY format for prior-year session: {display}"
+        );
+    }
+
+    #[test]
+    fn history_date_omits_year_for_current_year_sessions() {
+        let ts = Utc.with_ymd_and_hms(2026, 1, 2, 3, 4, 0).unwrap();
+        let display = format_history_timestamp(ts, 2026);
+        assert!(
+            !display.starts_with("2026-"),
+            "did not expect year prefix for current-year session: {display}"
+        );
     }
 }

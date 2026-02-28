@@ -222,6 +222,7 @@ pub struct App {
     pub depressed_keys: HashSet<char>,
     pub last_key_time: Option<Instant>,
     pub history_selected: usize,
+    pub history_scroll: usize,
     pub history_confirm_delete: bool,
     pub skill_tree_selected: usize,
     pub skill_tree_detail_scroll: usize,
@@ -373,6 +374,7 @@ impl App {
             depressed_keys: HashSet::new(),
             last_key_time: None,
             history_selected: 0,
+            history_scroll: 0,
             history_confirm_delete: false,
             skill_tree_selected: 0,
             skill_tree_detail_scroll: 0,
@@ -719,8 +721,9 @@ impl App {
                     .filter(|ch| ch.is_ascii_lowercase() || *ch == ' ')
                     .collect();
                 let filter = CharFilter::new(lowercase_keys);
-                // Only pass focused to phonetic generator if it's a lowercase letter
-                let lowercase_focused = focused_char.filter(|ch| ch.is_ascii_lowercase());
+                // Feed uppercase focus as lowercase so capitals drills bias base word content
+                // the same way other focused key types bias their generators.
+                let lowercase_focused = lowercase_generation_focus(focused_char);
                 let table = self.transition_table.clone();
                 let dict = Dictionary::load();
                 let rng = SmallRng::from_rng(&mut self.rng).unwrap();
@@ -1417,6 +1420,7 @@ impl App {
         self.clear_post_drill_input_lock();
         self.stats_tab = 0;
         self.history_selected = 0;
+        self.history_scroll = 0;
         self.history_confirm_delete = false;
         self.screen = AppScreen::StatsDashboard;
     }
@@ -1431,16 +1435,20 @@ impl App {
         self.rebuild_from_history();
         self.save_data();
 
-        // Clamp selection to visible range (max 20 visible rows)
+        // Clamp selection to full history range
         if !self.drill_history.is_empty() {
-            let max_visible = self.drill_history.len().min(20) - 1;
-            self.history_selected = self.history_selected.min(max_visible);
+            let max_idx = self.drill_history.len() - 1;
+            self.history_selected = self.history_selected.min(max_idx);
+            self.history_scroll = self.history_scroll.min(self.history_selected);
         } else {
             self.history_selected = 0;
+            self.history_scroll = 0;
         }
     }
 
     pub fn rebuild_from_history(&mut self) {
+        let previous_progress = self.profile.skill_tree.clone();
+
         // Reset all derived state
         self.key_stats = KeyStatsStore::default();
         self.key_stats.target_cpm = self.config.target_cpm();
@@ -1503,6 +1511,9 @@ impl App {
             }
         }
 
+        // Prevent destructive regressions when rebuilding from history:
+        // preserve any previously reached branch status/level.
+        merge_skill_tree_progress_non_regressive(&mut self.skill_tree, &previous_progress);
         self.profile.skill_tree = self.skill_tree.progress.clone();
 
         // Rebuild n-gram stats from the replayed history
@@ -2152,6 +2163,31 @@ impl App {
     }
 }
 
+fn branch_status_rank(status: &BranchStatus) -> u8 {
+    match status {
+        BranchStatus::Locked => 0,
+        BranchStatus::Available => 1,
+        BranchStatus::InProgress => 2,
+        BranchStatus::Complete => 3,
+    }
+}
+
+fn merge_skill_tree_progress_non_regressive(
+    skill_tree: &mut SkillTree,
+    previous: &crate::engine::skill_tree::SkillTreeProgress,
+) {
+    for id in crate::engine::skill_tree::BranchId::all() {
+        let Some(prev) = previous.branches.get(id.to_key()) else {
+            continue;
+        };
+        let curr = skill_tree.branch_progress_mut(*id);
+        if branch_status_rank(&curr.status) < branch_status_rank(&prev.status) {
+            curr.status = prev.status.clone();
+        }
+        curr.current_level = curr.current_level.max(prev.current_level);
+    }
+}
+
 /// Insert newlines at sentence boundaries (~60-80 chars per line).
 fn insert_line_breaks(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
@@ -2180,6 +2216,18 @@ fn insert_line_breaks(text: &str) -> String {
     }
 
     result
+}
+
+fn lowercase_generation_focus(focused: Option<char>) -> Option<char> {
+    focused.and_then(|ch| {
+        if ch.is_ascii_lowercase() {
+            Some(ch)
+        } else if ch.is_ascii_uppercase() {
+            Some(ch.to_ascii_lowercase())
+        } else {
+            None
+        }
+    })
 }
 
 #[cfg(test)]
@@ -2215,6 +2263,7 @@ impl App {
             depressed_keys: HashSet::new(),
             last_key_time: None,
             history_selected: 0,
+            history_scroll: 0,
             history_confirm_delete: false,
             skill_tree_selected: 0,
             skill_tree_detail_scroll: 0,
@@ -2475,5 +2524,38 @@ mod tests {
             app.post_drill_input_lock_remaining_ms().is_some(),
             "Input lock should be armed for milestone path"
         );
+    }
+
+    #[test]
+    fn rebuild_from_history_preserves_previous_branch_unlocks() {
+        let mut app = App::new_test();
+
+        // Simulate previously unlocked branch progress with sparse history replay input.
+        if let Some(bp) = app
+            .profile
+            .skill_tree
+            .branches
+            .get_mut(BranchId::Capitals.to_key())
+        {
+            bp.status = BranchStatus::InProgress;
+            bp.current_level = 1;
+        }
+        app.skill_tree = SkillTree::new(app.profile.skill_tree.clone());
+
+        // No additional ranked drills to advance tree during replay.
+        app.drill_history.clear();
+        app.rebuild_from_history();
+
+        let capitals = app.skill_tree.branch_progress(BranchId::Capitals);
+        assert_eq!(capitals.status, BranchStatus::InProgress);
+        assert!(capitals.current_level >= 1);
+    }
+
+    #[test]
+    fn uppercase_focus_maps_to_lowercase_for_base_generation() {
+        assert_eq!(lowercase_generation_focus(Some('w')), Some('w'));
+        assert_eq!(lowercase_generation_focus(Some('W')), Some('w'));
+        assert_eq!(lowercase_generation_focus(Some('7')), None);
+        assert_eq!(lowercase_generation_focus(None), None);
     }
 }
