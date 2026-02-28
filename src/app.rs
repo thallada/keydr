@@ -84,9 +84,14 @@ pub enum CodeDownloadCompleteAction {
     ReturnToSettings,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum MilestoneKind {
     Unlock,
     Mastery,
+    BranchesAvailable,
+    BranchComplete,
+    AllKeysUnlocked,
+    AllKeysMastered,
 }
 
 pub struct KeyMilestonePopup {
@@ -94,6 +99,7 @@ pub struct KeyMilestonePopup {
     pub keys: Vec<char>,
     pub finger_info: Vec<(char, String)>,
     pub message: &'static str,
+    pub branch_ids: Vec<BranchId>,
 }
 
 const UNLOCK_MESSAGES: &[&str] = &[
@@ -1035,6 +1041,7 @@ impl App {
                         keys: update.newly_unlocked,
                         finger_info,
                         message: msg,
+                        branch_ids: vec![],
                     });
                 }
 
@@ -1054,6 +1061,55 @@ impl App {
                         keys: update.newly_mastered,
                         finger_info,
                         message: msg,
+                        branch_ids: vec![],
+                    });
+                }
+
+                // Queue milestone popups for branch/global milestones
+                if !update.branches_newly_available.is_empty() {
+                    self.milestone_queue.push_back(KeyMilestonePopup {
+                        kind: MilestoneKind::BranchesAvailable,
+                        keys: vec![],
+                        finger_info: vec![],
+                        message: "",
+                        branch_ids: update.branches_newly_available,
+                    });
+                }
+
+                // Branch complete (excluding Lowercase, since BranchesAvailable covers it)
+                let completed_non_lowercase: Vec<BranchId> = update
+                    .branches_newly_completed
+                    .iter()
+                    .filter(|&&id| id != BranchId::Lowercase)
+                    .copied()
+                    .collect();
+                if !completed_non_lowercase.is_empty() {
+                    self.milestone_queue.push_back(KeyMilestonePopup {
+                        kind: MilestoneKind::BranchComplete,
+                        keys: vec![],
+                        finger_info: vec![],
+                        message: "",
+                        branch_ids: completed_non_lowercase,
+                    });
+                }
+
+                if update.all_keys_unlocked {
+                    self.milestone_queue.push_back(KeyMilestonePopup {
+                        kind: MilestoneKind::AllKeysUnlocked,
+                        keys: vec![],
+                        finger_info: vec![],
+                        message: "",
+                        branch_ids: vec![],
+                    });
+                }
+
+                if update.all_keys_mastered {
+                    self.milestone_queue.push_back(KeyMilestonePopup {
+                        kind: MilestoneKind::AllKeysMastered,
+                        keys: vec![],
+                        finger_info: vec![],
+                        message: "",
+                        branch_ids: vec![],
                     });
                 }
             }
@@ -2523,6 +2579,7 @@ mod tests {
             keys: vec!['a'],
             finger_info: vec![('a', "left pinky".to_string())],
             message: "Test milestone",
+            branch_ids: vec![],
         });
 
         complete_current_drill(&mut app);
@@ -2568,5 +2625,345 @@ mod tests {
         assert_eq!(lowercase_generation_focus(Some('W')), Some('w'));
         assert_eq!(lowercase_generation_focus(Some('7')), None);
         assert_eq!(lowercase_generation_focus(None), None);
+    }
+
+    /// Helper: make a key just below mastery in ranked stats.
+    /// Uses timing slightly above target (confidence ≈ 0.98), so one fast drill hit
+    /// will push it over 1.0. target_time ≈ 342.86ms (60000/175 CPM).
+    fn make_key_near_mastery(app: &mut App, ch: char) {
+        for _ in 0..30 {
+            app.ranked_key_stats.update_key(ch, 350.0);
+        }
+    }
+
+    /// Helper: make a key fully confident in ranked stats.
+    fn make_key_mastered(app: &mut App, ch: char) {
+        for _ in 0..50 {
+            app.ranked_key_stats.update_key(ch, 200.0);
+        }
+    }
+
+    /// Helper: seed a tree where lowercase is nearly complete.
+    /// All 26 lowercase keys are unlocked and at full confidence except 'z'.
+    fn seed_near_complete_lowercase(app: &mut App) {
+        use crate::engine::skill_tree::get_branch_definition;
+
+        let all_lowercase = get_branch_definition(BranchId::Lowercase).levels[0].keys;
+        let almost_all = &all_lowercase[..25]; // everything except 'z'
+
+        for &ch in almost_all {
+            make_key_mastered(app, ch);
+        }
+        // Make 'z' near-mastery so one drill hit completes it
+        make_key_near_mastery(app, 'z');
+
+        // Advance the skill tree through progressive unlock
+        for _ in 0..30 {
+            app.skill_tree.update(&app.ranked_key_stats, None);
+        }
+    }
+
+    /// Helper: set up a drill with a simple target and create events for it.
+    /// Each char in `target` gets a correct keystroke event with fast timing.
+    fn setup_drill_with_events(app: &mut App, target: &str) {
+        use crate::session::input::KeystrokeEvent;
+
+        app.drill = Some(crate::session::drill::DrillState::new(target));
+        let now = Instant::now();
+
+        // Create keystroke events — need at least 2 for windows(2) to produce per_key_times
+        let mut events = Vec::new();
+        for (i, ch) in target.chars().enumerate() {
+            events.push(KeystrokeEvent {
+                expected: ch,
+                actual: ch,
+                timestamp: now + Duration::from_millis(200 * (i as u64)),
+                correct: true,
+            });
+        }
+        app.drill_events = events;
+
+        // Mark drill as complete
+        if let Some(ref mut drill) = app.drill {
+            drill.started_at = Some(now);
+            drill.finished_at = Some(now + Duration::from_millis(200 * (target.len() as u64)));
+            drill.cursor = drill.target.len();
+            drill.input =
+                vec![crate::session::input::CharStatus::Correct; drill.target.len()];
+        }
+    }
+
+    #[test]
+    fn finish_drill_lowercase_complete_queue_order() {
+        let mut app = App::new_test();
+        seed_near_complete_lowercase(&mut app);
+
+        // Set up a drill that types 'z' (the last missing key) to push it to mastery
+        setup_drill_with_events(&mut app, "zz");
+        app.milestone_queue.clear();
+        app.finish_drill();
+
+        let kinds: Vec<&MilestoneKind> = app.milestone_queue.iter().map(|m| &m.kind).collect();
+
+        // Should contain Mastery and BranchesAvailable, but NOT BranchComplete for lowercase
+        assert!(
+            kinds.contains(&&MilestoneKind::Mastery),
+            "Should have Mastery popup, got: {kinds:?}"
+        );
+        assert!(
+            kinds.contains(&&MilestoneKind::BranchesAvailable),
+            "Should have BranchesAvailable popup, got: {kinds:?}"
+        );
+        assert!(
+            !kinds.contains(&&MilestoneKind::BranchComplete),
+            "Should NOT have BranchComplete for lowercase, got: {kinds:?}"
+        );
+
+        // Verify full ordering: any Unlock before Mastery before BranchesAvailable
+        if let Some(unlock_pos) = kinds.iter().position(|k| **k == MilestoneKind::Unlock) {
+            let mastery_pos = kinds
+                .iter()
+                .position(|k| **k == MilestoneKind::Mastery)
+                .unwrap();
+            assert!(
+                unlock_pos < mastery_pos,
+                "Unlock should come before Mastery"
+            );
+        }
+        let mastery_pos = kinds
+            .iter()
+            .position(|k| **k == MilestoneKind::Mastery)
+            .unwrap();
+        let available_pos = kinds
+            .iter()
+            .position(|k| **k == MilestoneKind::BranchesAvailable)
+            .unwrap();
+        assert!(
+            mastery_pos < available_pos,
+            "Mastery should come before BranchesAvailable"
+        );
+
+        // Verify branch_ids in BranchesAvailable popup are in canonical order
+        let branches_popup = app
+            .milestone_queue
+            .iter()
+            .find(|m| m.kind == MilestoneKind::BranchesAvailable)
+            .unwrap();
+        assert_eq!(
+            branches_popup.branch_ids,
+            vec![
+                BranchId::Capitals,
+                BranchId::Numbers,
+                BranchId::ProsePunctuation,
+                BranchId::Whitespace,
+                BranchId::CodeSymbols,
+            ],
+            "BranchesAvailable branch_ids must be in canonical order"
+        );
+    }
+
+    #[test]
+    fn finish_drill_branch_complete_queues_popup() {
+        let mut app = App::new_test();
+
+        // Set capitals to InProgress at last level
+        app.skill_tree
+            .branch_progress_mut(BranchId::Capitals)
+            .status = BranchStatus::InProgress;
+        app.skill_tree
+            .branch_progress_mut(BranchId::Capitals)
+            .current_level = 2; // Last level (3 levels, 0-indexed)
+
+        // Make all capitals except 'Z' fully confident, 'Z' near-mastery
+        for ch in 'A'..='Y' {
+            make_key_mastered(&mut app, ch);
+        }
+        make_key_near_mastery(&mut app, 'Z');
+
+        // Advance tree to reflect current confidence state
+        app.skill_tree.update(&app.ranked_key_stats, None);
+
+        // Set up a drill that types 'Z' to push it to mastery
+        setup_drill_with_events(&mut app, "ZZ");
+        app.milestone_queue.clear();
+        app.finish_drill();
+
+        let kinds: Vec<&MilestoneKind> = app.milestone_queue.iter().map(|m| &m.kind).collect();
+
+        assert!(
+            kinds.contains(&&MilestoneKind::BranchComplete),
+            "Should have BranchComplete popup, got: {kinds:?}"
+        );
+
+        // The BranchComplete popup should reference Capitals
+        let branch_complete = app
+            .milestone_queue
+            .iter()
+            .find(|m| m.kind == MilestoneKind::BranchComplete)
+            .unwrap();
+        assert!(
+            branch_complete.branch_ids.contains(&BranchId::Capitals),
+            "BranchComplete should reference Capitals"
+        );
+    }
+
+    #[test]
+    fn finish_drill_all_keys_unlocked_queues_once() {
+        use crate::engine::skill_tree::get_branch_definition;
+
+        let mut app = App::new_test();
+
+        // Complete lowercase
+        let all_lowercase = get_branch_definition(BranchId::Lowercase).levels[0].keys;
+        for &ch in all_lowercase {
+            make_key_mastered(&mut app, ch);
+        }
+        for _ in 0..30 {
+            app.skill_tree.update(&app.ranked_key_stats, None);
+        }
+
+        // Start all non-lowercase branches. Master all keys through their levels,
+        // but leave CodeSymbols level 2's last key ('~') near-mastery so level 3
+        // keys are not yet unlocked.
+        for &id in &[
+            BranchId::Capitals,
+            BranchId::Numbers,
+            BranchId::ProsePunctuation,
+            BranchId::Whitespace,
+        ] {
+            app.skill_tree.start_branch(id);
+            let def = get_branch_definition(id);
+            for level in def.levels {
+                for &ch in level.keys {
+                    make_key_mastered(&mut app, ch);
+                }
+            }
+        }
+
+        // CodeSymbols: master levels 0-1 fully, and level 2 except '~'
+        app.skill_tree.start_branch(BranchId::CodeSymbols);
+        let code_def = get_branch_definition(BranchId::CodeSymbols);
+        for &ch in code_def.levels[0].keys {
+            make_key_mastered(&mut app, ch);
+        }
+        for &ch in code_def.levels[1].keys {
+            make_key_mastered(&mut app, ch);
+        }
+        for &ch in code_def.levels[2].keys {
+            if ch == '~' {
+                make_key_near_mastery(&mut app, ch);
+            } else {
+                make_key_mastered(&mut app, ch);
+            }
+        }
+        // Level 3 keys (@#$%_\`) are not mastered and not yet unlocked
+
+        // Advance all branches through their levels
+        for _ in 0..20 {
+            app.skill_tree.update(&app.ranked_key_stats, None);
+        }
+
+        // Verify CodeSymbols is at level 2 (level 3 keys not yet unlocked)
+        assert_eq!(
+            app.skill_tree
+                .branch_progress(BranchId::CodeSymbols)
+                .current_level,
+            2,
+            "CodeSymbols should be at level 2"
+        );
+        assert!(
+            app.skill_tree.total_unlocked_count() < app.skill_tree.total_unique_keys,
+            "Not all keys should be unlocked yet"
+        );
+
+        // Drill '~' to push it to mastery → advances CodeSymbols to level 3 → all keys unlocked
+        setup_drill_with_events(&mut app, "~~");
+        app.milestone_queue.clear();
+        app.finish_drill();
+
+        let kinds: Vec<&MilestoneKind> = app.milestone_queue.iter().map(|m| &m.kind).collect();
+
+        // AllKeysUnlocked must be present
+        assert!(
+            kinds.contains(&&MilestoneKind::AllKeysUnlocked),
+            "Should have AllKeysUnlocked popup, got: {kinds:?}"
+        );
+
+        // If AllKeysMastered also fires, AllKeysUnlocked must come first
+        if let (Some(unlocked_pos), Some(mastered_pos)) = (
+            kinds
+                .iter()
+                .position(|k| **k == MilestoneKind::AllKeysUnlocked),
+            kinds
+                .iter()
+                .position(|k| **k == MilestoneKind::AllKeysMastered),
+        ) {
+            assert!(
+                unlocked_pos < mastered_pos,
+                "AllKeysUnlocked should come before AllKeysMastered"
+            );
+        }
+
+        // Second drill should NOT re-queue
+        setup_drill_with_events(&mut app, "~~");
+        app.milestone_queue.clear();
+        app.finish_drill();
+
+        let kinds2: Vec<&MilestoneKind> = app.milestone_queue.iter().map(|m| &m.kind).collect();
+        assert!(
+            !kinds2.contains(&&MilestoneKind::AllKeysUnlocked),
+            "AllKeysUnlocked should not fire on subsequent drill"
+        );
+    }
+
+    #[test]
+    fn finish_drill_all_keys_mastered_queues_popup() {
+        let mut app = App::new_test();
+
+        // Make every key in every branch mastered except '`'
+        for branch_def in crate::engine::skill_tree::ALL_BRANCHES {
+            for level in branch_def.levels {
+                for &ch in level.keys {
+                    if ch == '`' {
+                        make_key_near_mastery(&mut app, ch);
+                    } else {
+                        make_key_mastered(&mut app, ch);
+                    }
+                }
+            }
+        }
+
+        // Advance lowercase to Complete
+        for _ in 0..30 {
+            app.skill_tree.update(&app.ranked_key_stats, None);
+        }
+
+        // Start all non-lowercase branches
+        for &id in &[
+            BranchId::Capitals,
+            BranchId::Numbers,
+            BranchId::ProsePunctuation,
+            BranchId::Whitespace,
+            BranchId::CodeSymbols,
+        ] {
+            app.skill_tree.start_branch(id);
+        }
+
+        // Advance all branches through their levels
+        for _ in 0..30 {
+            app.skill_tree.update(&app.ranked_key_stats, None);
+        }
+
+        // Now '`' is the only key not fully mastered. Drill it.
+        setup_drill_with_events(&mut app, "``");
+        app.milestone_queue.clear();
+        app.finish_drill();
+
+        let kinds: Vec<&MilestoneKind> = app.milestone_queue.iter().map(|m| &m.kind).collect();
+
+        assert!(
+            kinds.contains(&&MilestoneKind::AllKeysMastered),
+            "Should have AllKeysMastered popup, got: {kinds:?}"
+        );
     }
 }

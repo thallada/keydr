@@ -2,10 +2,11 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use crossterm::event::{self, Event, KeyEvent};
+use crossterm::event::{self, Event, KeyEvent, MouseEvent};
 
 pub enum AppEvent {
     Key(KeyEvent),
+    Mouse(MouseEvent),
     Tick,
     Resize(#[allow(dead_code)] u16, #[allow(dead_code)] u16),
 }
@@ -31,6 +32,11 @@ impl EventHandler {
                         }
                         Ok(Event::Resize(w, h)) => {
                             if tx.send(AppEvent::Resize(w, h)).is_err() {
+                                return;
+                            }
+                        }
+                        Ok(Event::Mouse(mouse)) => {
+                            if tx.send(AppEvent::Mouse(mouse)).is_err() {
                                 return;
                             }
                         }

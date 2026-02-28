@@ -14,8 +14,9 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use clap::Parser;
 use crossterm::event::{
-    KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, KeyboardEnhancementFlags,
-    ModifierKeyCode, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    DisableMouseCapture, EnableMouseCapture, KeyCode, KeyEvent, KeyEventKind, KeyEventState,
+    KeyModifiers, KeyboardEnhancementFlags, ModifierKeyCode, MouseButton, MouseEvent,
+    MouseEventKind, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use crossterm::execute;
 use crossterm::terminal::{
@@ -29,7 +30,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget, Wrap};
 
 use app::{App, AppScreen, DrillMode, MilestoneKind, StatusKind};
-use engine::skill_tree::{DrillScope, find_key_branch};
+use engine::skill_tree::{BranchStatus, DrillScope, find_key_branch, get_branch_definition};
 use event::{AppEvent, EventHandler};
 use generator::code_syntax::{code_language_options, is_language_cached, language_by_key};
 use generator::passage::{is_book_cached, passage_options};
@@ -85,7 +86,7 @@ fn main() -> Result<()> {
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
 
     // Request kitty keyboard protocol enhancements from the terminal.
     // - DISAMBIGUATE_ESCAPE_CODES: CSI u sequences for unambiguous key IDs,
@@ -119,7 +120,11 @@ fn main() -> Result<()> {
         let _ = execute!(io::stdout(), PopKeyboardEnhancementFlags);
     }
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(
+        terminal.backend_mut(),
+        DisableMouseCapture,
+        LeaveAlternateScreen
+    )?;
     terminal.show_cursor()?;
 
     if let Err(err) = result {
@@ -139,6 +144,7 @@ fn run_app(
 
         match events.next()? {
             AppEvent::Key(key) => handle_key(app, key),
+            AppEvent::Mouse(mouse) => handle_mouse(app, mouse),
             AppEvent::Tick => {
                 if (app.screen == AppScreen::PassageIntro
                     || app.screen == AppScreen::PassageDownloadProgress)
@@ -313,60 +319,562 @@ fn handle_key(app: &mut App, key: KeyEvent) {
     }
 }
 
-fn handle_menu_key(app: &mut App, key: KeyEvent) {
-    match key.code {
-        KeyCode::Char('q') | KeyCode::Esc => app.should_quit = true,
-        KeyCode::Char('1') => {
+fn terminal_area() -> Rect {
+    let (w, h) = crossterm::terminal::size().unwrap_or((120, 40));
+    Rect::new(0, 0, w, h)
+}
+
+fn point_in_rect(x: u16, y: u16, rect: Rect) -> bool {
+    x >= rect.x
+        && x < rect.x.saturating_add(rect.width)
+        && y >= rect.y
+        && y < rect.y.saturating_add(rect.height)
+}
+
+fn handle_mouse(app: &mut App, mouse: MouseEvent) {
+    if app.post_drill_input_lock_remaining_ms().is_some()
+        && (!app.milestone_queue.is_empty()
+            || app.screen == AppScreen::DrillResult
+            || app.screen == AppScreen::Drill)
+    {
+        return;
+    }
+
+    if !app.milestone_queue.is_empty() {
+        if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+            app.milestone_queue.pop_front();
+        }
+        return;
+    }
+
+    match app.screen {
+        AppScreen::Menu => handle_menu_mouse(app, mouse),
+        AppScreen::Drill => handle_drill_mouse(app, mouse),
+        AppScreen::DrillResult => handle_result_mouse(app, mouse),
+        AppScreen::StatsDashboard => handle_stats_mouse(app, mouse),
+        AppScreen::Settings => handle_settings_mouse(app, mouse),
+        AppScreen::SkillTree => handle_skill_tree_mouse(app, mouse),
+        AppScreen::CodeLanguageSelect => handle_code_language_mouse(app, mouse),
+        AppScreen::PassageBookSelect => handle_passage_book_mouse(app, mouse),
+        AppScreen::PassageIntro => handle_passage_intro_mouse(app, mouse),
+        AppScreen::PassageDownloadProgress => handle_passage_download_progress_mouse(app, mouse),
+        AppScreen::CodeIntro => handle_code_intro_mouse(app, mouse),
+        AppScreen::CodeDownloadProgress => handle_code_download_progress_mouse(app, mouse),
+        AppScreen::Keyboard => handle_keyboard_explorer_mouse(app, mouse),
+    }
+}
+
+fn activate_menu_selected(app: &mut App) {
+    match app.menu.selected {
+        0 => {
             app.drill_mode = DrillMode::Adaptive;
             app.drill_scope = DrillScope::Global;
             app.start_drill();
         }
-        KeyCode::Char('2') => {
+        1 => {
             if app.config.code_onboarding_done {
                 app.go_to_code_language_select();
             } else {
                 app.go_to_code_intro();
             }
         }
-        KeyCode::Char('3') => {
+        2 => {
             if app.config.passage_onboarding_done {
                 app.go_to_passage_book_select();
             } else {
                 app.go_to_passage_intro();
             }
         }
-        KeyCode::Char('t') => app.go_to_skill_tree(),
-        KeyCode::Char('b') => app.go_to_keyboard(),
-        KeyCode::Char('s') => app.go_to_stats(),
-        KeyCode::Char('c') => app.go_to_settings(),
+        3 => app.go_to_skill_tree(),
+        4 => app.go_to_keyboard(),
+        5 => app.go_to_stats(),
+        6 => app.go_to_settings(),
+        _ => {}
+    }
+}
+
+fn handle_menu_mouse(app: &mut App, mouse: MouseEvent) {
+    match mouse.kind {
+        MouseEventKind::ScrollUp => app.menu.prev(),
+        MouseEventKind::ScrollDown => app.menu.next(),
+        MouseEventKind::Down(MouseButton::Left) => {
+            let area = terminal_area();
+            let menu_hints = [
+                "[1-3] Start",
+                "[t] Skill Tree",
+                "[b] Keyboard",
+                "[s] Stats",
+                "[c] Settings",
+                "[q] Quit",
+            ];
+            let footer_line_count = pack_hint_lines(&menu_hints, area.width as usize)
+                .len()
+                .max(1) as u16;
+            let layout = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3),
+                    Constraint::Min(0),
+                    Constraint::Length(footer_line_count),
+                ])
+                .split(area);
+            let menu_area = ui::layout::centered_rect(50, 80, layout[1]);
+            let inner = Block::bordered().inner(menu_area);
+            let sections = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(5),
+                    Constraint::Length(1),
+                    Constraint::Min(0),
+                ])
+                .split(inner);
+            let list_area = sections[2];
+            if point_in_rect(mouse.column, mouse.row, list_area) {
+                let row = ((mouse.row - list_area.y) / 3) as usize;
+                if row < app.menu.items.len() {
+                    app.menu.selected = row;
+                    activate_menu_selected(app);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn handle_drill_mouse(app: &mut App, mouse: MouseEvent) {
+    if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+        return;
+    }
+    let layout = AppLayout::new(terminal_area());
+    if point_in_rect(mouse.column, mouse.row, layout.footer) {
+        let has_progress = app.drill.as_ref().is_some_and(|d| d.cursor > 0);
+        if has_progress {
+            app.finish_partial_drill();
+        } else {
+            app.go_to_menu();
+        }
+    }
+}
+
+fn delete_confirm_dialog_area() -> Rect {
+    let area = terminal_area();
+    let dialog_width = 34u16;
+    let dialog_height = 5u16;
+    let dialog_x = area.x + area.width.saturating_sub(dialog_width) / 2;
+    let dialog_y = area.y + area.height.saturating_sub(dialog_height) / 2;
+    Rect::new(dialog_x, dialog_y, dialog_width, dialog_height)
+}
+
+fn handle_result_mouse(app: &mut App, mouse: MouseEvent) {
+    if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+        return;
+    }
+    if app.history_confirm_delete && !app.drill_history.is_empty() {
+        let dialog = delete_confirm_dialog_area();
+        if point_in_rect(mouse.column, mouse.row, dialog) {
+            if mouse.column < dialog.x + dialog.width / 2 {
+                app.delete_session();
+                app.history_confirm_delete = false;
+                app.continue_drill();
+            } else {
+                app.history_confirm_delete = false;
+            }
+        }
+        return;
+    }
+    if app.last_result.is_some() {
+        app.continue_drill();
+    }
+}
+
+const STATS_TAB_LABELS: [&str; 6] = [
+    "[1] Dashboard",
+    "[2] History",
+    "[3] Activity",
+    "[4] Accuracy",
+    "[5] Timing",
+    "[6] N-grams",
+];
+
+fn wrapped_stats_tab_line_count(width: usize) -> usize {
+    let mut lines = 1usize;
+    let mut current_width = 0usize;
+    for label in STATS_TAB_LABELS {
+        let item_width = format!(" {label} ").chars().count() + 2;
+        if current_width > 0 && current_width + item_width > width {
+            lines += 1;
+            current_width = 0;
+        }
+        current_width += item_width;
+    }
+    lines.max(1)
+}
+
+fn stats_tab_at_point(tab_area: Rect, width: usize, x: u16, y: u16) -> Option<usize> {
+    let mut row = tab_area.y;
+    let mut col = tab_area.x;
+    let max_col = tab_area.x + width as u16;
+
+    for (idx, label) in STATS_TAB_LABELS.iter().enumerate() {
+        let text = format!(" {label} ");
+        let text_width = text.chars().count() as u16;
+        let item_width = text_width + 2; // separator
+        if col > tab_area.x && col + item_width > max_col {
+            row = row.saturating_add(1);
+            col = tab_area.x;
+        }
+        if y == row && x >= col && x < col + text_width {
+            return Some(idx);
+        }
+        col = col.saturating_add(item_width);
+    }
+    None
+}
+
+fn handle_stats_mouse(app: &mut App, mouse: MouseEvent) {
+    const STATS_TAB_COUNT: usize = 6;
+
+    if app.history_confirm_delete {
+        if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+            let dialog = delete_confirm_dialog_area();
+            if point_in_rect(mouse.column, mouse.row, dialog) {
+                if mouse.column < dialog.x + dialog.width / 2 {
+                    app.delete_session();
+                    app.history_confirm_delete = false;
+                } else {
+                    app.history_confirm_delete = false;
+                }
+            }
+        }
+        return;
+    }
+
+    if app.drill_history.is_empty() {
+        return;
+    }
+
+    let area = terminal_area();
+    let inner = Block::bordered().inner(area);
+    let width = inner.width as usize;
+    let tab_line_count = wrapped_stats_tab_line_count(width) as u16;
+    let footer_hints: Vec<&str> = if app.stats_tab == 1 {
+        vec![
+            "[ESC] Back",
+            "[Tab] Next tab",
+            "[1-6] Switch tab",
+            "[j/k] Navigate",
+            "[PgUp/PgDn] Page",
+            "[x] Delete",
+        ]
+    } else {
+        vec!["[ESC] Back", "[Tab] Next tab", "[1-6] Switch tab"]
+    };
+    let footer_line_count = pack_hint_lines(&footer_hints, width).len().max(1) as u16;
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(tab_line_count),
+            Constraint::Min(10),
+            Constraint::Length(footer_line_count),
+        ])
+        .split(inner);
+
+    match mouse.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            if point_in_rect(mouse.column, mouse.row, layout[0])
+                && let Some(tab) = stats_tab_at_point(layout[0], width, mouse.column, mouse.row)
+            {
+                app.stats_tab = tab;
+                return;
+            }
+
+            if app.stats_tab == 1 {
+                let table_inner = Block::bordered().inner(layout[1]);
+                if point_in_rect(mouse.column, mouse.row, table_inner)
+                    && mouse.row >= table_inner.y.saturating_add(2)
+                {
+                    let row = (mouse.row - table_inner.y.saturating_add(2)) as usize;
+                    let idx = app.history_scroll + row;
+                    if idx < app.drill_history.len() {
+                        app.history_selected = idx;
+                        keep_history_selection_visible(app, current_history_page_size());
+                    }
+                }
+            }
+        }
+        MouseEventKind::ScrollUp => {
+            if app.stats_tab == 1 {
+                app.history_selected = app.history_selected.saturating_sub(1);
+                keep_history_selection_visible(app, current_history_page_size());
+            } else {
+                app.stats_tab = app.stats_tab.saturating_sub(1);
+            }
+        }
+        MouseEventKind::ScrollDown => {
+            if app.stats_tab == 1 {
+                if !app.drill_history.is_empty() {
+                    app.history_selected =
+                        (app.history_selected + 1).min(app.drill_history.len() - 1);
+                    keep_history_selection_visible(app, current_history_page_size());
+                }
+            } else {
+                app.stats_tab = (app.stats_tab + 1).min(STATS_TAB_COUNT - 1);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn settings_fields(app: &App) -> Vec<(String, String, bool)> {
+    vec![
+        (
+            "Target WPM".to_string(),
+            format!("{}", app.config.target_wpm),
+            false,
+        ),
+        ("Theme".to_string(), app.config.theme.clone(), false),
+        (
+            "Word Count".to_string(),
+            format!("{}", app.config.word_count),
+            false,
+        ),
+        (
+            "Code Language".to_string(),
+            app.config.code_language.clone(),
+            false,
+        ),
+        (
+            "Code Downloads".to_string(),
+            if app.config.code_downloads_enabled {
+                "On".to_string()
+            } else {
+                "Off".to_string()
+            },
+            false,
+        ),
+        (
+            "Code Download Dir".to_string(),
+            app.config.code_download_dir.clone(),
+            true,
+        ),
+        (
+            "Snippets per Repo".to_string(),
+            if app.config.code_snippets_per_repo == 0 {
+                "Unlimited".to_string()
+            } else {
+                format!("{}", app.config.code_snippets_per_repo)
+            },
+            false,
+        ),
+        (
+            "Download Code Now".to_string(),
+            "Run downloader".to_string(),
+            false,
+        ),
+        (
+            "Passage Downloads".to_string(),
+            if app.config.passage_downloads_enabled {
+                "On".to_string()
+            } else {
+                "Off".to_string()
+            },
+            false,
+        ),
+        (
+            "Passage Download Dir".to_string(),
+            app.config.passage_download_dir.clone(),
+            true,
+        ),
+        (
+            "Paragraphs per Book".to_string(),
+            if app.config.passage_paragraphs_per_book == 0 {
+                "Whole book".to_string()
+            } else {
+                format!("{}", app.config.passage_paragraphs_per_book)
+            },
+            false,
+        ),
+        (
+            "Download Passages Now".to_string(),
+            "Run downloader".to_string(),
+            false,
+        ),
+        (
+            "Export Path".to_string(),
+            app.settings_export_path.clone(),
+            true,
+        ),
+        ("Export Data".to_string(), "Export now".to_string(), false),
+        (
+            "Import Path".to_string(),
+            app.settings_import_path.clone(),
+            true,
+        ),
+        ("Import Data".to_string(), "Import now".to_string(), false),
+    ]
+}
+
+fn handle_settings_mouse(app: &mut App, mouse: MouseEvent) {
+    match mouse.kind {
+        MouseEventKind::ScrollUp => {
+            app.settings_selected = app.settings_selected.saturating_sub(1);
+            return;
+        }
+        MouseEventKind::ScrollDown => {
+            app.settings_selected = (app.settings_selected + 1).min(15);
+            return;
+        }
+        MouseEventKind::Down(MouseButton::Left) => {}
+        _ => return,
+    }
+
+    if app.settings_status_message.is_some() {
+        app.settings_status_message = None;
+        return;
+    }
+
+    if app.settings_export_conflict {
+        let area = terminal_area();
+        let dialog_width = 52u16.min(area.width.saturating_sub(4));
+        let dialog_height = 6u16;
+        let dialog_x = area.x + area.width.saturating_sub(dialog_width) / 2;
+        let dialog_y = area.y + area.height.saturating_sub(dialog_height) / 2;
+        let dialog = Rect::new(dialog_x, dialog_y, dialog_width, dialog_height);
+        if point_in_rect(mouse.column, mouse.row, dialog) {
+            let third = dialog.width / 3;
+            if mouse.column < dialog.x + third {
+                app.settings_export_conflict = false;
+                app.export_data_overwrite();
+            } else if mouse.column < dialog.x + 2 * third {
+                app.settings_export_conflict = false;
+                app.export_data_rename();
+            } else {
+                app.settings_export_conflict = false;
+            }
+        }
+        return;
+    }
+
+    if app.settings_confirm_import {
+        let area = terminal_area();
+        let dialog_width = 52u16.min(area.width.saturating_sub(4));
+        let dialog_height = 7u16;
+        let dialog_x = area.x + area.width.saturating_sub(dialog_width) / 2;
+        let dialog_y = area.y + area.height.saturating_sub(dialog_height) / 2;
+        let dialog = Rect::new(dialog_x, dialog_y, dialog_width, dialog_height);
+        if point_in_rect(mouse.column, mouse.row, dialog) {
+            if mouse.column < dialog.x + dialog.width / 2 {
+                app.settings_confirm_import = false;
+                app.import_data();
+            } else {
+                app.settings_confirm_import = false;
+            }
+        }
+        return;
+    }
+
+    if app.settings_editing_path.is_some() {
+        return;
+    }
+
+    let area = terminal_area();
+    let centered = ui::layout::centered_rect(60, 80, area);
+    let inner = Block::bordered().inner(centered);
+    let fields = settings_fields(app);
+    let header_height = if inner.height > 0 { 1 } else { 0 };
+    let footer_hints = vec![
+        "[ESC] Save & back",
+        "[Enter/arrows] Change value",
+        "[Enter on path] Edit",
+    ];
+    let footer_height = if inner.height > header_height {
+        pack_hint_lines(&footer_hints, inner.width as usize)
+            .len()
+            .max(1) as u16
+    } else {
+        0
+    };
+    let field_height = inner.height.saturating_sub(header_height + footer_height);
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(header_height),
+            Constraint::Length(field_height),
+            Constraint::Length(footer_height),
+        ])
+        .split(inner);
+
+    let row_height = 2u16;
+    let visible_rows = (layout[1].height / row_height).max(1) as usize;
+    let max_start = fields.len().saturating_sub(visible_rows);
+    let start = app
+        .settings_selected
+        .saturating_sub(visible_rows.saturating_sub(1))
+        .min(max_start);
+    let end = (start + visible_rows).min(fields.len());
+    let visible_fields = &fields[start..end];
+    let field_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(
+            visible_fields
+                .iter()
+                .map(|_| Constraint::Length(row_height))
+                .collect::<Vec<_>>(),
+        )
+        .split(layout[1]);
+
+    for (row, _) in visible_fields.iter().enumerate() {
+        let rect = field_layout[row];
+        if point_in_rect(mouse.column, mouse.row, rect) {
+            let idx = start + row;
+            app.settings_selected = idx;
+            let is_button = idx == 7 || idx == 11 || idx == 13 || idx == 15;
+            let is_path = idx == 5 || idx == 9 || idx == 12 || idx == 14;
+            let value_row = mouse.row > rect.y;
+            if is_button || is_path || value_row {
+                activate_settings_selected(app);
+            }
+            break;
+        }
+    }
+}
+
+fn handle_menu_key(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Char('q') | KeyCode::Esc => app.should_quit = true,
+        KeyCode::Char('1') => {
+            app.menu.selected = 0;
+            app.drill_mode = DrillMode::Adaptive;
+            app.drill_scope = DrillScope::Global;
+            app.start_drill();
+        }
+        KeyCode::Char('2') => {
+            app.menu.selected = 1;
+            activate_menu_selected(app);
+        }
+        KeyCode::Char('3') => {
+            app.menu.selected = 2;
+            activate_menu_selected(app);
+        }
+        KeyCode::Char('t') => {
+            app.menu.selected = 3;
+            activate_menu_selected(app);
+        }
+        KeyCode::Char('b') => {
+            app.menu.selected = 4;
+            activate_menu_selected(app);
+        }
+        KeyCode::Char('s') => {
+            app.menu.selected = 5;
+            activate_menu_selected(app);
+        }
+        KeyCode::Char('c') => {
+            app.menu.selected = 6;
+            activate_menu_selected(app);
+        }
         KeyCode::Up | KeyCode::Char('k') => app.menu.prev(),
         KeyCode::Down | KeyCode::Char('j') => app.menu.next(),
-        KeyCode::Enter => match app.menu.selected {
-            0 => {
-                app.drill_mode = DrillMode::Adaptive;
-                app.drill_scope = DrillScope::Global;
-                app.start_drill();
-            }
-            1 => {
-                if app.config.code_onboarding_done {
-                    app.go_to_code_language_select();
-                } else {
-                    app.go_to_code_intro();
-                }
-            }
-            2 => {
-                if app.config.passage_onboarding_done {
-                    app.go_to_passage_book_select();
-                } else {
-                    app.go_to_passage_intro();
-                }
-            }
-            3 => app.go_to_skill_tree(),
-            4 => app.go_to_keyboard(),
-            5 => app.go_to_stats(),
-            6 => app.go_to_settings(),
-            _ => {}
-        },
+        KeyCode::Enter => activate_menu_selected(app),
         _ => {}
     }
 }
@@ -524,6 +1032,47 @@ fn handle_stats_key(app: &mut App, key: KeyEvent) {
     }
 }
 
+fn activate_settings_selected(app: &mut App) {
+    match app.settings_selected {
+        5 => {
+            app.clear_settings_modals();
+            app.settings_editing_path = Some((
+                PathField::CodeDownloadDir,
+                LineInput::new(&app.config.code_download_dir),
+            ));
+        }
+        9 => {
+            app.clear_settings_modals();
+            app.settings_editing_path = Some((
+                PathField::PassageDownloadDir,
+                LineInput::new(&app.config.passage_download_dir),
+            ));
+        }
+        7 => app.start_code_downloads_from_settings(),
+        11 => app.start_passage_downloads_from_settings(),
+        12 => {
+            app.clear_settings_modals();
+            app.settings_editing_path = Some((
+                PathField::ExportPath,
+                LineInput::new(&app.settings_export_path),
+            ));
+        }
+        13 => app.export_data(),
+        14 => {
+            app.clear_settings_modals();
+            app.settings_editing_path = Some((
+                PathField::ImportPath,
+                LineInput::new(&app.settings_import_path),
+            ));
+        }
+        15 => {
+            app.clear_settings_modals();
+            app.settings_confirm_import = true;
+        }
+        _ => app.settings_cycle_forward(),
+    }
+}
+
 fn handle_settings_key(app: &mut App, key: KeyEvent) {
     const MAX_SETTINGS: usize = 15;
 
@@ -603,44 +1152,7 @@ fn handle_settings_key(app: &mut App, key: KeyEvent) {
                 app.settings_selected += 1;
             }
         }
-        KeyCode::Enter => match app.settings_selected {
-            5 => {
-                app.clear_settings_modals();
-                app.settings_editing_path = Some((
-                    PathField::CodeDownloadDir,
-                    LineInput::new(&app.config.code_download_dir),
-                ));
-            }
-            9 => {
-                app.clear_settings_modals();
-                app.settings_editing_path = Some((
-                    PathField::PassageDownloadDir,
-                    LineInput::new(&app.config.passage_download_dir),
-                ));
-            }
-            7 => app.start_code_downloads_from_settings(),
-            11 => app.start_passage_downloads_from_settings(),
-            12 => {
-                app.clear_settings_modals();
-                app.settings_editing_path = Some((
-                    PathField::ExportPath,
-                    LineInput::new(&app.settings_export_path),
-                ));
-            }
-            13 => app.export_data(),
-            14 => {
-                app.clear_settings_modals();
-                app.settings_editing_path = Some((
-                    PathField::ImportPath,
-                    LineInput::new(&app.settings_import_path),
-                ));
-            }
-            15 => {
-                app.clear_settings_modals();
-                app.settings_confirm_import = true;
-            }
-            _ => app.settings_cycle_forward(),
-        },
+        KeyCode::Enter => activate_settings_selected(app),
         KeyCode::Right | KeyCode::Char('l') => {
             match app.settings_selected {
                 5 | 7 | 9 | 11 | 12 | 13 | 14 | 15 => {} // path/button fields
@@ -708,6 +1220,89 @@ fn handle_code_language_key(app: &mut App, key: KeyEvent) {
     }
 }
 
+fn code_language_list_area(app: &App, area: Rect) -> Rect {
+    let centered = ui::layout::centered_rect(50, 70, area);
+    let inner = Block::bordered().inner(centered);
+    let options = code_language_options();
+    let width = inner.width as usize;
+    let hint_lines = pack_hint_lines(
+        &[
+            "[Up/Down/PgUp/PgDn] Navigate",
+            "[Enter] Confirm",
+            "[ESC] Back",
+        ],
+        width,
+    );
+    let disabled_notice =
+        "  Some languages are disabled: enable network downloads in intro/settings.";
+    let has_disabled = !app.config.code_downloads_enabled
+        && options
+            .iter()
+            .any(|(key, _)| is_code_language_disabled(app, key));
+    let notice_lines = wrapped_line_count(disabled_notice, width);
+    let total_height = inner.height as usize;
+    let show_notice = has_disabled && total_height >= hint_lines.len() + notice_lines + 3;
+    let desired_footer_height = hint_lines.len() + if show_notice { notice_lines } else { 0 };
+    let footer_height = desired_footer_height.min(total_height.saturating_sub(1)) as u16;
+    if footer_height > 0 {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(footer_height)])
+            .split(inner)[0]
+    } else {
+        inner
+    }
+}
+
+fn handle_code_language_mouse(app: &mut App, mouse: MouseEvent) {
+    let options = code_language_options();
+    let len = options.len();
+    if len == 0 {
+        return;
+    }
+    match mouse.kind {
+        MouseEventKind::ScrollUp => {
+            app.code_language_selected = app.code_language_selected.saturating_sub(1);
+        }
+        MouseEventKind::ScrollDown => {
+            if app.code_language_selected + 1 < len {
+                app.code_language_selected += 1;
+            }
+        }
+        MouseEventKind::Down(MouseButton::Left) => {
+            let list_area = code_language_list_area(app, terminal_area());
+            if !point_in_rect(mouse.column, mouse.row, list_area) {
+                return;
+            }
+            let viewport_height = (list_area.height as usize).saturating_sub(2).max(1);
+            let scroll = app.code_language_scroll;
+            let visible_end = (scroll + viewport_height).min(len);
+            let line_offset = (mouse.row - list_area.y) as usize;
+            if line_offset == 0 {
+                return;
+            }
+            let idx = scroll + line_offset - 1;
+            if idx < visible_end {
+                let selected_before = app.code_language_selected;
+                app.code_language_selected = idx;
+                let key = options[idx].0;
+                if selected_before == idx && !is_code_language_disabled(app, key) {
+                    confirm_code_language_and_continue(app, &options);
+                    return;
+                }
+            }
+        }
+        _ => {}
+    }
+
+    let viewport = 15usize;
+    if app.code_language_selected < app.code_language_scroll {
+        app.code_language_scroll = app.code_language_selected;
+    } else if app.code_language_selected >= app.code_language_scroll + viewport {
+        app.code_language_scroll = app.code_language_selected + 1 - viewport;
+    }
+}
+
 fn code_language_requires_download(app: &App, key: &str) -> bool {
     if key == "all" {
         return false;
@@ -761,6 +1356,74 @@ fn handle_passage_book_key(app: &mut App, key: KeyEvent) {
             if app.passage_book_selected < options.len() {
                 let key = options[app.passage_book_selected].0;
                 if !is_passage_option_disabled(app, key) {
+                    confirm_passage_book_and_continue(app, &options);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn passage_book_list_area(app: &App, area: Rect) -> Rect {
+    let centered = ui::layout::centered_rect(60, 70, area);
+    let inner = Block::bordered().inner(centered);
+    let options = passage_options();
+    let width = inner.width as usize;
+    let hint_lines = pack_hint_lines(
+        &["[Up/Down] Navigate", "[Enter] Confirm", "[ESC] Back"],
+        width,
+    );
+    let disabled_notice =
+        "  Some sources are disabled: enable network downloads in intro/settings.";
+    let has_disabled = !app.config.passage_downloads_enabled
+        && options
+            .iter()
+            .any(|(key, _)| is_passage_option_disabled(app, key));
+    let notice_lines = wrapped_line_count(disabled_notice, width);
+    let total_height = inner.height as usize;
+    let show_notice = has_disabled && total_height >= hint_lines.len() + notice_lines + 3;
+    let desired_footer_height = hint_lines.len() + if show_notice { notice_lines } else { 0 };
+    let footer_height = desired_footer_height.min(total_height.saturating_sub(1)) as u16;
+    if footer_height > 0 {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(footer_height)])
+            .split(inner)[0]
+    } else {
+        inner
+    }
+}
+
+fn handle_passage_book_mouse(app: &mut App, mouse: MouseEvent) {
+    let options = passage_options();
+    if options.is_empty() {
+        return;
+    }
+    match mouse.kind {
+        MouseEventKind::ScrollUp => {
+            app.passage_book_selected = app.passage_book_selected.saturating_sub(1);
+        }
+        MouseEventKind::ScrollDown => {
+            if app.passage_book_selected + 1 < options.len() {
+                app.passage_book_selected += 1;
+            }
+        }
+        MouseEventKind::Down(MouseButton::Left) => {
+            let list_area = passage_book_list_area(app, terminal_area());
+            if !point_in_rect(mouse.column, mouse.row, list_area) {
+                return;
+            }
+            let viewport_height = list_area.height as usize;
+            let start = app
+                .passage_book_selected
+                .saturating_sub(viewport_height.saturating_sub(1));
+            let row = (mouse.row - list_area.y) as usize;
+            let idx = start + row;
+            if idx < options.len() {
+                let selected_before = app.passage_book_selected;
+                app.passage_book_selected = idx;
+                let key = options[idx].0;
+                if selected_before == idx && !is_passage_option_disabled(app, key) {
                     confirm_passage_book_and_continue(app, &options);
                 }
             }
@@ -873,10 +1536,87 @@ fn handle_passage_intro_key(app: &mut App, key: KeyEvent) {
     }
 }
 
+fn intro_field_at_row(base_y: u16, y: u16) -> Option<(usize, bool)> {
+    if y < base_y {
+        return None;
+    }
+    let rel = y - base_y;
+    let field = (rel / 3) as usize;
+    if field >= 4 {
+        return None;
+    }
+    let value_row = rel % 3 == 1;
+    Some((field, value_row))
+}
+
+fn passage_intro_content_area(area: Rect) -> Rect {
+    let centered = ui::layout::centered_rect(75, 80, area);
+    let inner = Block::bordered().inner(centered);
+    let hint_lines = pack_hint_lines(
+        &[
+            "[Up/Down] Navigate",
+            "[Left/Right] Adjust",
+            "[Type/Backspace] Edit",
+            "[Enter] Confirm",
+            "[ESC] Cancel",
+        ],
+        inner.width as usize,
+    );
+    let footer_height = (hint_lines.len() + 1) as u16;
+    if footer_height > 0 && footer_height < inner.height {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(footer_height)])
+            .split(inner)[0]
+    } else {
+        inner
+    }
+}
+
+fn handle_passage_intro_mouse(app: &mut App, mouse: MouseEvent) {
+    if app.passage_intro_downloading {
+        return;
+    }
+    match mouse.kind {
+        MouseEventKind::ScrollUp => {
+            app.passage_intro_selected = app.passage_intro_selected.saturating_sub(1);
+        }
+        MouseEventKind::ScrollDown => {
+            app.passage_intro_selected = (app.passage_intro_selected + 1).min(3);
+        }
+        MouseEventKind::Down(MouseButton::Left) => {
+            let content = passage_intro_content_area(terminal_area());
+            if !point_in_rect(mouse.column, mouse.row, content) {
+                return;
+            }
+            let base_y = content.y.saturating_add(4);
+            if let Some((field, value_row)) = intro_field_at_row(base_y, mouse.row) {
+                let was_selected = app.passage_intro_selected == field;
+                app.passage_intro_selected = field;
+                if field == 0 && (value_row || was_selected) {
+                    app.passage_intro_downloads_enabled = !app.passage_intro_downloads_enabled;
+                } else if field == 3 && (value_row || was_selected) {
+                    handle_passage_intro_key(
+                        app,
+                        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                    );
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 fn handle_passage_download_progress_key(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc | KeyCode::Char('q') => app.go_to_menu(),
         _ => {}
+    }
+}
+
+fn handle_passage_download_progress_mouse(app: &mut App, mouse: MouseEvent) {
+    if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+        app.go_to_menu();
     }
 }
 
@@ -962,6 +1702,61 @@ fn handle_code_intro_key(app: &mut App, key: KeyEvent) {
     }
 }
 
+fn code_intro_content_area(area: Rect) -> Rect {
+    let centered = ui::layout::centered_rect(75, 80, area);
+    let inner = Block::bordered().inner(centered);
+    let hint_lines = pack_hint_lines(
+        &[
+            "[Up/Down] Navigate",
+            "[Left/Right] Adjust",
+            "[Type/Backspace] Edit",
+            "[Enter] Confirm",
+            "[ESC] Cancel",
+        ],
+        inner.width as usize,
+    );
+    let footer_height = (hint_lines.len() + 1) as u16;
+    if footer_height > 0 && footer_height < inner.height {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(footer_height)])
+            .split(inner)[0]
+    } else {
+        inner
+    }
+}
+
+fn handle_code_intro_mouse(app: &mut App, mouse: MouseEvent) {
+    if app.code_intro_downloading {
+        return;
+    }
+    match mouse.kind {
+        MouseEventKind::ScrollUp => {
+            app.code_intro_selected = app.code_intro_selected.saturating_sub(1);
+        }
+        MouseEventKind::ScrollDown => {
+            app.code_intro_selected = (app.code_intro_selected + 1).min(3);
+        }
+        MouseEventKind::Down(MouseButton::Left) => {
+            let content = code_intro_content_area(terminal_area());
+            if !point_in_rect(mouse.column, mouse.row, content) {
+                return;
+            }
+            let base_y = content.y.saturating_add(4);
+            if let Some((field, value_row)) = intro_field_at_row(base_y, mouse.row) {
+                let was_selected = app.code_intro_selected == field;
+                app.code_intro_selected = field;
+                if field == 0 && (value_row || was_selected) {
+                    app.code_intro_downloads_enabled = !app.code_intro_downloads_enabled;
+                } else if field == 3 && (value_row || was_selected) {
+                    handle_code_intro_key(app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 fn handle_code_download_progress_key(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc | KeyCode::Char('q') => {
@@ -969,6 +1764,13 @@ fn handle_code_download_progress_key(app: &mut App, key: KeyEvent) {
             app.go_to_menu();
         }
         _ => {}
+    }
+}
+
+fn handle_code_download_progress_mouse(app: &mut App, mouse: MouseEvent) {
+    if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+        app.cancel_code_download();
+        app.go_to_menu();
     }
 }
 
@@ -1036,6 +1838,162 @@ fn handle_skill_tree_key(app: &mut App, key: KeyEvent) {
                 } else if status == engine::skill_tree::BranchStatus::InProgress {
                     app.start_branch_drill(branch_id);
                 }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn skill_tree_interactive_areas(app: &App, area: Rect) -> (Rect, Rect) {
+    let centered = skill_tree_popup_rect(area);
+    let inner = Block::bordered().inner(centered);
+    let branches = selectable_branches();
+    let selected = app
+        .skill_tree_selected
+        .min(branches.len().saturating_sub(1));
+    let bp = branches
+        .get(selected)
+        .map(|id| app.skill_tree.branch_progress(*id));
+    let (footer_hints, footer_notice) = match bp.map(|b| b.status.clone()) {
+        Some(BranchStatus::Locked) => (
+            vec![
+                "[↑↓/jk] Navigate",
+                "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                "[q] Back",
+            ],
+            Some("Complete a-z to unlock branches"),
+        ),
+        Some(BranchStatus::Available) => (
+            vec![
+                "[Enter] Unlock",
+                "[↑↓/jk] Navigate",
+                "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                "[q] Back",
+            ],
+            None,
+        ),
+        Some(BranchStatus::InProgress) => (
+            vec![
+                "[Enter] Start Drill",
+                "[↑↓/jk] Navigate",
+                "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                "[q] Back",
+            ],
+            None,
+        ),
+        _ => (
+            vec![
+                "[↑↓/jk] Navigate",
+                "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                "[q] Back",
+            ],
+            None,
+        ),
+    };
+    let hint_lines = pack_hint_lines(&footer_hints, inner.width as usize);
+    let notice_lines = footer_notice
+        .map(|text| wrapped_line_count(text, inner.width as usize))
+        .unwrap_or(0);
+    let show_notice =
+        footer_notice.is_some() && (inner.height as usize >= hint_lines.len() + notice_lines + 8);
+    let footer_needed = hint_lines.len() + if show_notice { notice_lines } else { 0 } + 1;
+    let footer_height = footer_needed
+        .min(inner.height.saturating_sub(5) as usize)
+        .max(1) as u16;
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(4), Constraint::Length(footer_height)])
+        .split(inner);
+
+    if use_side_by_side_layout(inner.width) {
+        let main = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(42),
+                Constraint::Length(1),
+                Constraint::Percentage(58),
+            ])
+            .split(layout[0]);
+        (main[0], main[2])
+    } else {
+        let branch_list_height = branches.len() as u16 * 2 + 1;
+        let main = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(branch_list_height.min(layout[0].height.saturating_sub(4))),
+                Constraint::Length(1),
+                Constraint::Min(3),
+            ])
+            .split(layout[0]);
+        (main[0], main[2])
+    }
+}
+
+fn handle_skill_tree_mouse(app: &mut App, mouse: MouseEvent) {
+    const DETAIL_SCROLL_STEP: usize = 3;
+    if let Some(branch_id) = app.skill_tree_confirm_unlock {
+        if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+            let area = terminal_area();
+            let dialog_width = 72u16.min(area.width.saturating_sub(4));
+            let sentence_one = "Once unlocked, the default adaptive drill will mix in keys in this branch that are unlocked.";
+            let sentence_two = "If you want to focus only on this branch, launch a drill directly from this branch in the Skill Tree.";
+            let content_width = dialog_width.saturating_sub(6).max(1) as usize;
+            let body_required = 5
+                + wrapped_line_count(sentence_one, content_width)
+                + wrapped_line_count(sentence_two, content_width);
+            let min_dialog_height = (body_required + 1 + 2) as u16;
+            let preferred_dialog_height = (body_required + 2 + 2) as u16;
+            let max_dialog_height = area.height.saturating_sub(1).max(7);
+            let dialog_height = preferred_dialog_height
+                .min(max_dialog_height)
+                .max(min_dialog_height.min(max_dialog_height));
+            let dialog_x = area.x + area.width.saturating_sub(dialog_width) / 2;
+            let dialog_y = area.y + area.height.saturating_sub(dialog_height) / 2;
+            let dialog = Rect::new(dialog_x, dialog_y, dialog_width, dialog_height);
+            if point_in_rect(mouse.column, mouse.row, dialog) {
+                if mouse.column < dialog.x + dialog.width / 2 {
+                    app.unlock_branch(branch_id);
+                }
+                app.skill_tree_confirm_unlock = None;
+            }
+        }
+        return;
+    }
+
+    match mouse.kind {
+        MouseEventKind::ScrollUp => {
+            app.skill_tree_detail_scroll = app
+                .skill_tree_detail_scroll
+                .saturating_sub(DETAIL_SCROLL_STEP);
+        }
+        MouseEventKind::ScrollDown => {
+            let max_scroll = skill_tree_detail_max_scroll(app);
+            app.skill_tree_detail_scroll = app
+                .skill_tree_detail_scroll
+                .saturating_add(DETAIL_SCROLL_STEP)
+                .min(max_scroll);
+        }
+        MouseEventKind::Down(MouseButton::Left) => {
+            let branches = selectable_branches();
+            let (branch_area, detail_area) = skill_tree_interactive_areas(app, terminal_area());
+            if point_in_rect(mouse.column, mouse.row, branch_area) {
+                let relative = (mouse.row - branch_area.y) as usize;
+                let idx = (relative / 2).min(branches.len().saturating_sub(1));
+                let already_selected = idx == app.skill_tree_selected;
+                app.skill_tree_selected = idx;
+                app.skill_tree_detail_scroll = 0;
+                if already_selected {
+                    let branch_id = branches[idx];
+                    let status = app.skill_tree.branch_status(branch_id).clone();
+                    if status == BranchStatus::Available {
+                        app.skill_tree_confirm_unlock = Some(branch_id);
+                    } else if status == BranchStatus::InProgress {
+                        app.start_branch_drill(branch_id);
+                    }
+                }
+            } else if point_in_rect(mouse.column, mouse.row, detail_area) {
+                // Click in detail pane focuses selected branch; scroll wheel handles movement.
+                let _ = detail_area;
             }
         }
         _ => {}
@@ -1481,15 +2439,25 @@ fn render_milestone_overlay(
     let area = frame.area();
     let colors = &app.theme.colors;
 
+    let is_key_milestone = matches!(milestone.kind, MilestoneKind::Unlock | MilestoneKind::Mastery);
+
     // Determine overlay size based on terminal height:
-    // Large (>=25): full keyboard diagram
-    // Medium (>=15): compact keyboard diagram
-    // Small (<15): text only
-    let kbd_mode = overlay_keyboard_mode(area.height);
-    let overlay_height = match kbd_mode {
-        2 => 18u16.min(area.height.saturating_sub(2)),
-        1 => 14u16.min(area.height.saturating_sub(2)),
-        _ => 10u16.min(area.height.saturating_sub(2)),
+    // Key milestones get keyboard diagrams; other milestones are text-only
+    let kbd_mode = if is_key_milestone {
+        overlay_keyboard_mode(area.height)
+    } else {
+        0
+    };
+    let overlay_height = match &milestone.kind {
+        MilestoneKind::BranchesAvailable => 18u16.min(area.height.saturating_sub(2)),
+        MilestoneKind::BranchComplete
+        | MilestoneKind::AllKeysUnlocked
+        | MilestoneKind::AllKeysMastered => 12u16.min(area.height.saturating_sub(2)),
+        _ => match kbd_mode {
+            2 => 18u16.min(area.height.saturating_sub(2)),
+            1 => 14u16.min(area.height.saturating_sub(2)),
+            _ => 10u16.min(area.height.saturating_sub(2)),
+        },
     };
     let overlay_width = 60u16.min(area.width.saturating_sub(4));
 
@@ -1503,6 +2471,10 @@ fn render_milestone_overlay(
     let title = match milestone.kind {
         MilestoneKind::Unlock => " Key Unlocked! ",
         MilestoneKind::Mastery => " Key Mastered! ",
+        MilestoneKind::BranchesAvailable => " New Skill Branches Available! ",
+        MilestoneKind::BranchComplete => " Branch Complete! ",
+        MilestoneKind::AllKeysUnlocked => " Every Key Unlocked! ",
+        MilestoneKind::AllKeysMastered => " Full Keyboard Mastery! ",
     };
 
     let block = Block::bordered()
@@ -1514,80 +2486,216 @@ fn render_milestone_overlay(
 
     let mut lines: Vec<Line> = Vec::new();
 
-    // Key display line
-    let key_action = match milestone.kind {
-        MilestoneKind::Unlock => "unlocked",
-        MilestoneKind::Mastery => "mastered",
-    };
-
-    let key_names: Vec<String> = milestone
-        .keys
-        .iter()
-        .map(|&ch| {
-            let name = keyboard::display::key_display_name(ch);
-            if name.is_empty() {
-                format!("'{ch}'")
-            } else {
-                name.to_string()
-            }
-        })
-        .collect();
-    let keys_str = key_names.join(", ");
-
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        format!("  You {key_action}: {keys_str}"),
-        Style::default()
-            .fg(colors.accent())
-            .add_modifier(Modifier::BOLD),
-    )));
-
-    // Finger info (for unlocks)
-    if matches!(milestone.kind, MilestoneKind::Unlock) {
-        for (ch, finger_desc) in &milestone.finger_info {
-            let key_label = {
-                let name = keyboard::display::key_display_name(*ch);
-                if name.is_empty() {
-                    format!("'{ch}'")
-                } else {
-                    name.to_string()
-                }
+    match milestone.kind {
+        MilestoneKind::Unlock | MilestoneKind::Mastery => {
+            let key_action = match milestone.kind {
+                MilestoneKind::Unlock => "unlocked",
+                _ => "mastered",
             };
+
+            let key_names: Vec<String> = milestone
+                .keys
+                .iter()
+                .map(|&ch| {
+                    let name = keyboard::display::key_display_name(ch);
+                    if name.is_empty() {
+                        format!("'{ch}'")
+                    } else {
+                        name.to_string()
+                    }
+                })
+                .collect();
+            let keys_str = key_names.join(", ");
+
+            lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
-                format!("  {key_label}: Use your {finger_desc}"),
-                Style::default().fg(colors.fg()),
+                format!("  You {key_action}: {keys_str}"),
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
             )));
 
-            // Shift key guidance for shifted characters
-            let fa = app.keyboard_model.finger_for_char(*ch);
-            if ch.is_ascii_uppercase()
-                || (!ch.is_ascii_lowercase()
-                    && !ch.is_ascii_digit()
-                    && !ch.is_ascii_whitespace()
-                    && *ch != ' ')
-            {
-                let shift_hint = if fa.hand == keyboard::finger::Hand::Left {
-                    "Hold Right Shift (right pinky)"
-                } else {
-                    "Hold Left Shift (left pinky)"
-                };
+            // Finger info (for unlocks)
+            if matches!(milestone.kind, MilestoneKind::Unlock) {
+                for (ch, finger_desc) in &milestone.finger_info {
+                    let key_label = {
+                        let name = keyboard::display::key_display_name(*ch);
+                        if name.is_empty() {
+                            format!("'{ch}'")
+                        } else {
+                            name.to_string()
+                        }
+                    };
+                    lines.push(Line::from(Span::styled(
+                        format!("  {key_label}: Use your {finger_desc}"),
+                        Style::default().fg(colors.fg()),
+                    )));
+
+                    // Shift key guidance for shifted characters
+                    let fa = app.keyboard_model.finger_for_char(*ch);
+                    if ch.is_ascii_uppercase()
+                        || (!ch.is_ascii_lowercase()
+                            && !ch.is_ascii_digit()
+                            && !ch.is_ascii_whitespace()
+                            && *ch != ' ')
+                    {
+                        let shift_hint = if fa.hand == keyboard::finger::Hand::Left {
+                            "Hold Right Shift (right pinky)"
+                        } else {
+                            "Hold Left Shift (left pinky)"
+                        };
+                        lines.push(Line::from(Span::styled(
+                            format!("  {shift_hint}"),
+                            Style::default().fg(colors.text_pending()),
+                        )));
+                    }
+                }
+            }
+
+            // Encouraging message
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                format!("  {}", milestone.message),
+                Style::default().fg(colors.focused_key()),
+            )));
+        }
+
+        MilestoneKind::BranchesAvailable => {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "  Congratulations! You've mastered all 26 lowercase",
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(Span::styled(
+                "  keys!",
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "  New skill branches are now available:",
+                Style::default().fg(colors.fg()),
+            )));
+            for &branch_id in &milestone.branch_ids {
+                let name = get_branch_definition(branch_id).name;
                 lines.push(Line::from(Span::styled(
-                    format!("  {shift_hint}"),
-                    Style::default().fg(colors.text_pending()),
+                    format!("    \u{2022} {name}"),
+                    Style::default().fg(colors.focused_key()),
                 )));
             }
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "  Visit the Skill Tree to unlock a new branch",
+                Style::default().fg(colors.fg()),
+            )));
+            lines.push(Line::from(Span::styled(
+                "  and start training!",
+                Style::default().fg(colors.fg()),
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "  Press [t] from the menu to open the Skill Tree",
+                Style::default().fg(colors.text_pending()),
+            )));
+        }
+
+        MilestoneKind::BranchComplete => {
+            lines.push(Line::from(""));
+            let branch_names: Vec<&str> = milestone
+                .branch_ids
+                .iter()
+                .map(|&id| get_branch_definition(id).name)
+                .collect();
+            let branches_text = if branch_names.len() == 1 {
+                format!(
+                    "  You've fully mastered the {} branch!",
+                    branch_names[0]
+                )
+            } else {
+                let all_but_last = &branch_names[..branch_names.len() - 1];
+                let last = branch_names[branch_names.len() - 1];
+                format!(
+                    "  You've fully mastered the {} and {} branches!",
+                    all_but_last.join(", "),
+                    last
+                )
+            };
+            lines.push(Line::from(Span::styled(
+                branches_text,
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "  Other branches are waiting to be unlocked in the",
+                Style::default().fg(colors.fg()),
+            )));
+            lines.push(Line::from(Span::styled(
+                "  Skill Tree. Keep going!",
+                Style::default().fg(colors.fg()),
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "  Press [t] from the menu to open the Skill Tree",
+                Style::default().fg(colors.text_pending()),
+            )));
+        }
+
+        MilestoneKind::AllKeysUnlocked => {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "  You've unlocked every key on the keyboard!",
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "  All keys are now part of your practice drills.",
+                Style::default().fg(colors.fg()),
+            )));
+            lines.push(Line::from(Span::styled(
+                "  Keep training to build full confidence with each",
+                Style::default().fg(colors.fg()),
+            )));
+            lines.push(Line::from(Span::styled(
+                "  key!",
+                Style::default().fg(colors.fg()),
+            )));
+        }
+
+        MilestoneKind::AllKeysMastered => {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "  Incredible! You've reached full confidence with",
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(Span::styled(
+                "  every single key on the keyboard!",
+                Style::default()
+                    .fg(colors.accent())
+                    .add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "  You've completed everything keydr has to teach.",
+                Style::default().fg(colors.fg()),
+            )));
+            lines.push(Line::from(Span::styled(
+                "  Keep practicing to maintain your skills!",
+                Style::default().fg(colors.fg()),
+            )));
         }
     }
 
-    // Encouraging message (randomly selected at creation time)
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        format!("  {}", milestone.message),
-        Style::default().fg(colors.focused_key()),
-    )));
-
-    // Keyboard diagram (if space permits)
-    if kbd_mode > 0 {
+    // Keyboard diagram (only for key milestones, if space permits)
+    if kbd_mode > 0 && is_key_milestone {
         let min_kbd_height: u16 = if kbd_mode == 2 { 6 } else { 4 };
         let remaining = inner.height.saturating_sub(lines.len() as u16 + 2);
         if remaining >= min_kbd_height {
@@ -1691,6 +2799,7 @@ mod review_tests {
                 keys: vec!['a'],
                 finger_info: vec![('a', "left pinky".to_string())],
                 message: "msg",
+                branch_ids: vec![],
             });
 
         let before_cursor = app.drill.as_ref().map(|d| d.cursor).unwrap_or(0);
@@ -1714,6 +2823,7 @@ mod review_tests {
                 keys: vec!['a'],
                 finger_info: vec![('a', "left pinky".to_string())],
                 message: "msg1",
+                branch_ids: vec![],
             });
         app.milestone_queue
             .push_back(crate::app::KeyMilestonePopup {
@@ -1721,6 +2831,7 @@ mod review_tests {
                 keys: vec!['a'],
                 finger_info: vec![('a', "left pinky".to_string())],
                 message: "msg2",
+                branch_ids: vec![],
             });
 
         handle_key(
@@ -1771,6 +2882,7 @@ mod review_tests {
                 keys: vec!['a'],
                 finger_info: vec![('a', "left pinky".to_string())],
                 message: "msg",
+                branch_ids: vec![],
             });
         app.post_drill_input_lock_until =
             Some(Instant::now() + std::time::Duration::from_millis(500));
@@ -4080,6 +5192,25 @@ fn handle_keyboard_explorer_key(app: &mut App, key: KeyEvent) {
             app.key_accuracy('\x08', true);
         }
         _ => {}
+    }
+}
+
+fn handle_keyboard_explorer_mouse(app: &mut App, mouse: MouseEvent) {
+    if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+        return;
+    }
+    let area = terminal_area();
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Length(8),
+            Constraint::Min(3),
+            Constraint::Length(1),
+        ])
+        .split(area);
+    if point_in_rect(mouse.column, mouse.row, layout[3]) {
+        app.go_to_menu();
     }
 }
 

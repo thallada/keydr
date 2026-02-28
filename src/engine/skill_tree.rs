@@ -9,6 +9,10 @@ use crate::keyboard::display::{BACKSPACE, SPACE};
 pub struct SkillTreeUpdate {
     pub newly_unlocked: Vec<char>,
     pub newly_mastered: Vec<char>,
+    pub branches_newly_available: Vec<BranchId>,
+    pub branches_newly_completed: Vec<BranchId>,
+    pub all_keys_unlocked: bool,
+    pub all_keys_mastered: bool,
 }
 
 // --- Branch ID ---
@@ -522,24 +526,48 @@ impl SkillTree {
         let before_unlocked: HashSet<char> =
             self.unlocked_keys(DrillScope::Global).into_iter().collect();
 
+        // Snapshot branch statuses before any updates
+        let before_branch_statuses: HashMap<BranchId, BranchStatus> = BranchId::all()
+            .iter()
+            .map(|&id| (id, self.branch_status(id).clone()))
+            .collect();
+        let before_unlocked_count = self.total_unlocked_count();
+
         // Update lowercase branch (progressive unlock)
         self.update_lowercase(stats);
 
         // Check if lowercase is complete -> unlock other branches
+        // Snapshot non-lowercase branch statuses before auto-unlock (canonical order)
+        const NON_LOWERCASE_BRANCHES: &[BranchId] = &[
+            BranchId::Capitals,
+            BranchId::Numbers,
+            BranchId::ProsePunctuation,
+            BranchId::Whitespace,
+            BranchId::CodeSymbols,
+        ];
+        let before_auto_unlock: Vec<(BranchId, BranchStatus)> = NON_LOWERCASE_BRANCHES
+            .iter()
+            .map(|&id| (id, self.branch_status(id).clone()))
+            .collect();
+
         if *self.branch_status(BranchId::Lowercase) == BranchStatus::Complete {
-            for &id in &[
-                BranchId::Capitals,
-                BranchId::Numbers,
-                BranchId::ProsePunctuation,
-                BranchId::Whitespace,
-                BranchId::CodeSymbols,
-            ] {
+            for &id in NON_LOWERCASE_BRANCHES {
                 let bp = self.branch_progress_mut(id);
                 if bp.status == BranchStatus::Locked {
                     bp.status = BranchStatus::Available;
                 }
             }
         }
+
+        // Detect Locked → Available transitions (maintains canonical order)
+        let branches_newly_available: Vec<BranchId> = before_auto_unlock
+            .iter()
+            .filter(|(id, before_status)| {
+                *before_status == BranchStatus::Locked
+                    && *self.branch_status(*id) == BranchStatus::Available
+            })
+            .map(|(id, _)| *id)
+            .collect();
 
         // Update InProgress branches (non-lowercase)
         for branch_def in ALL_BRANCHES {
@@ -552,6 +580,33 @@ impl SkillTree {
             }
             self.update_branch_level(branch_def, stats);
         }
+
+        // Detect branches that became Complete
+        let branches_newly_completed: Vec<BranchId> = BranchId::all()
+            .iter()
+            .filter(|&&id| {
+                before_branch_statuses
+                    .get(&id)
+                    .map(|s| *s != BranchStatus::Complete)
+                    .unwrap_or(true)
+                    && *self.branch_status(id) == BranchStatus::Complete
+            })
+            .copied()
+            .collect();
+
+        // Detect all keys unlocked
+        let after_unlocked_count = self.total_unlocked_count();
+        let all_keys_unlocked = after_unlocked_count == self.total_unique_keys
+            && before_unlocked_count != self.total_unique_keys;
+
+        // Detect all keys mastered
+        let all_complete_now = BranchId::all()
+            .iter()
+            .all(|&id| *self.branch_status(id) == BranchStatus::Complete);
+        let all_complete_before = BranchId::all()
+            .iter()
+            .all(|id| before_branch_statuses.get(id) == Some(&BranchStatus::Complete));
+        let all_keys_mastered = all_complete_now && !all_complete_before;
 
         // Snapshot after
         let after_unlocked: HashSet<char> =
@@ -577,6 +632,10 @@ impl SkillTree {
         SkillTreeUpdate {
             newly_unlocked,
             newly_mastered,
+            branches_newly_available,
+            branches_newly_completed,
+            all_keys_unlocked,
+            all_keys_mastered,
         }
     }
 
@@ -1100,5 +1159,230 @@ mod tests {
     #[test]
     fn test_find_key_branch_unknown() {
         assert!(find_key_branch('\x00').is_none());
+    }
+
+    #[test]
+    fn test_branches_newly_available_on_lowercase_complete() {
+        let mut tree = SkillTree::default();
+        let mut stats = KeyStatsStore::default();
+
+        let all_lowercase = get_branch_definition(BranchId::Lowercase).levels[0].keys;
+        make_stats_confident(&mut stats, all_lowercase);
+
+        // Run updates to advance through progressive unlock
+        let mut found_available = false;
+        for _ in 0..30 {
+            let result = tree.update(&stats, None);
+            if !result.branches_newly_available.is_empty() {
+                found_available = true;
+                // Should contain exactly the 5 non-lowercase branches
+                assert_eq!(result.branches_newly_available.len(), 5);
+                assert!(!result.branches_newly_available.contains(&BranchId::Lowercase));
+                assert!(result.branches_newly_available.contains(&BranchId::Capitals));
+                assert!(result.branches_newly_available.contains(&BranchId::Numbers));
+                assert!(result
+                    .branches_newly_available
+                    .contains(&BranchId::ProsePunctuation));
+                assert!(result
+                    .branches_newly_available
+                    .contains(&BranchId::Whitespace));
+                assert!(result
+                    .branches_newly_available
+                    .contains(&BranchId::CodeSymbols));
+                break;
+            }
+        }
+        assert!(found_available, "branches_newly_available should fire once");
+
+        // Second update should NOT have branches_newly_available
+        let result2 = tree.update(&stats, None);
+        assert!(
+            result2.branches_newly_available.is_empty(),
+            "branches_newly_available should be empty on subsequent call"
+        );
+    }
+
+    #[test]
+    fn test_branches_newly_completed_on_branch_complete() {
+        let mut tree = SkillTree::default();
+        let mut stats = KeyStatsStore::default();
+
+        // Set up: capitals InProgress
+        tree.branch_progress_mut(BranchId::Capitals).status = BranchStatus::InProgress;
+
+        // Make all capital letters confident
+        let all_caps: Vec<char> = ('A'..='Z').collect();
+        make_stats_confident(&mut stats, &all_caps);
+
+        // Advance through levels
+        let mut found_complete = false;
+        for _ in 0..5 {
+            let result = tree.update(&stats, None);
+            if result.branches_newly_completed.contains(&BranchId::Capitals) {
+                found_complete = true;
+                break;
+            }
+        }
+        assert!(
+            found_complete,
+            "branches_newly_completed should contain Capitals"
+        );
+
+        // Second update should not re-report
+        let result2 = tree.update(&stats, None);
+        assert!(
+            !result2.branches_newly_completed.contains(&BranchId::Capitals),
+            "should not re-report Capitals as newly completed"
+        );
+    }
+
+    #[test]
+    fn test_all_keys_unlocked_fires_once() {
+        let mut tree = SkillTree::default();
+        let mut stats = KeyStatsStore::default();
+
+        // Set all branches to InProgress at last level with all keys confident
+        // First complete lowercase
+        let all_lowercase = get_branch_definition(BranchId::Lowercase).levels[0].keys;
+        make_stats_confident(&mut stats, all_lowercase);
+        for _ in 0..30 {
+            tree.update(&stats, None);
+        }
+
+        // Start all branches and make their keys confident
+        for &id in &[
+            BranchId::Capitals,
+            BranchId::Numbers,
+            BranchId::ProsePunctuation,
+            BranchId::Whitespace,
+            BranchId::CodeSymbols,
+        ] {
+            tree.start_branch(id);
+            let def = get_branch_definition(id);
+            for level in def.levels {
+                make_stats_confident(&mut stats, level.keys);
+            }
+        }
+
+        // Advance all branches through their levels
+        let mut found_all_unlocked = false;
+        for _ in 0..20 {
+            let result = tree.update(&stats, None);
+            if result.all_keys_unlocked {
+                found_all_unlocked = true;
+                break;
+            }
+        }
+        assert!(
+            found_all_unlocked,
+            "all_keys_unlocked should fire when last key becomes available"
+        );
+
+        // Subsequent call should not fire again
+        let result = tree.update(&stats, None);
+        assert!(
+            !result.all_keys_unlocked,
+            "all_keys_unlocked should not fire on subsequent calls"
+        );
+    }
+
+    #[test]
+    fn test_all_keys_mastered_fires_once() {
+        let mut tree = SkillTree::default();
+        let mut stats = KeyStatsStore::default();
+
+        // Make all keys across all branches confident
+        for branch_def in ALL_BRANCHES {
+            for level in branch_def.levels {
+                make_stats_confident(&mut stats, level.keys);
+            }
+        }
+
+        // Complete lowercase first
+        for _ in 0..30 {
+            tree.update(&stats, None);
+        }
+
+        // Start and advance all other branches
+        for &id in &[
+            BranchId::Capitals,
+            BranchId::Numbers,
+            BranchId::ProsePunctuation,
+            BranchId::Whitespace,
+            BranchId::CodeSymbols,
+        ] {
+            tree.start_branch(id);
+        }
+
+        let mut found_all_mastered = false;
+        for _ in 0..30 {
+            let result = tree.update(&stats, None);
+            if result.all_keys_mastered {
+                found_all_mastered = true;
+                break;
+            }
+        }
+        assert!(
+            found_all_mastered,
+            "all_keys_mastered should fire when all branches complete"
+        );
+
+        // Subsequent call should not fire again
+        let result = tree.update(&stats, None);
+        assert!(
+            !result.all_keys_mastered,
+            "all_keys_mastered should not fire on subsequent calls"
+        );
+    }
+
+    #[test]
+    fn test_branches_newly_available_only_non_lowercase() {
+        let mut tree = SkillTree::default();
+        let mut stats = KeyStatsStore::default();
+
+        let all_lowercase = get_branch_definition(BranchId::Lowercase).levels[0].keys;
+        make_stats_confident(&mut stats, all_lowercase);
+
+        for _ in 0..30 {
+            let result = tree.update(&stats, None);
+            if !result.branches_newly_available.is_empty() {
+                for &id in &result.branches_newly_available {
+                    assert_ne!(
+                        id,
+                        BranchId::Lowercase,
+                        "branches_newly_available should not contain Lowercase"
+                    );
+                }
+                break;
+            }
+        }
+    }
+
+    #[test]
+    fn test_branches_newly_available_canonical_order() {
+        let mut tree = SkillTree::default();
+        let mut stats = KeyStatsStore::default();
+
+        let all_lowercase = get_branch_definition(BranchId::Lowercase).levels[0].keys;
+        make_stats_confident(&mut stats, all_lowercase);
+
+        for _ in 0..30 {
+            let result = tree.update(&stats, None);
+            if !result.branches_newly_available.is_empty() {
+                // Must be in canonical order: Capitals, Numbers, ProsePunctuation, Whitespace, CodeSymbols
+                assert_eq!(
+                    result.branches_newly_available,
+                    vec![
+                        BranchId::Capitals,
+                        BranchId::Numbers,
+                        BranchId::ProsePunctuation,
+                        BranchId::Whitespace,
+                        BranchId::CodeSymbols,
+                    ],
+                    "branches_newly_available must be in canonical order"
+                );
+                break;
+            }
+        }
     }
 }
