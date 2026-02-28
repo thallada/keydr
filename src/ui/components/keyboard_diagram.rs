@@ -256,6 +256,25 @@ impl Widget for KeyboardDiagram<'_> {
 }
 
 impl KeyboardDiagram<'_> {
+    pub fn key_at_position(
+        area: Rect,
+        model: &KeyboardModel,
+        compact: bool,
+        x: u16,
+        y: u16,
+    ) -> Option<char> {
+        let inner = Block::bordered().inner(area);
+        if compact {
+            return key_at_compact_position(inner, model, x, y);
+        }
+
+        if inner.height >= 4 && inner.width >= 75 {
+            key_at_full_position(inner, model, x, y)
+        } else {
+            key_at_full_fallback_position(inner, model, x, y)
+        }
+    }
+
     fn render_compact(&self, inner: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
         let letter_rows = self.model.letter_rows();
@@ -596,4 +615,231 @@ impl KeyboardDiagram<'_> {
             }
         }
     }
+}
+
+fn rect_contains(area: Rect, x: u16, y: u16) -> bool {
+    x >= area.x && x < area.x + area.width && y >= area.y && y < area.y + area.height
+}
+
+fn key_at_compact_position(inner: Rect, model: &KeyboardModel, x: u16, y: u16) -> Option<char> {
+    let letter_rows = model.letter_rows();
+    let key_width: u16 = 3;
+    let min_width: u16 = 21;
+    if inner.height < 3 || inner.width < min_width {
+        return None;
+    }
+
+    let offsets: &[u16] = &[3, 4, 6];
+    let keyboard_width = letter_rows
+        .iter()
+        .enumerate()
+        .map(|(row_idx, row)| {
+            let offset = offsets.get(row_idx).copied().unwrap_or(0);
+            let row_end = offset + row.len() as u16 * key_width;
+            match row_idx {
+                0 => row_end + 3,
+                1 => row_end + 3,
+                2 => row_end + 3,
+                _ => row_end,
+            }
+        })
+        .max()
+        .unwrap_or(0);
+    let start_x = inner.x + inner.width.saturating_sub(keyboard_width) / 2;
+
+    for (row_idx, row) in letter_rows.iter().enumerate() {
+        let row_y = inner.y + row_idx as u16;
+        if y != row_y {
+            continue;
+        }
+
+        match row_idx {
+            0 => {
+                let tab_rect = Rect::new(start_x, row_y, 3, 1);
+                if rect_contains(tab_rect, x, y) {
+                    return Some(TAB);
+                }
+            }
+            2 => {
+                let shft_rect = Rect::new(start_x, row_y, 3, 1);
+                if rect_contains(shft_rect, x, y) {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+
+        let offset = offsets.get(row_idx).copied().unwrap_or(0);
+        for (col_idx, key) in row.iter().enumerate() {
+            let key_x = start_x + offset + col_idx as u16 * key_width;
+            let key_rect = Rect::new(key_x, row_y, 3, 1);
+            if rect_contains(key_rect, x, y) {
+                return Some(key.base);
+            }
+        }
+
+        let row_end_x = start_x + offset + row.len() as u16 * key_width;
+        match row_idx {
+            1 => {
+                let enter_rect = Rect::new(row_end_x, row_y, 3, 1);
+                if rect_contains(enter_rect, x, y) {
+                    return Some(ENTER);
+                }
+            }
+            2 => {
+                let shft_rect = Rect::new(row_end_x, row_y, 3, 1);
+                if rect_contains(shft_rect, x, y) {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if inner.height >= 3 {
+        let y0 = inner.y;
+        let row_end_x = start_x + offsets[0] + letter_rows[0].len() as u16 * key_width;
+        let back_rect = Rect::new(row_end_x, y0, 3, 1);
+        if rect_contains(back_rect, x, y) {
+            return Some(BACKSPACE);
+        }
+    }
+    None
+}
+
+fn key_at_full_position(inner: Rect, model: &KeyboardModel, x: u16, y: u16) -> Option<char> {
+    let key_width: u16 = 5;
+    let offsets: &[u16] = &[0, 5, 5, 6];
+    let keyboard_width = model
+        .rows
+        .iter()
+        .enumerate()
+        .map(|(row_idx, row)| {
+            let offset = offsets.get(row_idx).copied().unwrap_or(0);
+            let row_end = offset + row.len() as u16 * key_width;
+            match row_idx {
+                0 => row_end + 6,
+                2 => row_end + 7,
+                3 => row_end + 6,
+                _ => row_end,
+            }
+        })
+        .max()
+        .unwrap_or(0);
+    let start_x = inner.x + inner.width.saturating_sub(keyboard_width) / 2;
+
+    for (row_idx, row) in model.rows.iter().enumerate() {
+        let row_y = inner.y + row_idx as u16;
+        if y != row_y {
+            continue;
+        }
+        let offset = offsets.get(row_idx).copied().unwrap_or(0);
+
+        match row_idx {
+            1 => {
+                let tab_rect = Rect::new(start_x, row_y, 5, 1);
+                if rect_contains(tab_rect, x, y) {
+                    return Some(TAB);
+                }
+            }
+            2 => {
+                let cap_rect = Rect::new(start_x, row_y, 5, 1);
+                if rect_contains(cap_rect, x, y) {
+                    return None;
+                }
+            }
+            3 => {
+                let shft_rect = Rect::new(start_x, row_y, 6, 1);
+                if rect_contains(shft_rect, x, y) {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+
+        for (col_idx, key) in row.iter().enumerate() {
+            let key_x = start_x + offset + col_idx as u16 * key_width;
+            let key_rect = Rect::new(key_x, row_y, key_width, 1);
+            if rect_contains(key_rect, x, y) {
+                return Some(key.base);
+            }
+        }
+
+        let after_x = start_x + offset + row.len() as u16 * key_width;
+        match row_idx {
+            0 => {
+                let rect = Rect::new(after_x, row_y, 6, 1);
+                if rect_contains(rect, x, y) {
+                    return Some(BACKSPACE);
+                }
+            }
+            2 => {
+                let rect = Rect::new(after_x, row_y, 7, 1);
+                if rect_contains(rect, x, y) {
+                    return Some(ENTER);
+                }
+            }
+            3 => {
+                let rect = Rect::new(after_x, row_y, 6, 1);
+                if rect_contains(rect, x, y) {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let space_y = inner.y + 4;
+    if y == space_y {
+        let space_name = display::key_display_name(SPACE);
+        let space_label = format!("[       {space_name}       ]");
+        let space_width = space_label.len() as u16;
+        let space_x = start_x + (keyboard_width.saturating_sub(space_width)) / 2;
+        let space_rect = Rect::new(space_x, space_y, space_width, 1);
+        if rect_contains(space_rect, x, y) {
+            return Some(SPACE);
+        }
+    }
+    None
+}
+
+fn key_at_full_fallback_position(
+    inner: Rect,
+    model: &KeyboardModel,
+    x: u16,
+    y: u16,
+) -> Option<char> {
+    let letter_rows = model.letter_rows();
+    let key_width: u16 = 5;
+    let offsets: &[u16] = &[1, 3, 5];
+    let keyboard_width = letter_rows
+        .iter()
+        .enumerate()
+        .map(|(row_idx, row)| {
+            let offset = offsets.get(row_idx).copied().unwrap_or(0);
+            offset + row.len() as u16 * key_width
+        })
+        .max()
+        .unwrap_or(0);
+    let start_x = inner.x + inner.width.saturating_sub(keyboard_width) / 2;
+
+    if inner.height < 3 || inner.width < 30 {
+        return None;
+    }
+
+    for (row_idx, row) in letter_rows.iter().enumerate() {
+        let row_y = inner.y + row_idx as u16;
+        if y != row_y {
+            continue;
+        }
+        let offset = offsets.get(row_idx).copied().unwrap_or(0);
+        for (col_idx, key) in row.iter().enumerate() {
+            let key_x = start_x + offset + col_idx as u16 * key_width;
+            let key_rect = Rect::new(key_x, row_y, key_width, 1);
+            if rect_contains(key_rect, x, y) {
+                return Some(key.base);
+            }
+        }
+    }
+    None
 }

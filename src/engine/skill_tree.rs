@@ -1177,18 +1177,32 @@ mod tests {
                 found_available = true;
                 // Should contain exactly the 5 non-lowercase branches
                 assert_eq!(result.branches_newly_available.len(), 5);
-                assert!(!result.branches_newly_available.contains(&BranchId::Lowercase));
-                assert!(result.branches_newly_available.contains(&BranchId::Capitals));
+                assert!(
+                    !result
+                        .branches_newly_available
+                        .contains(&BranchId::Lowercase)
+                );
+                assert!(
+                    result
+                        .branches_newly_available
+                        .contains(&BranchId::Capitals)
+                );
                 assert!(result.branches_newly_available.contains(&BranchId::Numbers));
-                assert!(result
-                    .branches_newly_available
-                    .contains(&BranchId::ProsePunctuation));
-                assert!(result
-                    .branches_newly_available
-                    .contains(&BranchId::Whitespace));
-                assert!(result
-                    .branches_newly_available
-                    .contains(&BranchId::CodeSymbols));
+                assert!(
+                    result
+                        .branches_newly_available
+                        .contains(&BranchId::ProsePunctuation)
+                );
+                assert!(
+                    result
+                        .branches_newly_available
+                        .contains(&BranchId::Whitespace)
+                );
+                assert!(
+                    result
+                        .branches_newly_available
+                        .contains(&BranchId::CodeSymbols)
+                );
                 break;
             }
         }
@@ -1218,7 +1232,10 @@ mod tests {
         let mut found_complete = false;
         for _ in 0..5 {
             let result = tree.update(&stats, None);
-            if result.branches_newly_completed.contains(&BranchId::Capitals) {
+            if result
+                .branches_newly_completed
+                .contains(&BranchId::Capitals)
+            {
                 found_complete = true;
                 break;
             }
@@ -1231,7 +1248,9 @@ mod tests {
         // Second update should not re-report
         let result2 = tree.update(&stats, None);
         assert!(
-            !result2.branches_newly_completed.contains(&BranchId::Capitals),
+            !result2
+                .branches_newly_completed
+                .contains(&BranchId::Capitals),
             "should not re-report Capitals as newly completed"
         );
     }

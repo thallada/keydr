@@ -39,8 +39,8 @@ use keyboard::finger::Hand;
 use ui::components::dashboard::Dashboard;
 use ui::components::keyboard_diagram::KeyboardDiagram;
 use ui::components::skill_tree::{
-    SkillTreeWidget, detail_line_count_with_level_spacing, selectable_branches,
-    use_expanded_level_spacing, use_side_by_side_layout,
+    SkillTreeWidget, branch_list_spacing_flags, detail_line_count_with_level_spacing,
+    selectable_branches, use_expanded_level_spacing, use_side_by_side_layout,
 };
 use ui::components::stats_dashboard::{
     AnomalyBigramRow, NgramTabData, StatsDashboard, history_page_size_for_terminal,
@@ -1844,7 +1844,14 @@ fn handle_skill_tree_key(app: &mut App, key: KeyEvent) {
     }
 }
 
-fn skill_tree_interactive_areas(app: &App, area: Rect) -> (Rect, Rect) {
+struct SkillTreeMouseLayout {
+    branch_area: Rect,
+    detail_area: Rect,
+    inter_branch_spacing: bool,
+    separator_padding: bool,
+}
+
+fn skill_tree_interactive_areas(app: &App, area: Rect) -> SkillTreeMouseLayout {
     let centered = skill_tree_popup_rect(area);
     let inner = Block::bordered().inner(centered);
     let branches = selectable_branches();
@@ -1914,7 +1921,14 @@ fn skill_tree_interactive_areas(app: &App, area: Rect) -> (Rect, Rect) {
                 Constraint::Percentage(58),
             ])
             .split(layout[0]);
-        (main[0], main[2])
+        let (inter_branch_spacing, separator_padding) =
+            branch_list_spacing_flags(main[0].height, branches.len());
+        SkillTreeMouseLayout {
+            branch_area: main[0],
+            detail_area: main[2],
+            inter_branch_spacing,
+            separator_padding,
+        }
     } else {
         let branch_list_height = branches.len() as u16 * 2 + 1;
         let main = Layout::default()
@@ -1925,8 +1939,49 @@ fn skill_tree_interactive_areas(app: &App, area: Rect) -> (Rect, Rect) {
                 Constraint::Min(3),
             ])
             .split(layout[0]);
-        (main[0], main[2])
+        SkillTreeMouseLayout {
+            branch_area: main[0],
+            detail_area: main[2],
+            inter_branch_spacing: false,
+            separator_padding: false,
+        }
     }
+}
+
+fn skill_tree_branch_index_from_y(
+    branch_area: Rect,
+    y: u16,
+    branch_count: usize,
+    inter_branch_spacing: bool,
+    separator_padding: bool,
+) -> Option<usize> {
+    if y < branch_area.y || y >= branch_area.y + branch_area.height {
+        return None;
+    }
+    let rel_y = (y - branch_area.y) as usize;
+    let mut line = 0usize;
+    for idx in 0..branch_count {
+        if idx > 0 && inter_branch_spacing {
+            line += 1;
+        }
+        let title_line = line;
+        let progress_line = line + 1;
+        if rel_y == title_line || rel_y == progress_line {
+            return Some(idx);
+        }
+        line += 2;
+
+        if idx == 0 {
+            if separator_padding {
+                line += 1;
+            }
+            line += 1;
+            if separator_padding && !inter_branch_spacing {
+                line += 1;
+            }
+        }
+    }
+    None
 }
 
 fn handle_skill_tree_mouse(app: &mut App, mouse: MouseEvent) {
@@ -1975,25 +2030,31 @@ fn handle_skill_tree_mouse(app: &mut App, mouse: MouseEvent) {
         }
         MouseEventKind::Down(MouseButton::Left) => {
             let branches = selectable_branches();
-            let (branch_area, detail_area) = skill_tree_interactive_areas(app, terminal_area());
-            if point_in_rect(mouse.column, mouse.row, branch_area) {
-                let relative = (mouse.row - branch_area.y) as usize;
-                let idx = (relative / 2).min(branches.len().saturating_sub(1));
-                let already_selected = idx == app.skill_tree_selected;
-                app.skill_tree_selected = idx;
-                app.skill_tree_detail_scroll = 0;
-                if already_selected {
-                    let branch_id = branches[idx];
-                    let status = app.skill_tree.branch_status(branch_id).clone();
-                    if status == BranchStatus::Available {
-                        app.skill_tree_confirm_unlock = Some(branch_id);
-                    } else if status == BranchStatus::InProgress {
-                        app.start_branch_drill(branch_id);
+            let layout = skill_tree_interactive_areas(app, terminal_area());
+            if point_in_rect(mouse.column, mouse.row, layout.branch_area) {
+                if let Some(idx) = skill_tree_branch_index_from_y(
+                    layout.branch_area,
+                    mouse.row,
+                    branches.len(),
+                    layout.inter_branch_spacing,
+                    layout.separator_padding,
+                ) {
+                    let already_selected = idx == app.skill_tree_selected;
+                    app.skill_tree_selected = idx;
+                    app.skill_tree_detail_scroll = 0;
+                    if already_selected {
+                        let branch_id = branches[idx];
+                        let status = app.skill_tree.branch_status(branch_id).clone();
+                        if status == BranchStatus::Available {
+                            app.skill_tree_confirm_unlock = Some(branch_id);
+                        } else if status == BranchStatus::InProgress {
+                            app.start_branch_drill(branch_id);
+                        }
                     }
                 }
-            } else if point_in_rect(mouse.column, mouse.row, detail_area) {
+            } else if point_in_rect(mouse.column, mouse.row, layout.detail_area) {
                 // Click in detail pane focuses selected branch; scroll wheel handles movement.
-                let _ = detail_area;
+                let _ = layout.detail_area;
             }
         }
         _ => {}
@@ -2439,7 +2500,10 @@ fn render_milestone_overlay(
     let area = frame.area();
     let colors = &app.theme.colors;
 
-    let is_key_milestone = matches!(milestone.kind, MilestoneKind::Unlock | MilestoneKind::Mastery);
+    let is_key_milestone = matches!(
+        milestone.kind,
+        MilestoneKind::Unlock | MilestoneKind::Mastery
+    );
 
     // Determine overlay size based on terminal height:
     // Key milestones get keyboard diagrams; other milestones are text-only
@@ -2610,10 +2674,7 @@ fn render_milestone_overlay(
                 .map(|&id| get_branch_definition(id).name)
                 .collect();
             let branches_text = if branch_names.len() == 1 {
-                format!(
-                    "  You've fully mastered the {} branch!",
-                    branch_names[0]
-                )
+                format!("  You've fully mastered the {} branch!", branch_names[0])
             } else {
                 let all_but_last = &branch_names[..branch_names.len() - 1];
                 let last = branch_names[branch_names.len() - 1];
@@ -5211,6 +5272,21 @@ fn handle_keyboard_explorer_mouse(app: &mut App, mouse: MouseEvent) {
         .split(area);
     if point_in_rect(mouse.column, mouse.row, layout[3]) {
         app.go_to_menu();
+        return;
+    }
+
+    if point_in_rect(mouse.column, mouse.row, layout[1])
+        && let Some(ch) = KeyboardDiagram::key_at_position(
+            layout[1],
+            &app.keyboard_model,
+            false,
+            mouse.column,
+            mouse.row,
+        )
+    {
+        app.keyboard_explorer_selected = Some(ch);
+        app.key_accuracy(ch, false);
+        app.key_accuracy(ch, true);
     }
 }
 

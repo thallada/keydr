@@ -2688,8 +2688,7 @@ mod tests {
             drill.started_at = Some(now);
             drill.finished_at = Some(now + Duration::from_millis(200 * (target.len() as u64)));
             drill.cursor = drill.target.len();
-            drill.input =
-                vec![crate::session::input::CharStatus::Correct; drill.target.len()];
+            drill.input = vec![crate::session::input::CharStatus::Correct; drill.target.len()];
         }
     }
 
