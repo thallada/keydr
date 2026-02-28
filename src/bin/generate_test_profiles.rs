@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::fs;
 
 use chrono::{DateTime, TimeZone, Utc};
+use rand::rngs::SmallRng;
+use rand::{Rng, SeedableRng};
 
 use keydr::config::Config;
 use keydr::engine::key_stats::{KeyStat, KeyStatsStore};
@@ -18,24 +20,31 @@ const TARGET_CPM: f64 = 175.0;
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-/// Generate a KeyStat with deterministic values derived from target confidence.
-fn make_key_stat(confidence: f64, sample_count: usize) -> KeyStat {
+/// Generate a KeyStat with plausible jitter around a target confidence.
+/// Uses seeded RNG for deterministic fixture output.
+fn make_key_stat(rng: &mut SmallRng, confidence: f64, sample_count: usize) -> KeyStat {
     let target_time_ms = 60000.0 / TARGET_CPM; // ~342.86 ms
-    let filtered_time_ms = target_time_ms / confidence;
-    let best_time_ms = filtered_time_ms * 0.85;
+    let speed_jitter = rng.gen_range(0.92..1.08);
+    let filtered_time_ms = (target_time_ms / confidence) * speed_jitter;
+    let best_time_ms = filtered_time_ms * rng.gen_range(0.78..0.9);
 
     // Generate recent_times: up to 30 entries near filtered_time_ms
     let recent_count = sample_count.min(30);
     let recent_times: Vec<f64> = (0..recent_count)
-        .map(|i| filtered_time_ms + (i as f64 - recent_count as f64 / 2.0) * 2.0)
+        .map(|i| {
+            let trend = (i as f64 - recent_count as f64 / 2.0) * rng.gen_range(1.2..2.6);
+            let noise = rng.gen_range(-8.0..8.0);
+            (filtered_time_ms + trend + noise).max(best_time_ms)
+        })
         .collect();
 
     // Error rate scales inversely with confidence
-    let error_rate = if confidence >= 1.0 {
-        0.02
+    let mut error_rate = if confidence >= 1.0 {
+        rng.gen_range(0.01..0.04)
     } else {
-        0.1 + (1.0 - confidence) * 0.3
+        (0.08 + (1.0 - confidence) * rng.gen_range(0.22..0.36)).min(0.48)
     };
+    error_rate = error_rate.clamp(0.005, 0.6);
     let error_count = (sample_count as f64 * error_rate * 0.5) as usize;
     let total_count = sample_count + error_count;
 
@@ -59,6 +68,7 @@ fn drill_timestamp(base: DateTime<Utc>, day: u32, drill_in_day: u32) -> DateTime
 
 /// Generate a DrillResult with deterministic per_key_times.
 fn make_drill_result(
+    rng: &mut SmallRng,
     wpm: f64,
     accuracy: f64,
     char_count: usize,
@@ -68,27 +78,29 @@ fn make_drill_result(
     ranked: bool,
 ) -> DrillResult {
     let cpm = wpm * 5.0;
-    let incorrect = ((1.0 - accuracy / 100.0) * char_count as f64).round() as usize;
-    let correct = char_count - incorrect;
-    let elapsed_secs = char_count as f64 / (cpm / 60.0);
+    let target_error_rate = (1.0 - accuracy / 100.0).clamp(0.005, 0.2);
 
-    // Generate per_key_times cycling through available keys
+    // Generate per_key_times with varied transitions for realistic n-gram data.
     let per_key_times: Vec<KeyTime> = (0..char_count)
         .map(|i| {
-            let key = keys[i % keys.len()];
-            let is_correct = i >= incorrect; // first N are incorrect, rest correct
+            let key = keys[rng.gen_range(0..keys.len())];
+            let is_correct = !rng.gen_bool(target_error_rate);
+            let base_transition = 60000.0 / cpm;
             let time_ms = if is_correct {
-                60000.0 / cpm + (i as f64 % 7.0) * 3.0
+                base_transition + rng.gen_range(-14.0..24.0) + (i as f64 % 5.0) * 1.2
             } else {
-                60000.0 / cpm + 150.0 + (i as f64 % 5.0) * 10.0
+                base_transition + rng.gen_range(120.0..290.0) + (i as f64 % 5.0) * 8.0
             };
             KeyTime {
                 key,
-                time_ms,
+                time_ms: time_ms.max(25.0),
                 correct: is_correct,
             }
         })
         .collect();
+    let incorrect = per_key_times.iter().filter(|kt| !kt.correct).count();
+    let correct = char_count - incorrect;
+    let elapsed_secs = (char_count as f64 / (cpm / 60.0)).max(1.0);
 
     DrillResult {
         wpm,
@@ -213,6 +225,7 @@ fn base_date() -> DateTime<Utc> {
 
 /// Generate drill history spread across `streak_days` days.
 fn generate_drills(
+    rng: &mut SmallRng,
     total: usize,
     streak_days: u32,
     keys: &[char],
@@ -234,11 +247,13 @@ fn generate_drills(
             let ts = drill_timestamp(base, day, drill_in_day);
 
             // Vary WPM slightly by index
-            let wpm = base_wpm + (i as f64 % 10.0) - 5.0;
-            let accuracy = 92.0 + (i as f64 % 8.0);
-            let char_count = 80 + (i % 40);
+            let wpm = (base_wpm + (i as f64 % 10.0) - 5.0 + rng.gen_range(-2.0..2.0)).max(12.0);
+            let accuracy = (91.5 + (i as f64 % 8.0) + rng.gen_range(-1.5..1.5)).clamp(86.0, 99.2);
+            let char_count = 80 + (i % 40) + rng.gen_range(0..12);
 
-            drills.push(make_drill_result(wpm, accuracy, char_count, keys, ts, mode, ranked));
+            drills.push(make_drill_result(
+                rng, wpm, accuracy, char_count, keys, ts, mode, ranked,
+            ));
             drill_idx += 1;
         }
     }
@@ -285,18 +300,40 @@ fn build_profile_02() -> ExportData {
     let mastered_keys = &all_keys[..6]; // e,t,a,o,i,n
     let partial_keys = &all_keys[6..];  // s,h,r,d
 
+    let mut rng = SmallRng::seed_from_u64(2002);
     let mut stats = KeyStatsStore::default();
     for &k in mastered_keys {
-        stats.stats.insert(k, make_key_stat(1.2, 40));
+        stats.stats.insert(k, make_key_stat(&mut rng, 1.2, 40));
     }
     let partial_confidences = [0.3, 0.5, 0.6, 0.7];
     for (i, &k) in partial_keys.iter().enumerate() {
-        stats.stats.insert(k, make_key_stat(partial_confidences[i], 10 + i * 3));
+        stats.stats.insert(
+            k,
+            make_key_stat(&mut rng, partial_confidences[i], 10 + i * 3),
+        );
+    }
+
+    let mut ranked_stats = KeyStatsStore::default();
+    for (&k, base) in &stats.stats {
+        let conf = if base.confidence >= 1.0 {
+            (base.confidence - rng.gen_range(0.0..0.18)).max(1.0)
+        } else {
+            (base.confidence + rng.gen_range(-0.1..0.08)).clamp(0.15, 0.95)
+        };
+        let sample_count = ((base.sample_count as f64) * rng.gen_range(0.5..0.8)).round() as usize
+            + 6;
+        ranked_stats.stats.insert(
+            k,
+            make_key_stat(&mut rng, conf, sample_count),
+        );
     }
 
     let drills = generate_drills(
-        15, 3, &all_keys,
-        &[("adaptive", false, 15)],
+        &mut rng,
+        15,
+        3,
+        &all_keys,
+        &[("adaptive", false, 11), ("adaptive", true, 4)],
         25.0,
     );
 
@@ -312,7 +349,7 @@ fn build_profile_02() -> ExportData {
             last_practice_date: last_practice_date_from_drills(&drills),
         },
         stats,
-        KeyStatsStore::default(),
+        ranked_stats,
         drills,
     )
 }
@@ -327,18 +364,40 @@ fn build_profile_03() -> ExportData {
     let mastered_keys = &all_keys[..14];
     let partial_keys = &all_keys[14..]; // w,f,g,y
 
+    let mut rng = SmallRng::seed_from_u64(2003);
     let mut stats = KeyStatsStore::default();
     for &k in mastered_keys {
-        stats.stats.insert(k, make_key_stat(1.3, 60));
+        stats.stats.insert(k, make_key_stat(&mut rng, 1.3, 60));
     }
     let partial_confidences = [0.4, 0.6, 0.7, 0.8];
     for (i, &k) in partial_keys.iter().enumerate() {
-        stats.stats.insert(k, make_key_stat(partial_confidences[i], 15 + i * 5));
+        stats.stats.insert(
+            k,
+            make_key_stat(&mut rng, partial_confidences[i], 15 + i * 5),
+        );
+    }
+
+    let mut ranked_stats = KeyStatsStore::default();
+    for (&k, base) in &stats.stats {
+        let conf = if base.confidence >= 1.0 {
+            (base.confidence - rng.gen_range(0.0..0.2)).max(1.0)
+        } else {
+            (base.confidence + rng.gen_range(-0.12..0.1)).clamp(0.2, 0.95)
+        };
+        let sample_count =
+            ((base.sample_count as f64) * rng.gen_range(0.52..0.82)).round() as usize + 8;
+        ranked_stats.stats.insert(
+            k,
+            make_key_stat(&mut rng, conf, sample_count),
+        );
     }
 
     let drills = generate_drills(
-        50, 7, &all_keys,
-        &[("adaptive", false, 50)],
+        &mut rng,
+        50,
+        7,
+        &all_keys,
+        &[("adaptive", false, 35), ("adaptive", true, 15)],
         30.0,
     );
 
@@ -354,7 +413,7 @@ fn build_profile_03() -> ExportData {
             last_practice_date: last_practice_date_from_drills(&drills),
         },
         stats,
-        KeyStatsStore::default(),
+        ranked_stats,
         drills,
     )
 }
@@ -372,14 +431,29 @@ fn build_profile_04() -> ExportData {
 
     let all_keys = lowercase_keys(26);
 
+    let mut rng = SmallRng::seed_from_u64(2004);
     let mut stats = KeyStatsStore::default();
     for &k in &all_keys {
-        stats.stats.insert(k, make_key_stat(1.4, 80));
+        stats.stats.insert(k, make_key_stat(&mut rng, 1.4, 80));
+    }
+
+    let mut ranked_stats = KeyStatsStore::default();
+    for (&k, base) in &stats.stats {
+        let conf = (base.confidence - rng.gen_range(0.0..0.2)).max(1.0);
+        let sample_count =
+            ((base.sample_count as f64) * rng.gen_range(0.55..0.85)).round() as usize + 10;
+        ranked_stats.stats.insert(
+            k,
+            make_key_stat(&mut rng, conf, sample_count),
+        );
     }
 
     let drills = generate_drills(
-        100, 14, &all_keys,
-        &[("adaptive", false, 100)],
+        &mut rng,
+        100,
+        14,
+        &all_keys,
+        &[("adaptive", false, 70), ("adaptive", true, 30)],
         35.0,
     );
 
@@ -395,7 +469,7 @@ fn build_profile_04() -> ExportData {
             last_practice_date: last_practice_date_from_drills(&drills),
         },
         stats,
-        KeyStatsStore::default(),
+        ranked_stats,
         drills,
     )
 }
@@ -411,33 +485,34 @@ fn build_profile_05() -> ExportData {
         (BranchId::CodeSymbols, BranchStatus::Available, 0),
     ]);
 
+    let mut rng = SmallRng::seed_from_u64(2005);
     let mut stats = KeyStatsStore::default();
 
     // All lowercase mastered
     for &k in &lowercase_keys(26) {
-        stats.stats.insert(k, make_key_stat(1.5, 100));
+        stats.stats.insert(k, make_key_stat(&mut rng, 1.5, 100));
     }
 
     // Capitals L1 mastered: T,I,A,S,W,H,B,M
     for &k in &['T', 'I', 'A', 'S', 'W', 'H', 'B', 'M'] {
-        stats.stats.insert(k, make_key_stat(1.2, 50));
+        stats.stats.insert(k, make_key_stat(&mut rng, 1.2, 50));
     }
     // Capitals L2 partial: J,D,R,C,E
     let cap_partial = [('J', 0.4), ('D', 0.5), ('R', 0.6), ('C', 0.3), ('E', 0.7)];
     for &(k, conf) in &cap_partial {
-        stats.stats.insert(k, make_key_stat(conf, 15));
+        stats.stats.insert(k, make_key_stat(&mut rng, conf, 15));
     }
 
     // Numbers L1 partial: 1,2,3
     let num_partial = [('1', 0.4), ('2', 0.5), ('3', 0.3)];
     for &(k, conf) in &num_partial {
-        stats.stats.insert(k, make_key_stat(conf, 12));
+        stats.stats.insert(k, make_key_stat(&mut rng, conf, 12));
     }
 
     // Prose punctuation L1 partial: . , '
     let punct_partial = [('.', 0.5), (',', 0.4), ('\'', 0.3)];
     for &(k, conf) in &punct_partial {
-        stats.stats.insert(k, make_key_stat(conf, 10));
+        stats.stats.insert(k, make_key_stat(&mut rng, conf, 10));
     }
 
     // Build all unlocked keys for drill history
@@ -447,7 +522,10 @@ fn build_profile_05() -> ExportData {
     all_unlocked.extend(branch_keys_up_to(BranchId::ProsePunctuation, 0));
 
     let drills = generate_drills(
-        200, 21, &all_unlocked,
+        &mut rng,
+        200,
+        21,
+        &all_unlocked,
         &[
             ("adaptive", false, 170),
             ("passage", false, 10),
@@ -459,7 +537,7 @@ fn build_profile_05() -> ExportData {
     // Ranked key stats: cover all keys used in ranked drills (all_unlocked)
     let mut ranked_stats = KeyStatsStore::default();
     for &k in &all_unlocked {
-        ranked_stats.stats.insert(k, make_key_stat(1.1, 20));
+        ranked_stats.stats.insert(k, make_key_stat(&mut rng, 1.1, 20));
     }
 
     // level ~7: score ~5000
@@ -490,40 +568,41 @@ fn build_profile_06() -> ExportData {
         (BranchId::CodeSymbols, BranchStatus::InProgress, 2),
     ]);
 
+    let mut rng = SmallRng::seed_from_u64(2006);
     let mut stats = KeyStatsStore::default();
 
     // All lowercase mastered
     for &k in &lowercase_keys(26) {
-        stats.stats.insert(k, make_key_stat(1.6, 200));
+        stats.stats.insert(k, make_key_stat(&mut rng, 1.6, 200));
     }
     // All capitals mastered
     for &k in &branch_all_keys(BranchId::Capitals) {
-        stats.stats.insert(k, make_key_stat(1.4, 120));
+        stats.stats.insert(k, make_key_stat(&mut rng, 1.4, 120));
     }
     // All numbers mastered
     for &k in &branch_all_keys(BranchId::Numbers) {
-        stats.stats.insert(k, make_key_stat(1.3, 100));
+        stats.stats.insert(k, make_key_stat(&mut rng, 1.3, 100));
     }
     // All prose punctuation mastered
     for &k in &branch_all_keys(BranchId::ProsePunctuation) {
-        stats.stats.insert(k, make_key_stat(1.3, 90));
+        stats.stats.insert(k, make_key_stat(&mut rng, 1.3, 90));
     }
     // All whitespace mastered
     for &k in &branch_all_keys(BranchId::Whitespace) {
-        stats.stats.insert(k, make_key_stat(1.2, 80));
+        stats.stats.insert(k, make_key_stat(&mut rng, 1.2, 80));
     }
     // Code Symbols L1 + L2 mastered
     for &k in &branch_keys_up_to(BranchId::CodeSymbols, 1) {
-        stats.stats.insert(k, make_key_stat(1.2, 60));
+        stats.stats.insert(k, make_key_stat(&mut rng, 1.2, 60));
     }
     // Code Symbols L3 partial: &,|,^,~
     // Note: '!' is shared with ProsePunctuation L3 (Complete), so it must be mastered
     let code_partial = [('&', 0.4), ('|', 0.5), ('^', 0.3), ('~', 0.4)];
     for &(k, conf) in &code_partial {
-        stats.stats.insert(k, make_key_stat(conf, 15));
+        stats.stats.insert(k, make_key_stat(&mut rng, conf, 15));
     }
     // '!' is mastered (shared with completed ProsePunctuation)
-    stats.stats.insert('!', make_key_stat(1.2, 60));
+    stats.stats.insert('!', make_key_stat(&mut rng, 1.2, 60));
 
     // All unlocked keys for drills
     let mut all_unlocked: Vec<char> = lowercase_keys(26);
@@ -534,7 +613,10 @@ fn build_profile_06() -> ExportData {
     all_unlocked.extend(branch_keys_up_to(BranchId::CodeSymbols, 2));
 
     let drills = generate_drills(
-        500, 45, &all_unlocked,
+        &mut rng,
+        500,
+        45,
+        &all_unlocked,
         &[
             ("adaptive", false, 350),
             ("passage", false, 50),
@@ -547,7 +629,7 @@ fn build_profile_06() -> ExportData {
     // Ranked key stats: cover all keys used in ranked drills (all_unlocked)
     let mut ranked_stats = KeyStatsStore::default();
     for &k in &all_unlocked {
-        ranked_stats.stats.insert(k, make_key_stat(1.1, 30));
+        ranked_stats.stats.insert(k, make_key_stat(&mut rng, 1.1, 30));
     }
 
     // level ~12: score ~15000
@@ -578,26 +660,27 @@ fn build_profile_07() -> ExportData {
         (BranchId::CodeSymbols, BranchStatus::Complete, 4),
     ]);
 
+    let mut rng = SmallRng::seed_from_u64(2007);
     let mut stats = KeyStatsStore::default();
 
     // All keys mastered with high sample counts
     for &k in &lowercase_keys(26) {
-        stats.stats.insert(k, make_key_stat(1.8, 400));
+        stats.stats.insert(k, make_key_stat(&mut rng, 1.8, 400));
     }
     for &k in &branch_all_keys(BranchId::Capitals) {
-        stats.stats.insert(k, make_key_stat(1.5, 200));
+        stats.stats.insert(k, make_key_stat(&mut rng, 1.5, 200));
     }
     for &k in &branch_all_keys(BranchId::Numbers) {
-        stats.stats.insert(k, make_key_stat(1.4, 180));
+        stats.stats.insert(k, make_key_stat(&mut rng, 1.4, 180));
     }
     for &k in &branch_all_keys(BranchId::ProsePunctuation) {
-        stats.stats.insert(k, make_key_stat(1.4, 160));
+        stats.stats.insert(k, make_key_stat(&mut rng, 1.4, 160));
     }
     for &k in &branch_all_keys(BranchId::Whitespace) {
-        stats.stats.insert(k, make_key_stat(1.3, 140));
+        stats.stats.insert(k, make_key_stat(&mut rng, 1.3, 140));
     }
     for &k in &branch_all_keys(BranchId::CodeSymbols) {
-        stats.stats.insert(k, make_key_stat(1.3, 120));
+        stats.stats.insert(k, make_key_stat(&mut rng, 1.3, 120));
     }
 
     // All keys for drills
@@ -609,7 +692,10 @@ fn build_profile_07() -> ExportData {
     all_keys.extend(branch_all_keys(BranchId::CodeSymbols));
 
     let drills = generate_drills(
-        800, 90, &all_keys,
+        &mut rng,
+        800,
+        90,
+        &all_keys,
         &[
             ("adaptive", false, 400),
             ("passage", false, 150),
@@ -622,7 +708,7 @@ fn build_profile_07() -> ExportData {
     // Full ranked stats
     let mut ranked_stats = KeyStatsStore::default();
     for &k in &all_keys {
-        ranked_stats.stats.insert(k, make_key_stat(1.4, 80));
+        ranked_stats.stats.insert(k, make_key_stat(&mut rng, 1.4, 80));
     }
 
     // level ~18: score ~35000

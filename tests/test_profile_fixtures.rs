@@ -220,34 +220,31 @@ fn profile_07_fully_complete_valid() {
     assert_profile_valid("07-fully-complete.json");
 }
 
-// ── Invariant #7: ranked stats empty/populated ───────────────────────────
+// ── Invariant #7: ranked stats presence/population ───────────────────────
 
 #[test]
-fn profiles_01_to_04_have_empty_ranked_stats() {
-    for name in &ALL_PROFILES[..4] {
-        let data = load_profile(name);
-        assert!(
-            data.ranked_key_stats.stats.stats.is_empty(),
-            "{name}: ranked_key_stats should be empty"
-        );
-        // Also verify no ranked drills exist
-        let ranked_count = data
-            .drill_history
-            .drills
-            .iter()
-            .filter(|d| d.ranked)
-            .count();
-        assert_eq!(ranked_count, 0, "{name}: should have no ranked drills");
-    }
+fn profile_01_has_empty_ranked_stats() {
+    let data = load_profile("01-brand-new.json");
+    assert!(
+        data.ranked_key_stats.stats.stats.is_empty(),
+        "01-brand-new.json: ranked_key_stats should be empty"
+    );
+    let ranked_count = data.drill_history.drills.iter().filter(|d| d.ranked).count();
+    assert_eq!(ranked_count, 0, "01-brand-new.json: should have no ranked drills");
 }
 
 #[test]
-fn profiles_05_to_07_have_ranked_stats() {
-    for name in &ALL_PROFILES[4..] {
+fn profiles_02_to_07_have_ranked_stats_and_ranked_drills() {
+    for name in &ALL_PROFILES[1..] {
         let data = load_profile(name);
         assert!(
             !data.ranked_key_stats.stats.stats.is_empty(),
             "{name}: ranked_key_stats should not be empty"
+        );
+        let ranked_count = data.drill_history.drills.iter().filter(|d| d.ranked).count();
+        assert!(
+            ranked_count > 0,
+            "{name}: expected at least one ranked drill to populate ranked stores"
         );
     }
 }
@@ -256,7 +253,7 @@ fn profiles_05_to_07_have_ranked_stats() {
 
 #[test]
 fn ranked_stats_cover_ranked_drill_keys() {
-    for name in &ALL_PROFILES[4..] {
+    for name in &ALL_PROFILES[1..] {
         let data = load_profile(name);
         let drill_keys = ranked_drill_keys(&data);
         let ranked_stat_keys: HashSet<char> =
