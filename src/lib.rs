@@ -4,15 +4,15 @@
 // Most code is only exercised through the binary, so suppress dead_code warnings.
 #![allow(dead_code)]
 
-// Public: used directly by benchmarks
+// Public: used by benchmarks and the generate_test_profiles binary
+pub mod config;
 pub mod engine;
+pub mod keyboard;
 pub mod session;
+pub mod store;
 
 // Private: required transitively by engine/session (won't compile without them)
 mod app;
-mod config;
 mod event;
 mod generator;
-mod keyboard;
-mod store;
 mod ui;

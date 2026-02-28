@@ -27,6 +27,10 @@ criterion = { version = "0.5", features = ["html_reports"] }
 name = "ngram_benchmarks"
 harness = false
 
+[[bin]]
+name = "generate_test_profiles"
+path = "src/bin/generate_test_profiles.rs"
+
 [features]
 default = ["network"]
 network = ["reqwest"]

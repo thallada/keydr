@@ -24,7 +24,7 @@ impl JsonStore {
         Ok(Self { base_dir })
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)] // Used by integration tests
     pub fn with_base_dir(base_dir: PathBuf) -> Result<Self> {
         fs::create_dir_all(&base_dir)?;
         Ok(Self { base_dir })
