@@ -417,6 +417,65 @@ fn build_profile_03() -> ExportData {
     )
 }
 
+fn build_profile_03_near_lowercase_complete() -> ExportData {
+    // Lowercase InProgress level 19 => 6 + 19 = 25 keys unlocked.
+    // One unlocked key is just below mastery so a drill can trigger the final unlock popup.
+    let skill_tree =
+        make_skill_tree_progress(vec![(BranchId::Lowercase, BranchStatus::InProgress, 19)]);
+
+    let all_keys = lowercase_keys(25);
+    let mastered_keys = &all_keys[..24];
+    let near_mastery_key = all_keys[24];
+
+    let mut rng = SmallRng::seed_from_u64(2303);
+    let mut stats = KeyStatsStore::default();
+    for &k in mastered_keys {
+        stats.stats.insert(k, make_key_stat(&mut rng, 1.35, 75));
+    }
+    // Slightly below mastery, so one good drill can push over 1.0.
+    stats
+        .stats
+        .insert(near_mastery_key, make_key_stat(&mut rng, 0.97, 28));
+
+    let mut ranked_stats = KeyStatsStore::default();
+    for (&k, base) in &stats.stats {
+        let conf = if base.confidence >= 1.0 {
+            (base.confidence - rng.gen_range(0.0..0.2)).max(1.0)
+        } else {
+            (base.confidence + rng.gen_range(-0.08..0.06)).clamp(0.85, 0.99)
+        };
+        let sample_count =
+            ((base.sample_count as f64) * rng.gen_range(0.5..0.8)).round() as usize + 8;
+        ranked_stats
+            .stats
+            .insert(k, make_key_stat(&mut rng, conf, sample_count));
+    }
+
+    let drills = generate_drills(
+        &mut rng,
+        90,
+        10,
+        &all_keys,
+        &[("adaptive", false, 62), ("adaptive", true, 28)],
+        34.0,
+    );
+
+    make_export(
+        ProfileData {
+            schema_version: SCHEMA_VERSION,
+            skill_tree,
+            total_score: 1800.0,
+            total_drills: 90,
+            streak_days: 10,
+            best_streak: 12,
+            last_practice_date: last_practice_date_from_drills(&drills),
+        },
+        stats,
+        ranked_stats,
+        drills,
+    )
+}
+
 fn build_profile_04() -> ExportData {
     // Lowercase Complete (level 20), all others Available
     let skill_tree = make_skill_tree_progress(vec![
@@ -741,6 +800,10 @@ fn main() {
         ("01-brand-new", build_profile_01()),
         ("02-early-lowercase", build_profile_02()),
         ("03-mid-lowercase", build_profile_03()),
+        (
+            "03-near-lowercase-complete",
+            build_profile_03_near_lowercase_complete(),
+        ),
         ("04-lowercase-complete", build_profile_04()),
         ("05-multi-branch", build_profile_05()),
         ("06-advanced", build_profile_06()),

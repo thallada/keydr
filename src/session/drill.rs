@@ -17,6 +17,7 @@ pub struct DrillState {
     pub finished_at: Option<Instant>,
     pub typo_flags: HashSet<usize>,
     pub synthetic_spans: Vec<SyntheticSpan>,
+    pub auto_indent_after_newline: bool,
 }
 
 impl DrillState {
@@ -29,6 +30,7 @@ impl DrillState {
             finished_at: None,
             typo_flags: HashSet::new(),
             synthetic_spans: Vec::new(),
+            auto_indent_after_newline: true,
         }
     }
 
@@ -261,6 +263,18 @@ mod tests {
         assert_eq!(drill.cursor, expected_cursor);
         assert_eq!(drill.typo_count(), 0);
         assert_eq!(drill.accuracy(), 100.0);
+    }
+
+    #[test]
+    fn test_correct_enter_no_auto_indent_when_disabled() {
+        let mut drill = DrillState::new("if x:\n\tpass");
+        drill.auto_indent_after_newline = false;
+        for ch in "if x:".chars() {
+            input::process_char(&mut drill, ch);
+        }
+        input::process_char(&mut drill, '\n');
+        let expected_cursor = "if x:\n".chars().count();
+        assert_eq!(drill.cursor, expected_cursor);
     }
 
     #[test]

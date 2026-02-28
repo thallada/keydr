@@ -296,9 +296,14 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
-    // Milestone overlays are modal: any key dismisses exactly one popup and is consumed.
-    if !app.milestone_queue.is_empty() {
+    // Milestone overlays are modal: one key action applies and is consumed.
+    if let Some(milestone) = app.milestone_queue.front() {
+        let open_skill_tree = milestone_supports_skill_tree_shortcut(milestone)
+            && matches!(key.code, KeyCode::Char(ch) if ch.eq_ignore_ascii_case(&'t'));
         app.milestone_queue.pop_front();
+        if open_skill_tree {
+            app.go_to_skill_tree();
+        }
         return;
     }
 
@@ -319,6 +324,13 @@ fn handle_key(app: &mut App, key: KeyEvent) {
     }
 }
 
+fn milestone_supports_skill_tree_shortcut(milestone: &app::KeyMilestonePopup) -> bool {
+    matches!(
+        milestone.kind,
+        MilestoneKind::BranchesAvailable | MilestoneKind::BranchComplete
+    )
+}
+
 fn terminal_area() -> Rect {
     let (w, h) = crossterm::terminal::size().unwrap_or((120, 40));
     Rect::new(0, 0, w, h)
@@ -331,6 +343,136 @@ fn point_in_rect(x: u16, y: u16, rect: Rect) -> bool {
         && y < rect.y.saturating_add(rect.height)
 }
 
+fn hint_token_at(area: Rect, hints: &[&str], x: u16, y: u16) -> Option<String> {
+    if !point_in_rect(x, y, area) {
+        return None;
+    }
+
+    let prefix = "  ";
+    let separator = "  ";
+    let width = area.width as usize;
+    if width == 0 || hints.is_empty() {
+        return None;
+    }
+
+    let row = y.saturating_sub(area.y) as usize;
+    let col = x.saturating_sub(area.x) as usize;
+    let prefix_len = prefix.chars().count();
+    let sep_len = separator.chars().count();
+
+    let mut current_line = 0usize;
+    let mut line_len = prefix_len;
+    let mut has_hint_on_line = false;
+
+    for hint in hints {
+        if hint.is_empty() {
+            continue;
+        }
+        let hint_len = hint.chars().count();
+        let candidate_len = if has_hint_on_line {
+            line_len + sep_len + hint_len
+        } else {
+            line_len + hint_len
+        };
+
+        if candidate_len > width && has_hint_on_line {
+            current_line += 1;
+            line_len = prefix_len;
+            has_hint_on_line = false;
+        }
+
+        let start_col = if has_hint_on_line {
+            line_len + sep_len
+        } else {
+            line_len
+        };
+        let end_col = start_col + hint_len;
+        if current_line == row && (start_col..end_col).contains(&col) {
+            if let (Some(lb), Some(rb)) = (hint.find('['), hint.find(']'))
+                && rb > lb + 1
+            {
+                return Some(hint[lb + 1..rb].to_string());
+            }
+            return None;
+        }
+
+        line_len = end_col;
+        has_hint_on_line = true;
+    }
+
+    // Fallback for unexpected layout drift: use packed lines and bracket search.
+    let lines = pack_hint_lines(hints, area.width as usize);
+    if row >= lines.len() {
+        return None;
+    }
+    let chars: Vec<char> = lines[row].chars().collect();
+    if col >= chars.len() {
+        return None;
+    }
+    for hint in hints {
+        if hint.is_empty() {
+            continue;
+        }
+        let line = &lines[row];
+        if let Some(start) = line.find(hint) {
+            let start_col = line[..start].chars().count();
+            let end_col = start_col + hint.chars().count();
+            if (start_col..end_col).contains(&col) {
+                if let (Some(lb), Some(rb)) = (hint.find('['), hint.find(']'))
+                    && rb > lb + 1
+                {
+                    return Some(hint[lb + 1..rb].to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn milestone_footer_hint_token_at(
+    milestone: &app::KeyMilestonePopup,
+    x: u16,
+    y: u16,
+) -> Option<String> {
+    if !milestone_supports_skill_tree_shortcut(milestone) {
+        return None;
+    }
+    let area = terminal_area();
+    let is_key_milestone = matches!(
+        milestone.kind,
+        MilestoneKind::Unlock | MilestoneKind::Mastery
+    );
+    let kbd_mode = if is_key_milestone {
+        overlay_keyboard_mode(area.height)
+    } else {
+        0
+    };
+    let overlay_height = match &milestone.kind {
+        MilestoneKind::BranchesAvailable => 18u16.min(area.height.saturating_sub(2)),
+        MilestoneKind::BranchComplete
+        | MilestoneKind::AllKeysUnlocked
+        | MilestoneKind::AllKeysMastered => 12u16.min(area.height.saturating_sub(2)),
+        _ => match kbd_mode {
+            2 => 18u16.min(area.height.saturating_sub(2)),
+            1 => 14u16.min(area.height.saturating_sub(2)),
+            _ => 10u16.min(area.height.saturating_sub(2)),
+        },
+    };
+    let overlay_width = 60u16.min(area.width.saturating_sub(4));
+    let left = area.x + (area.width.saturating_sub(overlay_width)) / 2;
+    let top = area.y + (area.height.saturating_sub(overlay_height)) / 2;
+    let overlay_area = Rect::new(left, top, overlay_width, overlay_height);
+    let inner = Block::bordered().inner(overlay_area);
+    let footer_y = inner.y + inner.height.saturating_sub(1);
+    let footer_area = Rect::new(inner.x, footer_y, inner.width, 1);
+    hint_token_at(
+        footer_area,
+        &["[t] Open Skill Tree", "[Any other key] Continue"],
+        x,
+        y,
+    )
+}
+
 fn handle_mouse(app: &mut App, mouse: MouseEvent) {
     if app.post_drill_input_lock_remaining_ms().is_some()
         && (!app.milestone_queue.is_empty()
@@ -341,7 +483,18 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
     }
 
     if !app.milestone_queue.is_empty() {
-        if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+        if matches!(
+            mouse.kind,
+            MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right)
+        ) {
+            if let Some(milestone) = app.milestone_queue.front()
+                && milestone_footer_hint_token_at(milestone, mouse.column, mouse.row)
+                    .is_some_and(|t| t == "t")
+            {
+                app.milestone_queue.pop_front();
+                app.go_to_skill_tree();
+                return;
+            }
             app.milestone_queue.pop_front();
         }
         return;
@@ -397,7 +550,8 @@ fn handle_menu_mouse(app: &mut App, mouse: MouseEvent) {
     match mouse.kind {
         MouseEventKind::ScrollUp => app.menu.prev(),
         MouseEventKind::ScrollDown => app.menu.next(),
-        MouseEventKind::Down(MouseButton::Left) => {
+        MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right) => {
+            let is_secondary = matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right));
             let area = terminal_area();
             let menu_hints = [
                 "[1-3] Start",
@@ -418,6 +572,39 @@ fn handle_menu_mouse(app: &mut App, mouse: MouseEvent) {
                     Constraint::Length(footer_line_count),
                 ])
                 .split(area);
+            if let Some(token) = hint_token_at(layout[2], &menu_hints, mouse.column, mouse.row) {
+                match token.as_str() {
+                    "1-3" => {
+                        let mut selected = app.menu.selected.min(2);
+                        selected = if is_secondary {
+                            if selected == 0 { 2 } else { selected - 1 }
+                        } else {
+                            (selected + 1) % 3
+                        };
+                        app.menu.selected = selected;
+                        activate_menu_selected(app);
+                    }
+                    "t" => {
+                        app.menu.selected = 3;
+                        activate_menu_selected(app);
+                    }
+                    "b" => {
+                        app.menu.selected = 4;
+                        activate_menu_selected(app);
+                    }
+                    "s" => {
+                        app.menu.selected = 5;
+                        activate_menu_selected(app);
+                    }
+                    "c" => {
+                        app.menu.selected = 6;
+                        activate_menu_selected(app);
+                    }
+                    "q" => app.should_quit = true,
+                    _ => {}
+                }
+                return;
+            }
             let menu_area = ui::layout::centered_rect(50, 80, layout[1]);
             let inner = Block::bordered().inner(menu_area);
             let sections = Layout::default()
@@ -442,16 +629,37 @@ fn handle_menu_mouse(app: &mut App, mouse: MouseEvent) {
 }
 
 fn handle_drill_mouse(app: &mut App, mouse: MouseEvent) {
-    if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+    if !matches!(
+        mouse.kind,
+        MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right)
+    ) {
         return;
     }
     let layout = AppLayout::new(terminal_area());
     if point_in_rect(mouse.column, mouse.row, layout.footer) {
-        let has_progress = app.drill.as_ref().is_some_and(|d| d.cursor > 0);
-        if has_progress {
-            app.finish_partial_drill();
-        } else {
-            app.go_to_menu();
+        let hints = ["[ESC] End drill", "[Backspace] Delete"];
+        if let Some(token) = hint_token_at(layout.footer, &hints, mouse.column, mouse.row) {
+            match token.as_str() {
+                "ESC" => {
+                    let has_progress = app.drill.as_ref().is_some_and(|d| d.cursor > 0);
+                    if has_progress {
+                        app.finish_partial_drill();
+                    } else {
+                        app.go_to_menu();
+                    }
+                }
+                "Backspace" => app.backspace(),
+                _ => {}
+            }
+            return;
+        }
+        if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+            let has_progress = app.drill.as_ref().is_some_and(|d| d.cursor > 0);
+            if has_progress {
+                app.finish_partial_drill();
+            } else {
+                app.go_to_menu();
+            }
         }
     }
 }
@@ -466,7 +674,10 @@ fn delete_confirm_dialog_area() -> Rect {
 }
 
 fn handle_result_mouse(app: &mut App, mouse: MouseEvent) {
-    if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+    if !matches!(
+        mouse.kind,
+        MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right)
+    ) {
         return;
     }
     if app.history_confirm_delete && !app.drill_history.is_empty() {
@@ -481,6 +692,39 @@ fn handle_result_mouse(app: &mut App, mouse: MouseEvent) {
             }
         }
         return;
+    }
+    if app.last_result.is_some() {
+        let area = terminal_area();
+        let centered = ui::layout::centered_rect(60, 70, area);
+        let inner = Block::bordered().inner(centered);
+        let hints = [
+            "[c/Enter/Space] Continue",
+            "[r] Retry",
+            "[q] Menu",
+            "[s] Stats",
+            "[x] Delete",
+        ];
+        let footer_line_count = pack_hint_lines(&hints, inner.width as usize).len().max(1) as u16;
+        let footer_y = inner
+            .y
+            .saturating_add(inner.height.saturating_sub(footer_line_count));
+        let footer_area = Rect::new(inner.x, footer_y, inner.width, footer_line_count);
+        if let Some(token) = hint_token_at(footer_area, &hints, mouse.column, mouse.row) {
+            match token.as_str() {
+                "c/Enter/Space" => app.continue_drill(),
+                "r" => app.retry_drill(),
+                "q" => app.go_to_menu(),
+                "s" => app.go_to_stats(),
+                "x" => {
+                    if !app.drill_history.is_empty() {
+                        app.history_selected = 0;
+                        app.history_confirm_delete = true;
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
     }
     if app.last_result.is_some() {
         app.continue_drill();
@@ -580,7 +824,67 @@ fn handle_stats_mouse(app: &mut App, mouse: MouseEvent) {
         .split(inner);
 
     match mouse.kind {
-        MouseEventKind::Down(MouseButton::Left) => {
+        MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right) => {
+            let is_secondary = matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right));
+            if let Some(token) = hint_token_at(layout[2], &footer_hints, mouse.column, mouse.row) {
+                match token.as_str() {
+                    "ESC" => app.go_to_menu(),
+                    "Tab" => {
+                        app.stats_tab = if is_secondary {
+                            if app.stats_tab == 0 {
+                                STATS_TAB_COUNT - 1
+                            } else {
+                                app.stats_tab - 1
+                            }
+                        } else {
+                            (app.stats_tab + 1) % STATS_TAB_COUNT
+                        };
+                    }
+                    "1-6" => {
+                        app.stats_tab = if is_secondary {
+                            if app.stats_tab == 0 {
+                                STATS_TAB_COUNT - 1
+                            } else {
+                                app.stats_tab - 1
+                            }
+                        } else {
+                            (app.stats_tab + 1) % STATS_TAB_COUNT
+                        };
+                    }
+                    "j/k" => {
+                        if app.stats_tab == 1 && !app.drill_history.is_empty() {
+                            if is_secondary {
+                                app.history_selected = app.history_selected.saturating_sub(1);
+                            } else {
+                                app.history_selected =
+                                    (app.history_selected + 1).min(app.drill_history.len() - 1);
+                            }
+                            keep_history_selection_visible(app, current_history_page_size());
+                        }
+                    }
+                    "PgUp/PgDn" => {
+                        if app.stats_tab == 1 && !app.drill_history.is_empty() {
+                            let page_size = current_history_page_size();
+                            if is_secondary {
+                                let max_idx = app.drill_history.len() - 1;
+                                app.history_selected =
+                                    (app.history_selected + page_size).min(max_idx);
+                            } else {
+                                app.history_selected =
+                                    app.history_selected.saturating_sub(page_size);
+                            }
+                            keep_history_selection_visible(app, page_size);
+                        }
+                    }
+                    "x" => {
+                        if app.stats_tab == 1 && !app.drill_history.is_empty() {
+                            app.history_confirm_delete = true;
+                        }
+                    }
+                    _ => {}
+                }
+                return;
+            }
             if point_in_rect(mouse.column, mouse.row, layout[0])
                 && let Some(tab) = stats_tab_at_point(layout[0], width, mouse.column, mouse.row)
             {
@@ -715,6 +1019,12 @@ fn settings_fields(app: &App) -> Vec<(String, String, bool)> {
 }
 
 fn handle_settings_mouse(app: &mut App, mouse: MouseEvent) {
+    let is_click = matches!(
+        mouse.kind,
+        MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right)
+    );
+    let is_secondary = matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right));
+
     match mouse.kind {
         MouseEventKind::ScrollUp => {
             app.settings_selected = app.settings_selected.saturating_sub(1);
@@ -724,7 +1034,7 @@ fn handle_settings_mouse(app: &mut App, mouse: MouseEvent) {
             app.settings_selected = (app.settings_selected + 1).min(15);
             return;
         }
-        MouseEventKind::Down(MouseButton::Left) => {}
+        MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right) => {}
         _ => return,
     }
 
@@ -773,10 +1083,6 @@ fn handle_settings_mouse(app: &mut App, mouse: MouseEvent) {
         return;
     }
 
-    if app.settings_editing_path.is_some() {
-        return;
-    }
-
     let area = terminal_area();
     let centered = ui::layout::centered_rect(60, 80, area);
     let inner = Block::bordered().inner(centered);
@@ -803,6 +1109,78 @@ fn handle_settings_mouse(app: &mut App, mouse: MouseEvent) {
             Constraint::Length(footer_height),
         ])
         .split(inner);
+
+    if is_click && layout[2].height > 0 {
+        let footer_hints: Vec<&str> = if app.settings_editing_path.is_some() {
+            vec![
+                "[←→] Move",
+                "[Tab] Complete (at end)",
+                "[Enter] Confirm",
+                "[Esc] Cancel",
+            ]
+        } else {
+            vec![
+                "[ESC] Save & back",
+                "[Enter/arrows] Change value",
+                "[Enter on path] Edit",
+            ]
+        };
+        if let Some(token) = hint_token_at(layout[2], &footer_hints, mouse.column, mouse.row) {
+            if app.settings_editing_path.is_some() {
+                match token.as_str() {
+                    "←→" => {
+                        let code = if is_secondary {
+                            KeyCode::Left
+                        } else {
+                            KeyCode::Right
+                        };
+                        handle_settings_key(app, KeyEvent::new(code, KeyModifiers::NONE));
+                    }
+                    "Tab" => handle_settings_key(
+                        app,
+                        KeyEvent::new(
+                            if is_secondary {
+                                KeyCode::BackTab
+                            } else {
+                                KeyCode::Tab
+                            },
+                            KeyModifiers::NONE,
+                        ),
+                    ),
+                    "Enter" => {
+                        handle_settings_key(app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+                    }
+                    "Esc" => {
+                        handle_settings_key(app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
+                    }
+                    _ => {}
+                }
+            } else {
+                match token.as_str() {
+                    "ESC" => {
+                        handle_settings_key(app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
+                    }
+                    "Enter/arrows" => {
+                        let code = if is_secondary {
+                            KeyCode::Right
+                        } else {
+                            KeyCode::Enter
+                        };
+                        handle_settings_key(app, KeyEvent::new(code, KeyModifiers::NONE));
+                    }
+                    "Enter on path" => {
+                        handle_settings_key(app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+                    }
+                    _ => {}
+                }
+            }
+            return;
+        }
+    }
+
+    if app.settings_editing_path.is_some() {
+        return;
+    }
 
     let row_height = 2u16;
     let visible_rows = (layout[1].height / row_height).max(1) as usize;
@@ -1260,6 +1638,7 @@ fn handle_code_language_mouse(app: &mut App, mouse: MouseEvent) {
     if len == 0 {
         return;
     }
+    let is_secondary = matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right));
     match mouse.kind {
         MouseEventKind::ScrollUp => {
             app.code_language_selected = app.code_language_selected.saturating_sub(1);
@@ -1269,7 +1648,56 @@ fn handle_code_language_mouse(app: &mut App, mouse: MouseEvent) {
                 app.code_language_selected += 1;
             }
         }
-        MouseEventKind::Down(MouseButton::Left) => {
+        MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right) => {
+            let centered = ui::layout::centered_rect(50, 70, terminal_area());
+            let inner = Block::bordered().inner(centered);
+            let hints = [
+                "[Up/Down/PgUp/PgDn] Navigate",
+                "[Enter] Confirm",
+                "[ESC] Back",
+            ];
+            let hint_lines = pack_hint_lines(&hints, inner.width as usize);
+            let disabled_notice =
+                "  Some languages are disabled: enable network downloads in intro/settings.";
+            let has_disabled = !app.config.code_downloads_enabled
+                && options
+                    .iter()
+                    .any(|(key, _)| is_code_language_disabled(app, key));
+            let notice_lines = wrapped_line_count(disabled_notice, inner.width as usize);
+            let total_height = inner.height as usize;
+            let show_notice = has_disabled && total_height >= hint_lines.len() + notice_lines + 3;
+            let desired_footer_height =
+                hint_lines.len() + if show_notice { notice_lines } else { 0 };
+            let footer_height = desired_footer_height.min(total_height.saturating_sub(1)) as u16;
+            if footer_height > 0 {
+                let footer_area = Rect::new(
+                    inner.x,
+                    inner.y + inner.height.saturating_sub(footer_height),
+                    inner.width,
+                    footer_height,
+                );
+                if let Some(token) = hint_token_at(footer_area, &hints, mouse.column, mouse.row) {
+                    match token.as_str() {
+                        "Up/Down/PgUp/PgDn" => {
+                            if is_secondary {
+                                app.code_language_selected =
+                                    app.code_language_selected.saturating_sub(1);
+                            } else if app.code_language_selected + 1 < len {
+                                app.code_language_selected += 1;
+                            }
+                        }
+                        "Enter" => {
+                            handle_code_language_key(
+                                app,
+                                KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                            );
+                        }
+                        "ESC" => app.go_to_menu(),
+                        _ => {}
+                    }
+                    return;
+                }
+            }
             let list_area = code_language_list_area(app, terminal_area());
             if !point_in_rect(mouse.column, mouse.row, list_area) {
                 return;
@@ -1399,6 +1827,7 @@ fn handle_passage_book_mouse(app: &mut App, mouse: MouseEvent) {
     if options.is_empty() {
         return;
     }
+    let is_secondary = matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right));
     match mouse.kind {
         MouseEventKind::ScrollUp => {
             app.passage_book_selected = app.passage_book_selected.saturating_sub(1);
@@ -1408,7 +1837,50 @@ fn handle_passage_book_mouse(app: &mut App, mouse: MouseEvent) {
                 app.passage_book_selected += 1;
             }
         }
-        MouseEventKind::Down(MouseButton::Left) => {
+        MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right) => {
+            let centered = ui::layout::centered_rect(60, 70, terminal_area());
+            let inner = Block::bordered().inner(centered);
+            let hints = ["[Up/Down] Navigate", "[Enter] Confirm", "[ESC] Back"];
+            let hint_lines = pack_hint_lines(&hints, inner.width as usize);
+            let disabled_notice =
+                "  Some sources are disabled: enable network downloads in intro/settings.";
+            let has_disabled = !app.config.passage_downloads_enabled
+                && options
+                    .iter()
+                    .any(|(key, _)| is_passage_option_disabled(app, key));
+            let notice_lines = wrapped_line_count(disabled_notice, inner.width as usize);
+            let total_height = inner.height as usize;
+            let show_notice = has_disabled && total_height >= hint_lines.len() + notice_lines + 3;
+            let desired_footer_height =
+                hint_lines.len() + if show_notice { notice_lines } else { 0 };
+            let footer_height = desired_footer_height.min(total_height.saturating_sub(1)) as u16;
+            if footer_height > 0 {
+                let footer_area = Rect::new(
+                    inner.x,
+                    inner.y + inner.height.saturating_sub(footer_height),
+                    inner.width,
+                    footer_height,
+                );
+                if let Some(token) = hint_token_at(footer_area, &hints, mouse.column, mouse.row) {
+                    match token.as_str() {
+                        "Up/Down" => {
+                            if is_secondary {
+                                app.passage_book_selected =
+                                    app.passage_book_selected.saturating_sub(1);
+                            } else if app.passage_book_selected + 1 < options.len() {
+                                app.passage_book_selected += 1;
+                            }
+                        }
+                        "Enter" => handle_passage_book_key(
+                            app,
+                            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                        ),
+                        "ESC" => app.go_to_menu(),
+                        _ => {}
+                    }
+                    return;
+                }
+            }
             let list_area = passage_book_list_area(app, terminal_area());
             if !point_in_rect(mouse.column, mouse.row, list_area) {
                 return;
@@ -1577,6 +2049,7 @@ fn handle_passage_intro_mouse(app: &mut App, mouse: MouseEvent) {
     if app.passage_intro_downloading {
         return;
     }
+    let is_secondary = matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right));
     match mouse.kind {
         MouseEventKind::ScrollUp => {
             app.passage_intro_selected = app.passage_intro_selected.saturating_sub(1);
@@ -1584,7 +2057,67 @@ fn handle_passage_intro_mouse(app: &mut App, mouse: MouseEvent) {
         MouseEventKind::ScrollDown => {
             app.passage_intro_selected = (app.passage_intro_selected + 1).min(3);
         }
-        MouseEventKind::Down(MouseButton::Left) => {
+        MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right) => {
+            let centered = ui::layout::centered_rect(75, 80, terminal_area());
+            let inner = Block::bordered().inner(centered);
+            let hints = [
+                "[Up/Down] Navigate",
+                "[Left/Right] Adjust",
+                "[Type/Backspace] Edit",
+                "[Enter] Confirm",
+                "[ESC] Cancel",
+            ];
+            let hint_lines = pack_hint_lines(&hints, inner.width as usize);
+            let footer_height = (hint_lines.len() + 1) as u16;
+            if footer_height > 0 && footer_height < inner.height {
+                let footer_area = Rect::new(
+                    inner.x,
+                    inner.y + inner.height.saturating_sub(footer_height),
+                    inner.width,
+                    footer_height,
+                );
+                if let Some(token) = hint_token_at(footer_area, &hints, mouse.column, mouse.row) {
+                    match token.as_str() {
+                        "Up/Down" => {
+                            if is_secondary {
+                                app.passage_intro_selected =
+                                    app.passage_intro_selected.saturating_sub(1);
+                            } else {
+                                app.passage_intro_selected =
+                                    (app.passage_intro_selected + 1).min(3);
+                            }
+                        }
+                        "Left/Right" => {
+                            handle_passage_intro_key(
+                                app,
+                                KeyEvent::new(
+                                    if is_secondary {
+                                        KeyCode::Right
+                                    } else {
+                                        KeyCode::Left
+                                    },
+                                    KeyModifiers::NONE,
+                                ),
+                            );
+                        }
+                        "Type/Backspace" => {
+                            if is_secondary {
+                                handle_passage_intro_key(
+                                    app,
+                                    KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+                                );
+                            }
+                        }
+                        "Enter" => handle_passage_intro_key(
+                            app,
+                            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                        ),
+                        "ESC" => app.go_to_menu(),
+                        _ => {}
+                    }
+                    return;
+                }
+            }
             let content = passage_intro_content_area(terminal_area());
             if !point_in_rect(mouse.column, mouse.row, content) {
                 return;
@@ -1615,7 +2148,10 @@ fn handle_passage_download_progress_key(app: &mut App, key: KeyEvent) {
 }
 
 fn handle_passage_download_progress_mouse(app: &mut App, mouse: MouseEvent) {
-    if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+    if matches!(
+        mouse.kind,
+        MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right)
+    ) {
         app.go_to_menu();
     }
 }
@@ -1730,6 +2266,7 @@ fn handle_code_intro_mouse(app: &mut App, mouse: MouseEvent) {
     if app.code_intro_downloading {
         return;
     }
+    let is_secondary = matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right));
     match mouse.kind {
         MouseEventKind::ScrollUp => {
             app.code_intro_selected = app.code_intro_selected.saturating_sub(1);
@@ -1737,7 +2274,65 @@ fn handle_code_intro_mouse(app: &mut App, mouse: MouseEvent) {
         MouseEventKind::ScrollDown => {
             app.code_intro_selected = (app.code_intro_selected + 1).min(3);
         }
-        MouseEventKind::Down(MouseButton::Left) => {
+        MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right) => {
+            let centered = ui::layout::centered_rect(75, 80, terminal_area());
+            let inner = Block::bordered().inner(centered);
+            let hints = [
+                "[Up/Down] Navigate",
+                "[Left/Right] Adjust",
+                "[Type/Backspace] Edit",
+                "[Enter] Confirm",
+                "[ESC] Cancel",
+            ];
+            let hint_lines = pack_hint_lines(&hints, inner.width as usize);
+            let footer_height = (hint_lines.len() + 1) as u16;
+            if footer_height > 0 && footer_height < inner.height {
+                let footer_area = Rect::new(
+                    inner.x,
+                    inner.y + inner.height.saturating_sub(footer_height),
+                    inner.width,
+                    footer_height,
+                );
+                if let Some(token) = hint_token_at(footer_area, &hints, mouse.column, mouse.row) {
+                    match token.as_str() {
+                        "Up/Down" => {
+                            if is_secondary {
+                                app.code_intro_selected = app.code_intro_selected.saturating_sub(1);
+                            } else {
+                                app.code_intro_selected = (app.code_intro_selected + 1).min(3);
+                            }
+                        }
+                        "Left/Right" => {
+                            handle_code_intro_key(
+                                app,
+                                KeyEvent::new(
+                                    if is_secondary {
+                                        KeyCode::Right
+                                    } else {
+                                        KeyCode::Left
+                                    },
+                                    KeyModifiers::NONE,
+                                ),
+                            );
+                        }
+                        "Type/Backspace" => {
+                            if is_secondary {
+                                handle_code_intro_key(
+                                    app,
+                                    KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+                                );
+                            }
+                        }
+                        "Enter" => handle_code_intro_key(
+                            app,
+                            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                        ),
+                        "ESC" => app.go_to_menu(),
+                        _ => {}
+                    }
+                    return;
+                }
+            }
             let content = code_intro_content_area(terminal_area());
             if !point_in_rect(mouse.column, mouse.row, content) {
                 return;
@@ -1768,7 +2363,10 @@ fn handle_code_download_progress_key(app: &mut App, key: KeyEvent) {
 }
 
 fn handle_code_download_progress_mouse(app: &mut App, mouse: MouseEvent) {
-    if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+    if matches!(
+        mouse.kind,
+        MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right)
+    ) {
         app.cancel_code_download();
         app.go_to_menu();
     }
@@ -1987,7 +2585,10 @@ fn skill_tree_branch_index_from_y(
 fn handle_skill_tree_mouse(app: &mut App, mouse: MouseEvent) {
     const DETAIL_SCROLL_STEP: usize = 3;
     if let Some(branch_id) = app.skill_tree_confirm_unlock {
-        if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+        if matches!(
+            mouse.kind,
+            MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right)
+        ) {
             let area = terminal_area();
             let dialog_width = 72u16.min(area.width.saturating_sub(4));
             let sentence_one = "Once unlocked, the default adaptive drill will mix in keys in this branch that are unlocked.";
@@ -2006,7 +2607,11 @@ fn handle_skill_tree_mouse(app: &mut App, mouse: MouseEvent) {
             let dialog_y = area.y + area.height.saturating_sub(dialog_height) / 2;
             let dialog = Rect::new(dialog_x, dialog_y, dialog_width, dialog_height);
             if point_in_rect(mouse.column, mouse.row, dialog) {
-                if mouse.column < dialog.x + dialog.width / 2 {
+                if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right))
+                    || mouse.column >= dialog.x + dialog.width / 2
+                {
+                    // right-click (or right half) maps to "No"
+                } else {
                     app.unlock_branch(branch_id);
                 }
                 app.skill_tree_confirm_unlock = None;
@@ -2028,7 +2633,118 @@ fn handle_skill_tree_mouse(app: &mut App, mouse: MouseEvent) {
                 .saturating_add(DETAIL_SCROLL_STEP)
                 .min(max_scroll);
         }
-        MouseEventKind::Down(MouseButton::Left) => {
+        MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right) => {
+            let is_secondary = matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right));
+            let screen = terminal_area();
+            let centered = skill_tree_popup_rect(screen);
+            let inner = Block::bordered().inner(centered);
+            let branches = selectable_branches();
+            let selected = app
+                .skill_tree_selected
+                .min(branches.len().saturating_sub(1));
+            let bp = app.skill_tree.branch_progress(branches[selected]);
+            let (footer_hints, footer_notice) = if *app.skill_tree.branch_status(branches[selected])
+                == engine::skill_tree::BranchStatus::Locked
+            {
+                (
+                    vec![
+                        "[↑↓/jk] Navigate",
+                        "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                        "[q] Back",
+                    ],
+                    Some("Complete a-z to unlock branches"),
+                )
+            } else if bp.status == engine::skill_tree::BranchStatus::Available {
+                (
+                    vec![
+                        "[Enter] Unlock",
+                        "[↑↓/jk] Navigate",
+                        "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                        "[q] Back",
+                    ],
+                    None,
+                )
+            } else if bp.status == engine::skill_tree::BranchStatus::InProgress {
+                (
+                    vec![
+                        "[Enter] Start Drill",
+                        "[↑↓/jk] Navigate",
+                        "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                        "[q] Back",
+                    ],
+                    None,
+                )
+            } else {
+                (
+                    vec![
+                        "[↑↓/jk] Navigate",
+                        "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                        "[q] Back",
+                    ],
+                    None,
+                )
+            };
+            let hint_lines = pack_hint_lines(&footer_hints, inner.width as usize);
+            let notice_lines = footer_notice
+                .map(|text| wrapped_line_count(text, inner.width as usize))
+                .unwrap_or(0);
+            let show_notice = footer_notice.is_some()
+                && (inner.height as usize >= hint_lines.len() + notice_lines + 8);
+            let footer_needed = hint_lines.len() + if show_notice { notice_lines } else { 0 } + 1;
+            let footer_height = footer_needed
+                .min(inner.height.saturating_sub(5) as usize)
+                .max(1) as u16;
+            let footer_area = Rect::new(
+                inner.x,
+                inner.y + inner.height.saturating_sub(footer_height),
+                inner.width,
+                footer_height,
+            );
+            if let Some(token) = hint_token_at(
+                footer_area,
+                &footer_hints
+                    .iter()
+                    .map(|s| s.as_ref())
+                    .collect::<Vec<&str>>(),
+                mouse.column,
+                mouse.row,
+            ) {
+                match token.as_str() {
+                    "q" => app.go_to_menu(),
+                    "Enter" => {
+                        let branch_id = branches[selected];
+                        let status = app.skill_tree.branch_status(branch_id).clone();
+                        if status == BranchStatus::Available {
+                            app.skill_tree_confirm_unlock = Some(branch_id);
+                        } else if status == BranchStatus::InProgress {
+                            app.start_branch_drill(branch_id);
+                        }
+                    }
+                    "↑↓/jk" => {
+                        if is_secondary {
+                            if app.skill_tree_selected + 1 < branches.len() {
+                                app.skill_tree_selected += 1;
+                            }
+                        } else {
+                            app.skill_tree_selected = app.skill_tree_selected.saturating_sub(1);
+                        }
+                        app.skill_tree_detail_scroll = 0;
+                    }
+                    "PgUp/PgDn or Ctrl+U/Ctrl+D" => {
+                        let max_scroll = skill_tree_detail_max_scroll(app);
+                        app.skill_tree_detail_scroll = if is_secondary {
+                            app.skill_tree_detail_scroll
+                                .saturating_add(DETAIL_SCROLL_STEP)
+                                .min(max_scroll)
+                        } else {
+                            app.skill_tree_detail_scroll
+                                .saturating_sub(DETAIL_SCROLL_STEP)
+                        };
+                    }
+                    _ => {}
+                }
+                return;
+            }
             let branches = selectable_branches();
             let layout = skill_tree_interactive_areas(app, terminal_area());
             if point_in_rect(mouse.column, mouse.row, layout.branch_area) {
@@ -2661,7 +3377,7 @@ fn render_milestone_overlay(
             )));
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
-                "  Press [t] from the menu to open the Skill Tree",
+                "  Press [t] to open the Skill Tree now",
                 Style::default().fg(colors.text_pending()),
             )));
         }
@@ -2701,7 +3417,7 @@ fn render_milestone_overlay(
             )));
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
-                "  Press [t] from the menu to open the Skill Tree",
+                "  Press [t] to open the Skill Tree now",
                 Style::default().fg(colors.text_pending()),
             )));
         }
@@ -2798,6 +3514,8 @@ fn render_milestone_overlay(
         let footer_area = Rect::new(inner.x, footer_y, inner.width, 1);
         let footer_text = if let Some(ms) = app.post_drill_input_lock_remaining_ms() {
             format!("  Input temporarily blocked ({ms}ms remaining)")
+        } else if milestone_supports_skill_tree_shortcut(milestone) {
+            "  [t] Open Skill Tree  [Any other key] Continue".to_string()
         } else {
             "  Press any key to continue".to_string()
         };
@@ -2954,6 +3672,28 @@ mod review_tests {
         );
 
         assert_eq!(app.milestone_queue.len(), 1);
+    }
+
+    #[test]
+    fn milestone_t_shortcut_opens_skill_tree_for_congrats_popup() {
+        let mut app = test_app();
+        app.screen = AppScreen::DrillResult;
+        app.milestone_queue
+            .push_back(crate::app::KeyMilestonePopup {
+                kind: crate::app::MilestoneKind::BranchesAvailable,
+                keys: vec![],
+                finger_info: vec![],
+                message: "msg",
+                branch_ids: vec![engine::skill_tree::BranchId::Capitals],
+            });
+
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE),
+        );
+
+        assert!(app.milestone_queue.is_empty());
+        assert_eq!(app.screen, AppScreen::SkillTree);
     }
 
     #[test]
@@ -3718,6 +4458,21 @@ mod review_tests {
         render_skill_tree_to_string_with_size(app, 120, 40)
     }
 
+    fn render_app_to_string_with_size(app: &App, width: u16, height: u16) -> String {
+        let backend = ratatui::backend::TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(frame, app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut text = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                text.push(buf[(x, y)].symbol().chars().next().unwrap_or(' '));
+            }
+            text.push('\n');
+        }
+        text
+    }
+
     #[test]
     fn footer_shows_completion_error_and_clears_on_keystroke() {
         let mut app = test_app();
@@ -3887,6 +4642,47 @@ mod review_tests {
         assert!(output.contains("focus only on this branch"));
         assert!(output.contains("from this branch in the Skill Tree."));
         assert!(output.contains("Proceed? (y/n)"));
+    }
+
+    #[test]
+    fn milestone_popup_footer_shows_skill_tree_hint() {
+        let mut app = test_app();
+        app.screen = AppScreen::DrillResult;
+        app.milestone_queue
+            .push_back(crate::app::KeyMilestonePopup {
+                kind: crate::app::MilestoneKind::BranchesAvailable,
+                keys: vec![],
+                finger_info: vec![],
+                message: "msg",
+                branch_ids: vec![engine::skill_tree::BranchId::Capitals],
+            });
+
+        let output = render_app_to_string_with_size(&app, 100, 28);
+        assert!(output.contains("[t] Open Skill Tree"));
+    }
+
+    #[test]
+    fn keyboard_explorer_non_shifted_selection_clears_latched_shift() {
+        let mut app = test_app();
+        app.screen = AppScreen::Keyboard;
+        app.shift_held = true;
+
+        keyboard_explorer_select_key(&mut app, 'a');
+
+        assert_eq!(app.keyboard_explorer_selected, Some('a'));
+        assert!(!app.shift_held);
+    }
+
+    #[test]
+    fn keyboard_explorer_shifted_selection_keeps_latched_shift() {
+        let mut app = test_app();
+        app.screen = AppScreen::Keyboard;
+        app.shift_held = true;
+
+        keyboard_explorer_select_key(&mut app, 'A');
+
+        assert_eq!(app.keyboard_explorer_selected, Some('A'));
+        assert!(app.shift_held);
     }
 
     #[test]
@@ -5233,31 +6029,35 @@ fn handle_keyboard_explorer_key(app: &mut App, key: KeyEvent) {
         KeyCode::Esc => app.go_to_menu(),
         KeyCode::Char('q') if app.keyboard_explorer_selected.is_none() => app.go_to_menu(),
         KeyCode::Char(ch) => {
-            app.keyboard_explorer_selected = Some(ch);
-            app.key_accuracy(ch, false);
-            app.key_accuracy(ch, true);
+            keyboard_explorer_select_key(app, ch);
         }
         KeyCode::Tab => {
-            app.keyboard_explorer_selected = Some('\t');
-            app.key_accuracy('\t', false);
-            app.key_accuracy('\t', true);
+            keyboard_explorer_select_key(app, '\t');
         }
         KeyCode::Enter => {
-            app.keyboard_explorer_selected = Some('\n');
-            app.key_accuracy('\n', false);
-            app.key_accuracy('\n', true);
+            keyboard_explorer_select_key(app, '\n');
         }
         KeyCode::Backspace => {
-            app.keyboard_explorer_selected = Some('\x08');
-            app.key_accuracy('\x08', false);
-            app.key_accuracy('\x08', true);
+            keyboard_explorer_select_key(app, '\x08');
         }
         _ => {}
     }
 }
 
+fn keyboard_explorer_select_key(app: &mut App, ch: char) {
+    app.keyboard_explorer_selected = Some(ch);
+    app.key_accuracy(ch, false);
+    app.key_accuracy(ch, true);
+    if app.shift_held && app.keyboard_model.shifted_to_base(ch).is_none() {
+        app.shift_held = false;
+    }
+}
+
 fn handle_keyboard_explorer_mouse(app: &mut App, mouse: MouseEvent) {
-    if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+    if !matches!(
+        mouse.kind,
+        MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right)
+    ) {
         return;
     }
     let area = terminal_area();
@@ -5270,23 +6070,40 @@ fn handle_keyboard_explorer_mouse(app: &mut App, mouse: MouseEvent) {
             Constraint::Length(1),
         ])
         .split(area);
-    if point_in_rect(mouse.column, mouse.row, layout[3]) {
+    let footer_hints = ["[ESC] Back"];
+    if hint_token_at(layout[3], &footer_hints, mouse.column, mouse.row).is_some()
+        || point_in_rect(mouse.column, mouse.row, layout[3])
+    {
         app.go_to_menu();
         return;
     }
 
-    if point_in_rect(mouse.column, mouse.row, layout[1])
-        && let Some(ch) = KeyboardDiagram::key_at_position(
+    if point_in_rect(mouse.column, mouse.row, layout[1]) {
+        if KeyboardDiagram::shift_at_position(
             layout[1],
             &app.keyboard_model,
             false,
             mouse.column,
             mouse.row,
-        )
-    {
-        app.keyboard_explorer_selected = Some(ch);
-        app.key_accuracy(ch, false);
-        app.key_accuracy(ch, true);
+        ) {
+            app.shift_held = !app.shift_held;
+            return;
+        }
+
+        if let Some(mut ch) = KeyboardDiagram::key_at_position(
+            layout[1],
+            &app.keyboard_model,
+            false,
+            mouse.column,
+            mouse.row,
+        ) {
+            if app.shift_held
+                && let Some(shifted) = app.keyboard_model.base_to_shifted(ch)
+            {
+                ch = shifted;
+            }
+            keyboard_explorer_select_key(app, ch);
+        }
     }
 }
 
@@ -5314,7 +6131,7 @@ fn render_keyboard_explorer(frame: &mut ratatui::Frame, app: &App) {
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(Span::styled(
-            "Press any key to see details",
+            "Press any key or click a key",
             Style::default().fg(colors.text_pending()),
         )),
     ];

@@ -14,6 +14,7 @@ const ALL_PROFILES: &[&str] = &[
     "01-brand-new.json",
     "02-early-lowercase.json",
     "03-mid-lowercase.json",
+    "03-near-lowercase-complete.json",
     "04-lowercase-complete.json",
     "05-multi-branch.json",
     "06-advanced.json",
@@ -25,7 +26,7 @@ static GENERATE: Once = Once::new();
 /// Ensure test-profiles/ exists by running the generator binary (once per test run).
 fn ensure_profiles_generated() {
     GENERATE.call_once(|| {
-        if Path::new("test-profiles/07-fully-complete.json").exists() {
+        if Path::new("test-profiles/03-near-lowercase-complete.json").exists() {
             return;
         }
         let status = Command::new("cargo")
@@ -198,6 +199,11 @@ fn profile_03_mid_lowercase_valid() {
 }
 
 #[test]
+fn profile_03_near_lowercase_complete_valid() {
+    assert_profile_valid("03-near-lowercase-complete.json");
+}
+
+#[test]
 fn profile_04_lowercase_complete_valid() {
     assert_profile_valid("04-lowercase-complete.json");
 }
@@ -286,6 +292,7 @@ fn in_progress_keys_have_partial_confidence() {
     for name in &[
         "02-early-lowercase.json",
         "03-mid-lowercase.json",
+        "03-near-lowercase-complete.json",
         "05-multi-branch.json",
         "06-advanced.json",
     ] {
@@ -320,6 +327,7 @@ fn synthetic_score_level_in_expected_range() {
         ("01-brand-new.json", 1, 1),
         ("02-early-lowercase.json", 1, 3),
         ("03-mid-lowercase.json", 2, 4),
+        ("03-near-lowercase-complete.json", 3, 5),
         ("04-lowercase-complete.json", 4, 6),
         ("05-multi-branch.json", 6, 8),
         ("06-advanced.json", 10, 14),
@@ -444,6 +452,25 @@ fn profile_specific_confidence_bands() {
                 "03: key '{k}' should be partial (0.3-1.0), got {conf}"
             );
         }
+    }
+
+    // Profile 03-near: first 24 lowercase keys mastered, one key near mastery.
+    {
+        let data = load_profile("03-near-lowercase-complete.json");
+        let stats = &data.key_stats.stats.stats;
+        let almost_all_lc: Vec<char> = "etaoinshrdlcumwfgypbvkjx".chars().collect();
+        for &k in &almost_all_lc {
+            let conf = stats[&k].confidence;
+            assert!(
+                conf >= 1.0,
+                "03-near: key '{k}' should be mastered, got {conf}"
+            );
+        }
+        let q_conf = stats[&'q'].confidence;
+        assert!(
+            (0.8..1.0).contains(&q_conf),
+            "03-near: key 'q' should be near mastery (0.8-1.0), got {q_conf}"
+        );
     }
 
     // Profile 05: capitals L2 partial (J,D,R,C,E), numbers partial (1,2,3),

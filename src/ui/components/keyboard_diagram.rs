@@ -275,6 +275,25 @@ impl KeyboardDiagram<'_> {
         }
     }
 
+    pub fn shift_at_position(
+        area: Rect,
+        model: &KeyboardModel,
+        compact: bool,
+        x: u16,
+        y: u16,
+    ) -> bool {
+        let inner = Block::bordered().inner(area);
+        if compact {
+            return shift_at_compact_position(inner, model, x, y);
+        }
+
+        if inner.height >= 4 && inner.width >= 75 {
+            shift_at_full_position(inner, model, x, y)
+        } else {
+            shift_at_full_fallback_position(inner, model, x, y)
+        }
+    }
+
     fn render_compact(&self, inner: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
         let letter_rows = self.model.letter_rows();
@@ -707,6 +726,45 @@ fn key_at_compact_position(inner: Rect, model: &KeyboardModel, x: u16, y: u16) -
     None
 }
 
+fn shift_at_compact_position(inner: Rect, model: &KeyboardModel, x: u16, y: u16) -> bool {
+    let letter_rows = model.letter_rows();
+    let key_width: u16 = 3;
+    let min_width: u16 = 21;
+    if inner.height < 3 || inner.width < min_width {
+        return false;
+    }
+
+    let offsets: &[u16] = &[3, 4, 6];
+    let keyboard_width = letter_rows
+        .iter()
+        .enumerate()
+        .map(|(row_idx, row)| {
+            let offset = offsets.get(row_idx).copied().unwrap_or(0);
+            let row_end = offset + row.len() as u16 * key_width;
+            match row_idx {
+                0 => row_end + 3,
+                1 => row_end + 3,
+                2 => row_end + 3,
+                _ => row_end,
+            }
+        })
+        .max()
+        .unwrap_or(0);
+    let start_x = inner.x + inner.width.saturating_sub(keyboard_width) / 2;
+    let shift_row_y = inner.y + 2;
+    if y != shift_row_y {
+        return false;
+    }
+    let left_shift = Rect::new(start_x, shift_row_y, 3, 1);
+    if rect_contains(left_shift, x, y) {
+        return true;
+    }
+    let offset = offsets[2];
+    let row_end_x = start_x + offset + letter_rows[2].len() as u16 * key_width;
+    let right_shift = Rect::new(row_end_x, shift_row_y, 3, 1);
+    rect_contains(right_shift, x, y)
+}
+
 fn key_at_full_position(inner: Rect, model: &KeyboardModel, x: u16, y: u16) -> Option<char> {
     let key_width: u16 = 5;
     let offsets: &[u16] = &[0, 5, 5, 6];
@@ -803,6 +861,41 @@ fn key_at_full_position(inner: Rect, model: &KeyboardModel, x: u16, y: u16) -> O
     None
 }
 
+fn shift_at_full_position(inner: Rect, model: &KeyboardModel, x: u16, y: u16) -> bool {
+    let key_width: u16 = 5;
+    let offsets: &[u16] = &[0, 5, 5, 6];
+    let keyboard_width = model
+        .rows
+        .iter()
+        .enumerate()
+        .map(|(row_idx, row)| {
+            let offset = offsets.get(row_idx).copied().unwrap_or(0);
+            let row_end = offset + row.len() as u16 * key_width;
+            match row_idx {
+                0 => row_end + 6,
+                2 => row_end + 7,
+                3 => row_end + 6,
+                _ => row_end,
+            }
+        })
+        .max()
+        .unwrap_or(0);
+    let start_x = inner.x + inner.width.saturating_sub(keyboard_width) / 2;
+    let shift_row_y = inner.y + 3;
+    if y != shift_row_y {
+        return false;
+    }
+
+    let left_shift = Rect::new(start_x, shift_row_y, 6, 1);
+    if rect_contains(left_shift, x, y) {
+        return true;
+    }
+    let offset = offsets[3];
+    let row_end_x = start_x + offset + model.rows[3].len() as u16 * key_width;
+    let right_shift = Rect::new(row_end_x, shift_row_y, 6, 1);
+    rect_contains(right_shift, x, y)
+}
+
 fn key_at_full_fallback_position(
     inner: Rect,
     model: &KeyboardModel,
@@ -842,4 +935,8 @@ fn key_at_full_fallback_position(
         }
     }
     None
+}
+
+fn shift_at_full_fallback_position(_inner: Rect, _model: &KeyboardModel, _x: u16, _y: u16) -> bool {
+    false
 }

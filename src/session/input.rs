@@ -47,9 +47,9 @@ pub fn process_char(drill: &mut DrillState, ch: char) -> Option<KeystrokeEvent> 
     } else if correct {
         drill.input.push(CharStatus::Correct);
         drill.cursor += 1;
-        // IDE-like behavior: when Enter is correctly typed, auto-consume
+        // Optional IDE-like behavior: when Enter is correctly typed, auto-consume
         // indentation whitespace on the next line.
-        if ch == '\n' {
+        if ch == '\n' && drill.auto_indent_after_newline {
             apply_auto_indent_after_newline(drill);
         }
     } else if ch == '\n' {

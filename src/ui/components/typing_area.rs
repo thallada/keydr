@@ -162,10 +162,13 @@ fn build_render_tokens(target: &[char]) -> Vec<RenderToken> {
             }
             '\t' => {
                 let tab_width = 4 - (col % 4);
-                let mut display = String::from("\u{2192}"); // →
-                for _ in 1..tab_width {
-                    display.push('\u{00b7}'); // ·
+                let mut display = String::new();
+                if tab_width > 1 {
+                    for _ in 0..(tab_width - 1) {
+                        display.push('\u{2500}'); // ─
+                    }
                 }
+                display.push('\u{21E5}'); // ⇥
                 tokens.push(RenderToken {
                     target_idx: i,
                     display,
@@ -299,18 +302,18 @@ mod tests {
         let target: Vec<char> = "\tx".chars().collect();
         let tokens = build_render_tokens(&target);
         assert_eq!(tokens.len(), 2);
-        // Tab at col 0: width = 4 - (0 % 4) = 4 => "→···"
-        assert_eq!(tokens[0].display, "\u{2192}\u{00b7}\u{00b7}\u{00b7}");
+        // Tab at col 0: width = 4 - (0 % 4) = 4 => "───⇥"
+        assert_eq!(tokens[0].display, "\u{2500}\u{2500}\u{2500}\u{21E5}");
         assert!(!tokens[0].is_line_break);
         assert_eq!(tokens[0].target_idx, 0);
     }
 
     #[test]
     fn test_render_tokens_tab_alignment() {
-        // "ab\t" -> col 2, tab_width = 4 - (2 % 4) = 2 => "→·"
+        // "ab\t" -> col 2, tab_width = 4 - (2 % 4) = 2 => "─⇥"
         let target: Vec<char> = "ab\t".chars().collect();
         let tokens = build_render_tokens(&target);
-        assert_eq!(tokens[2].display, "\u{2192}\u{00b7}");
+        assert_eq!(tokens[2].display, "\u{2500}\u{21E5}");
     }
 
     #[test]
@@ -320,6 +323,6 @@ mod tests {
         let tokens = build_render_tokens(&target);
         assert_eq!(tokens.len(), 3);
         assert!(tokens[0].is_line_break);
-        assert_eq!(tokens[1].display, "\u{2192}\u{00b7}\u{00b7}\u{00b7}");
+        assert_eq!(tokens[1].display, "\u{2500}\u{2500}\u{2500}\u{21E5}");
     }
 }

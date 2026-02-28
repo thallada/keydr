@@ -696,7 +696,9 @@ impl App {
     pub fn start_drill(&mut self) {
         self.clear_post_drill_input_lock();
         let (text, source_info) = self.generate_text();
-        self.drill = Some(DrillState::new(&text));
+        let mut drill = DrillState::new(&text);
+        drill.auto_indent_after_newline = self.drill_mode != DrillMode::Adaptive;
+        self.drill = Some(drill);
         self.drill_source_info = source_info;
         self.drill_events.clear();
         self.screen = AppScreen::Drill;
@@ -803,37 +805,37 @@ impl App {
                         BranchStatus::InProgress | BranchStatus::Complete
                     ),
                 };
+                let symbol_keys: Vec<char> = all_keys
+                    .iter()
+                    .copied()
+                    .filter(|ch| {
+                        matches!(
+                            ch,
+                            '=' | '+'
+                                | '*'
+                                | '/'
+                                | '-'
+                                | '{'
+                                | '}'
+                                | '['
+                                | ']'
+                                | '<'
+                                | '>'
+                                | '&'
+                                | '|'
+                                | '^'
+                                | '~'
+                                | '@'
+                                | '#'
+                                | '$'
+                                | '%'
+                                | '_'
+                                | '\\'
+                                | '`'
+                        )
+                    })
+                    .collect();
                 if code_active {
-                    let symbol_keys: Vec<char> = all_keys
-                        .iter()
-                        .copied()
-                        .filter(|ch| {
-                            matches!(
-                                ch,
-                                '=' | '+'
-                                    | '*'
-                                    | '/'
-                                    | '-'
-                                    | '{'
-                                    | '}'
-                                    | '['
-                                    | ']'
-                                    | '<'
-                                    | '>'
-                                    | '&'
-                                    | '|'
-                                    | '^'
-                                    | '~'
-                                    | '@'
-                                    | '#'
-                                    | '$'
-                                    | '%'
-                                    | '_'
-                                    | '\\'
-                                    | '`'
-                            )
-                        })
-                        .collect();
                     if !symbol_keys.is_empty() {
                         let mut rng = SmallRng::from_rng(&mut self.rng).unwrap();
                         text = code_patterns::apply_code_symbols(
@@ -846,8 +848,39 @@ impl App {
                 }
 
                 // Apply whitespace line breaks if newline is in scope
-                if all_keys.contains(&'\n') {
+                let has_newline = all_keys.contains(&'\n');
+                let has_tab = all_keys.contains(&'\t');
+                if has_newline {
                     text = insert_line_breaks(&text);
+                }
+
+                // Balance injection density so unlocked branches contribute
+                // roughly similar amounts of practice content.
+                let active_branch_count = [
+                    !cap_keys.is_empty(),
+                    !punct_keys.is_empty(),
+                    !digit_keys.is_empty(),
+                    code_active && !symbol_keys.is_empty(),
+                    has_newline || has_tab,
+                ]
+                .into_iter()
+                .filter(|active| *active)
+                .count();
+                if active_branch_count > 1 || has_tab {
+                    let target_per_branch = (word_count / 6).clamp(2, 6);
+                    let mut rng = SmallRng::from_rng(&mut self.rng).unwrap();
+                    text = rebalance_branch_injections(
+                        text,
+                        &cap_keys,
+                        &punct_keys,
+                        &digit_keys,
+                        if code_active { &symbol_keys } else { &[] },
+                        has_newline,
+                        has_tab,
+                        focused_char,
+                        target_per_branch,
+                        &mut rng,
+                    );
                 }
 
                 (text, None)
@@ -1441,7 +1474,9 @@ impl App {
     pub fn retry_drill(&mut self) {
         if let Some(ref drill) = self.drill {
             let text: String = drill.target.iter().collect();
-            self.drill = Some(DrillState::new(&text));
+            let mut retry = DrillState::new(&text);
+            retry.auto_indent_after_newline = self.drill_mode != DrillMode::Adaptive;
+            self.drill = Some(retry);
             self.drill_events.clear();
             self.last_result = None;
             self.screen = AppScreen::Drill;
@@ -2296,6 +2331,289 @@ fn lowercase_generation_focus(focused: Option<char>) -> Option<char> {
     })
 }
 
+fn count_matching_chars(text: &str, keys: &[char]) -> usize {
+    text.chars().filter(|ch| keys.contains(ch)).count()
+}
+
+fn first_alpha_index(chars: &[char]) -> Option<usize> {
+    chars.iter().position(|ch| ch.is_ascii_alphabetic())
+}
+
+fn top_up_capitals(
+    text: String,
+    cap_keys: &[char],
+    focused: Option<char>,
+    needed: usize,
+    rng: &mut SmallRng,
+) -> String {
+    if needed == 0 || cap_keys.is_empty() {
+        return text;
+    }
+    let mut words: Vec<String> = text.split_whitespace().map(|w| w.to_string()).collect();
+    if words.is_empty() {
+        return text;
+    }
+
+    let mut remaining = needed;
+    let mut attempts = 0usize;
+    let max_attempts = words.len().saturating_mul(10).max(needed);
+    while remaining > 0 && attempts < max_attempts {
+        attempts += 1;
+        let idx = rng.gen_range(0..words.len());
+        let mut chars: Vec<char> = words[idx].chars().collect();
+        let Some(pos) = first_alpha_index(&chars) else {
+            continue;
+        };
+        if chars[pos].is_ascii_uppercase() {
+            continue;
+        }
+        let replacement = if let Some(ch) = focused.filter(|ch| ch.is_ascii_uppercase()) {
+            ch
+        } else {
+            cap_keys[rng.gen_range(0..cap_keys.len())]
+        };
+        chars[pos] = replacement;
+        words[idx] = chars.into_iter().collect();
+        remaining = remaining.saturating_sub(1);
+    }
+    words.join(" ")
+}
+
+fn top_up_punctuation(
+    text: String,
+    punct_keys: &[char],
+    needed: usize,
+    rng: &mut SmallRng,
+) -> String {
+    if needed == 0 || punct_keys.is_empty() {
+        return text;
+    }
+    let mut words: Vec<String> = text.split_whitespace().map(|w| w.to_string()).collect();
+    if words.is_empty() {
+        return text;
+    }
+    for _ in 0..needed {
+        let idx = rng.gen_range(0..words.len());
+        let p = punct_keys[rng.gen_range(0..punct_keys.len())];
+        words[idx].push(p);
+    }
+    words.join(" ")
+}
+
+fn random_number_token(digit_keys: &[char], focused: Option<char>, rng: &mut SmallRng) -> String {
+    let len = rng.gen_range(1..=3);
+    let focused_digit = focused.filter(|ch| ch.is_ascii_digit());
+    (0..len)
+        .map(|_| {
+            if let Some(fd) = focused_digit {
+                if rng.gen_bool(0.45) {
+                    return fd;
+                }
+            }
+            digit_keys[rng.gen_range(0..digit_keys.len())]
+        })
+        .collect()
+}
+
+fn top_up_numbers(
+    text: String,
+    digit_keys: &[char],
+    focused: Option<char>,
+    needed: usize,
+    rng: &mut SmallRng,
+) -> String {
+    if needed == 0 || digit_keys.is_empty() {
+        return text;
+    }
+    let mut words: Vec<String> = text.split_whitespace().map(|w| w.to_string()).collect();
+    if words.is_empty() {
+        return text;
+    }
+    for _ in 0..needed {
+        let idx = rng.gen_range(0..words.len());
+        words[idx] = random_number_token(digit_keys, focused, rng);
+    }
+    words.join(" ")
+}
+
+fn top_up_code_symbols(
+    text: String,
+    symbol_keys: &[char],
+    focused: Option<char>,
+    needed: usize,
+    rng: &mut SmallRng,
+) -> String {
+    if needed == 0 || symbol_keys.is_empty() {
+        return text;
+    }
+    let mut words: Vec<String> = text.split_whitespace().map(|w| w.to_string()).collect();
+    if words.is_empty() {
+        return text;
+    }
+    let focused_symbol = focused.filter(|ch| symbol_keys.contains(ch));
+    for _ in 0..needed {
+        let idx = rng.gen_range(0..words.len());
+        let sym = focused_symbol
+            .filter(|_| rng.gen_bool(0.5))
+            .unwrap_or_else(|| symbol_keys[rng.gen_range(0..symbol_keys.len())]);
+        if rng.gen_bool(0.5) {
+            words[idx].insert(0, sym);
+        } else {
+            words[idx].push(sym);
+        }
+    }
+    words.join(" ")
+}
+
+fn top_up_whitespace(
+    text: String,
+    has_newline: bool,
+    has_tab: bool,
+    needed: usize,
+    rng: &mut SmallRng,
+) -> String {
+    if needed == 0 || (!has_newline && !has_tab) {
+        return text;
+    }
+    let mut chars: Vec<char> = text.chars().collect();
+    let mut added = 0usize;
+    let mut attempts = 0usize;
+    let max_attempts = needed.saturating_mul(12).max(24);
+
+    while added < needed && attempts < max_attempts {
+        attempts += 1;
+        let space_positions: Vec<usize> = chars
+            .iter()
+            .enumerate()
+            .filter_map(|(i, ch)| if *ch == ' ' { Some(i) } else { None })
+            .collect();
+        if space_positions.is_empty() {
+            break;
+        }
+        let pos = space_positions[rng.gen_range(0..space_positions.len())];
+
+        // When both are unlocked, prefer indentation-like `\n\t` insertions.
+        if has_newline && has_tab && added + 2 <= needed && rng.gen_bool(0.70) {
+            chars[pos] = '\n';
+            chars.insert(pos + 1, '\t');
+            added += 2;
+            continue;
+        }
+
+        // Newline-only insertion.
+        if has_newline && (!has_tab || rng.gen_bool(0.80)) {
+            chars[pos] = '\n';
+            added += 1;
+            continue;
+        }
+
+        // Mid-line tabs are allowed but intentionally rare.
+        if has_tab {
+            chars[pos] = '\t';
+            added += 1;
+        }
+    }
+
+    // Ensure at least one tab is present when tab is unlocked.
+    if has_tab && !chars.contains(&'\t') {
+        if let Some(pos) = chars.iter().position(|ch| *ch == ' ') {
+            if has_newline {
+                chars[pos] = '\n';
+                chars.insert(pos + 1, '\t');
+            } else {
+                chars[pos] = '\t';
+            }
+        } else if has_newline {
+            chars.push('\n');
+            chars.push('\t');
+        } else {
+            chars.push('\t');
+        }
+    }
+
+    chars.into_iter().collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rebalance_branch_injections(
+    mut text: String,
+    cap_keys: &[char],
+    punct_keys: &[char],
+    digit_keys: &[char],
+    symbol_keys: &[char],
+    has_newline: bool,
+    has_tab: bool,
+    focused: Option<char>,
+    target_per_branch: usize,
+    rng: &mut SmallRng,
+) -> String {
+    let bonus = 2usize;
+
+    if !punct_keys.is_empty() {
+        let current = count_matching_chars(&text, punct_keys);
+        let target = if focused.is_some_and(|ch| punct_keys.contains(&ch)) {
+            target_per_branch + bonus
+        } else {
+            target_per_branch
+        };
+        if current < target {
+            text = top_up_punctuation(text, punct_keys, target - current, rng);
+        }
+    }
+
+    if !digit_keys.is_empty() {
+        let current = text.chars().filter(|ch| ch.is_ascii_digit()).count();
+        let target = if focused.is_some_and(|ch| ch.is_ascii_digit()) {
+            target_per_branch + bonus
+        } else {
+            target_per_branch
+        };
+        if current < target {
+            text = top_up_numbers(text, digit_keys, focused, target - current, rng);
+        }
+    }
+
+    if !symbol_keys.is_empty() {
+        let current = count_matching_chars(&text, symbol_keys);
+        let target = if focused.is_some_and(|ch| symbol_keys.contains(&ch)) {
+            target_per_branch + bonus
+        } else {
+            target_per_branch
+        };
+        if current < target {
+            text = top_up_code_symbols(text, symbol_keys, focused, target - current, rng);
+        }
+    }
+
+    // Run capitals late so replacement passes (e.g. numbers) don't erase them.
+    if !cap_keys.is_empty() {
+        let current = text.chars().filter(|ch| ch.is_ascii_uppercase()).count();
+        let target = if focused.is_some_and(|ch| ch.is_ascii_uppercase()) {
+            target_per_branch + bonus
+        } else {
+            target_per_branch
+        };
+        if current < target {
+            text = top_up_capitals(text, cap_keys, focused, target - current, rng);
+        }
+    }
+
+    // Run whitespace last because word-based passes normalize separators.
+    if has_newline || has_tab {
+        let current = text.chars().filter(|ch| *ch == '\n' || *ch == '\t').count();
+        let target = if focused.is_some_and(|ch| ch == '\n' || ch == '\t') {
+            target_per_branch + bonus
+        } else {
+            target_per_branch
+        };
+        if current < target {
+            text = top_up_whitespace(text, has_newline, has_tab, target - current, rng);
+        }
+    }
+
+    text
+}
+
 #[cfg(test)]
 impl App {
     pub fn new_test() -> Self {
@@ -2535,6 +2853,39 @@ mod tests {
         );
     }
 
+    #[test]
+    fn auto_indent_disabled_for_adaptive_enabled_for_code_and_passage() {
+        let mut app = App::new_test();
+        assert_eq!(app.drill_mode, DrillMode::Adaptive);
+        assert!(
+            app.drill
+                .as_ref()
+                .is_some_and(|d| !d.auto_indent_after_newline),
+            "adaptive drills should not auto-indent"
+        );
+
+        app.code_drill_language_override = Some("rust".to_string());
+        app.start_code_drill();
+        assert_eq!(app.drill_mode, DrillMode::Code);
+        assert!(
+            app.drill
+                .as_ref()
+                .is_some_and(|d| d.auto_indent_after_newline),
+            "code drills should auto-indent"
+        );
+
+        app.config.passage_downloads_enabled = false;
+        app.passage_drill_selection_override = Some("builtin".to_string());
+        app.start_passage_drill();
+        assert_eq!(app.drill_mode, DrillMode::Passage);
+        assert!(
+            app.drill
+                .as_ref()
+                .is_some_and(|d| d.auto_indent_after_newline),
+            "passage drills should auto-indent"
+        );
+    }
+
     /// Helper: make the current drill look "completed" so finish_drill() processes it.
     fn complete_current_drill(app: &mut App) {
         if let Some(ref mut drill) = app.drill {
@@ -2625,6 +2976,98 @@ mod tests {
         assert_eq!(lowercase_generation_focus(Some('W')), Some('w'));
         assert_eq!(lowercase_generation_focus(Some('7')), None);
         assert_eq!(lowercase_generation_focus(None), None);
+    }
+
+    #[test]
+    fn branch_injection_rebalance_hits_shared_minimums() {
+        let mut rng = SmallRng::seed_from_u64(42);
+        let base = "alpha beta gamma delta epsilon zeta eta theta iota kappa".to_string();
+        let out = rebalance_branch_injections(
+            base,
+            &['A'],
+            &['.'],
+            &['1'],
+            &['='],
+            true,
+            true,
+            None,
+            3,
+            &mut rng,
+        );
+
+        let cap_count = out.chars().filter(|ch| ch.is_ascii_uppercase()).count();
+        let punct_count = count_matching_chars(&out, &['.']);
+        let digit_count = out.chars().filter(|ch| ch.is_ascii_digit()).count();
+        let symbol_count = count_matching_chars(&out, &['=']);
+        let whitespace_count = out.chars().filter(|ch| *ch == '\n' || *ch == '\t').count();
+
+        assert!(cap_count >= 3, "capitals too low in: {out}");
+        assert!(punct_count >= 3, "punctuation too low in: {out}");
+        assert!(digit_count >= 3, "digits too low in: {out}");
+        assert!(symbol_count >= 3, "symbols too low in: {out}");
+        assert!(whitespace_count >= 3, "whitespace too low in: {out}");
+    }
+
+    #[test]
+    fn branch_injection_rebalance_boosts_focused_branch() {
+        let mut rng = SmallRng::seed_from_u64(7);
+        let base = "alpha beta gamma delta epsilon zeta eta theta iota kappa".to_string();
+        let out = rebalance_branch_injections(
+            base,
+            &['A'],
+            &['.'],
+            &['1'],
+            &['='],
+            true,
+            false,
+            Some('1'),
+            3,
+            &mut rng,
+        );
+
+        let digit_count = out.chars().filter(|ch| ch.is_ascii_digit()).count();
+        assert!(
+            digit_count >= 5,
+            "focused digit branch should get bonus density, got {digit_count} in: {out}"
+        );
+    }
+
+    #[test]
+    fn branch_injection_rebalance_includes_tab_when_unlocked() {
+        let mut rng = SmallRng::seed_from_u64(17);
+        let base = "alpha beta gamma delta epsilon zeta eta theta iota kappa".to_string();
+        let out =
+            rebalance_branch_injections(base, &[], &[], &[], &[], true, true, None, 3, &mut rng);
+        let tab_count = out.chars().filter(|ch| *ch == '\t').count();
+        assert!(
+            tab_count >= 1,
+            "expected at least one tab when tab is unlocked, got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn whitespace_top_up_prefers_tabs_after_newlines() {
+        let mut rng = SmallRng::seed_from_u64(1234);
+        let base = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu".to_string();
+        let out = top_up_whitespace(base, true, true, 10, &mut rng);
+        let chars: Vec<char> = out.chars().collect();
+
+        let mut tabs = 0usize;
+        let mut tabs_after_newline = 0usize;
+        for i in 0..chars.len() {
+            if chars[i] == '\t' {
+                tabs += 1;
+                if i > 0 && chars[i - 1] == '\n' {
+                    tabs_after_newline += 1;
+                }
+            }
+        }
+
+        assert!(tabs > 0, "expected at least one tab in: {out:?}");
+        assert!(
+            tabs_after_newline * 2 >= tabs,
+            "expected most tabs to be indentation-style after newline; got {tabs_after_newline}/{tabs} in: {out:?}"
+        );
     }
 
     /// Helper: make a key just below mastery in ranked stats.
