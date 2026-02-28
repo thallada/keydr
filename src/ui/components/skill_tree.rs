@@ -59,6 +59,41 @@ pub fn detail_line_count(branch_id: BranchId) -> usize {
         .sum::<usize>()
 }
 
+pub fn detail_line_count_with_level_spacing(branch_id: BranchId, level_spacing: bool) -> usize {
+    let base = detail_line_count(branch_id);
+    if !level_spacing {
+        return base;
+    }
+    let def = get_branch_definition(branch_id);
+    base + def.levels.len().saturating_sub(1)
+}
+
+pub fn use_expanded_level_spacing(detail_area_height: u16, branch_id: BranchId) -> bool {
+    let def = get_branch_definition(branch_id);
+    let base = detail_line_count(branch_id);
+    let extra = def.levels.len().saturating_sub(1);
+    (detail_area_height as usize) >= base + extra
+}
+
+pub fn use_side_by_side_layout(inner_width: u16) -> bool {
+    inner_width >= 100
+}
+
+pub fn branch_list_spacing_flags(branch_area_height: u16, branch_count: usize) -> (bool, bool) {
+    if branch_count == 0 {
+        return (false, false);
+    }
+    // Base lines: 2 per branch + 1 separator after lowercase.
+    let base_lines = branch_count * 2 + 1;
+    let extra_lines = (branch_area_height as usize).saturating_sub(base_lines);
+    // Priority 1: one spacer between each progress bar and following branch title.
+    let inter_branch_needed = branch_count.saturating_sub(1);
+    let inter_branch_spacing = extra_lines >= inter_branch_needed;
+    // Priority 2: one extra line above and below "Branches (...)" separator.
+    let separator_padding = inter_branch_spacing && extra_lines >= inter_branch_needed + 2;
+    (inter_branch_spacing, separator_padding)
+}
+
 impl Widget for SkillTreeWidget<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
@@ -70,9 +105,8 @@ impl Widget for SkillTreeWidget<'_> {
         let inner = block.inner(area);
         block.render(area, buf);
 
-        // Layout: branch list, separator, detail panel, footer (adaptive height)
+        // Layout: main split (branch list + detail) and footer (adaptive height)
         let branches = selectable_branches();
-        let branch_list_height = branches.len() as u16 * 2 + 1; // all branches * 2 lines + separator after Lowercase
         let (footer_hints, footer_notice) = if self.selected < branches.len() {
             let bp = self.skill_tree.branch_progress(branches[self.selected]);
             if *self.skill_tree.branch_status(branches[self.selected]) == BranchStatus::Locked {
@@ -84,8 +118,17 @@ impl Widget for SkillTreeWidget<'_> {
                     ],
                     Some("Complete a-z to unlock branches"),
                 )
-            } else if bp.status == BranchStatus::Available || bp.status == BranchStatus::InProgress
-            {
+            } else if bp.status == BranchStatus::Available {
+                (
+                    vec![
+                        "[Enter] Unlock",
+                        "[↑↓/jk] Navigate",
+                        "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                        "[q] Back",
+                    ],
+                    None,
+                )
+            } else if bp.status == BranchStatus::InProgress {
                 (
                     vec![
                         "[Enter] Start Drill",
@@ -128,28 +171,67 @@ impl Widget for SkillTreeWidget<'_> {
 
         let layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(
-                    branch_list_height.min(inner.height.saturating_sub(footer_height + 4)),
-                ),
-                Constraint::Length(1),
-                Constraint::Min(4),
-                Constraint::Length(footer_height),
-            ])
+            .constraints([Constraint::Min(4), Constraint::Length(footer_height)])
             .split(inner);
 
-        // --- Branch list ---
-        self.render_branch_list(layout[0], buf, &branches);
+        if use_side_by_side_layout(inner.width) {
+            let main = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(42),
+                    Constraint::Length(1),
+                    Constraint::Percentage(58),
+                ])
+                .split(layout[0]);
 
-        // --- Separator ---
-        let sep = Paragraph::new(Line::from(Span::styled(
-            "\u{2500}".repeat(layout[1].width as usize),
-            Style::default().fg(colors.border()),
-        )));
-        sep.render(layout[1], buf);
+            // --- Branch list (left pane) ---
+            let (inter_branch_spacing, separator_padding) =
+                branch_list_spacing_flags(main[0].height, branches.len());
+            self.render_branch_list(
+                main[0],
+                buf,
+                &branches,
+                inter_branch_spacing,
+                separator_padding,
+            );
 
-        // --- Detail panel for selected branch ---
-        self.render_detail_panel(layout[2], buf, &branches);
+            // --- Vertical separator ---
+            let sep_lines: Vec<Line> = (0..main[1].height)
+                .map(|_| {
+                    Line::from(Span::styled(
+                        "\u{2502}",
+                        Style::default().fg(colors.border()),
+                    ))
+                })
+                .collect();
+            Paragraph::new(sep_lines).render(main[1], buf);
+
+            // --- Detail panel for selected branch (right pane) ---
+            self.render_detail_panel(main[2], buf, &branches, true);
+        } else {
+            let branch_list_height = branches.len() as u16 * 2 + 1;
+            let main = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(branch_list_height.min(layout[0].height.saturating_sub(4))),
+                    Constraint::Length(1),
+                    Constraint::Min(3),
+                ])
+                .split(layout[0]);
+
+            // --- Branch list (top pane) ---
+            self.render_branch_list(main[0], buf, &branches, false, false);
+
+            // --- Horizontal separator ---
+            let sep = Paragraph::new(Line::from(Span::styled(
+                "\u{2500}".repeat(main[1].width as usize),
+                Style::default().fg(colors.border()),
+            )));
+            sep.render(main[1], buf);
+
+            // --- Detail panel (bottom pane) ---
+            self.render_detail_panel(main[2], buf, &branches, true);
+        }
 
         // --- Footer ---
         let mut footer_lines: Vec<Line> = Vec::new();
@@ -168,16 +250,27 @@ impl Widget for SkillTreeWidget<'_> {
             ))
         }));
         let footer = Paragraph::new(footer_lines).wrap(Wrap { trim: false });
-        footer.render(layout[3], buf);
+        footer.render(layout[1], buf);
     }
 }
 
 impl SkillTreeWidget<'_> {
-    fn render_branch_list(&self, area: Rect, buf: &mut Buffer, branches: &[BranchId]) {
+    fn render_branch_list(
+        &self,
+        area: Rect,
+        buf: &mut Buffer,
+        branches: &[BranchId],
+        inter_branch_spacing: bool,
+        separator_padding: bool,
+    ) {
         let colors = &self.theme.colors;
         let mut lines: Vec<Line> = Vec::new();
 
         for (i, &branch_id) in branches.iter().enumerate() {
+            if i > 0 && inter_branch_spacing {
+                lines.push(Line::from(""));
+            }
+
             let bp = self.skill_tree.branch_progress(branch_id);
             let def = get_branch_definition(branch_id);
             let total_keys = def.levels.iter().map(|l| l.keys.len()).sum::<usize>();
@@ -249,10 +342,18 @@ impl SkillTreeWidget<'_> {
 
             // Add separator after Lowercase (index 0)
             if branch_id == BranchId::Lowercase {
+                if separator_padding {
+                    lines.push(Line::from(""));
+                }
                 lines.push(Line::from(Span::styled(
-                    "  \u{2500}\u{2500} Branches (unlocked after a-z) \u{2500}\u{2500}",
-                    Style::default().fg(colors.border()),
+                    "  \u{2500}\u{2500} Branches (available after a-z) \u{2500}\u{2500}",
+                    Style::default().fg(colors.text_pending()),
                 )));
+                // If inter-branch spacing is enabled, the next branch will already
+                // insert one blank line before its title.
+                if separator_padding && !inter_branch_spacing {
+                    lines.push(Line::from(""));
+                }
             }
         }
 
@@ -260,7 +361,13 @@ impl SkillTreeWidget<'_> {
         paragraph.render(area, buf);
     }
 
-    fn render_detail_panel(&self, area: Rect, buf: &mut Buffer, branches: &[BranchId]) {
+    fn render_detail_panel(
+        &self,
+        area: Rect,
+        buf: &mut Buffer,
+        branches: &[BranchId],
+        allow_expanded_level_spacing: bool,
+    ) {
         let colors = &self.theme.colors;
 
         if self.selected >= branches.len() {
@@ -270,6 +377,8 @@ impl SkillTreeWidget<'_> {
         let branch_id = branches[self.selected];
         let bp = self.skill_tree.branch_progress(branch_id);
         let def = get_branch_definition(branch_id);
+        let expanded_level_spacing =
+            allow_expanded_level_spacing && use_expanded_level_spacing(area.height, branch_id);
 
         let mut lines: Vec<Line> = Vec::new();
 
@@ -401,6 +510,10 @@ impl SkillTreeWidget<'_> {
                     ]));
                 }
             }
+
+            if expanded_level_spacing && level_idx + 1 < def.levels.len() {
+                lines.push(Line::from(""));
+            }
         }
 
         let visible_height = area.height as usize;
@@ -437,4 +550,3 @@ fn dual_progress_bar_parts(
         "\u{2591}".repeat(empty_cells),
     )
 }
-

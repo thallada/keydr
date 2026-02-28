@@ -226,6 +226,7 @@ pub struct App {
     pub history_confirm_delete: bool,
     pub skill_tree_selected: usize,
     pub skill_tree_detail_scroll: usize,
+    pub skill_tree_confirm_unlock: Option<BranchId>,
     pub drill_source_info: Option<String>,
     pub code_language_selected: usize,
     pub code_language_scroll: usize,
@@ -378,6 +379,7 @@ impl App {
             history_confirm_delete: false,
             skill_tree_selected: 0,
             skill_tree_detail_scroll: 0,
+            skill_tree_confirm_unlock: None,
             drill_source_info: None,
             code_language_selected: 0,
             code_language_scroll: 0,
@@ -727,10 +729,13 @@ impl App {
                 let table = self.transition_table.clone();
                 let dict = Dictionary::load();
                 let rng = SmallRng::from_rng(&mut self.rng).unwrap();
-                let cross_drill_history: HashSet<String> =
-                    self.adaptive_word_history.iter().flatten().cloned().collect();
-                let mut generator =
-                    PhoneticGenerator::new(table, dict, rng, cross_drill_history);
+                let cross_drill_history: HashSet<String> = self
+                    .adaptive_word_history
+                    .iter()
+                    .flatten()
+                    .cloned()
+                    .collect();
+                let mut generator = PhoneticGenerator::new(table, dict, rng, cross_drill_history);
                 let mut text =
                     generator.generate(&filter, lowercase_focused, focused_bigram, word_count);
 
@@ -1523,14 +1528,19 @@ impl App {
     pub fn go_to_skill_tree(&mut self) {
         self.skill_tree_selected = 0;
         self.skill_tree_detail_scroll = 0;
+        self.skill_tree_confirm_unlock = None;
         self.screen = AppScreen::SkillTree;
     }
 
-    pub fn start_branch_drill(&mut self, branch_id: BranchId) {
-        // Start the branch if it's Available
+    pub fn unlock_branch(&mut self, branch_id: BranchId) {
+        // Start the branch if it's Available.
         self.skill_tree.start_branch(branch_id);
         self.profile.skill_tree = self.skill_tree.progress.clone();
         self.save_data();
+    }
+
+    pub fn start_branch_drill(&mut self, branch_id: BranchId) {
+        self.unlock_branch(branch_id);
 
         // Use adaptive mode with branch-specific scope
         let old_mode = self.drill_mode;
@@ -2267,6 +2277,7 @@ impl App {
             history_confirm_delete: false,
             skill_tree_selected: 0,
             skill_tree_detail_scroll: 0,
+            skill_tree_confirm_unlock: None,
             drill_source_info: None,
             code_language_selected: 0,
             code_language_scroll: 0,

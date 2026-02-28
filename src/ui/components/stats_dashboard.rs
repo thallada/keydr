@@ -166,12 +166,7 @@ impl Widget for StatsDashboard<'_> {
         // Footer
         let footer_lines: Vec<Line> = footer_lines_vec
             .into_iter()
-            .map(|line| {
-                Line::from(Span::styled(
-                    line,
-                    Style::default().fg(colors.accent()),
-                ))
-            })
+            .map(|line| Line::from(Span::styled(line, Style::default().fg(colors.accent()))))
             .collect();
         Paragraph::new(footer_lines).render(layout[2], buf);
 

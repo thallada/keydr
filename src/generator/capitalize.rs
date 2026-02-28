@@ -90,8 +90,8 @@ fn ensure_min_focused_occurrences(text: &str, focused_upper: char, min_count: us
         if chars[i] != focused_lower {
             continue;
         }
-        let is_word_start = i == 0
-            || matches!(chars.get(i.saturating_sub(1)), Some(' ' | '\n' | '\t'));
+        let is_word_start =
+            i == 0 || matches!(chars.get(i.saturating_sub(1)), Some(' ' | '\n' | '\t'));
         if is_word_start {
             chars[i] = focused_upper;
             count += 1;

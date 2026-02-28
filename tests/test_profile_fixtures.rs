@@ -6,9 +6,7 @@ use std::sync::Once;
 
 use chrono::Datelike;
 use keydr::engine::scoring::level_from_score;
-use keydr::engine::skill_tree::{
-    BranchId, BranchStatus, DrillScope, SkillTree, ALL_BRANCHES,
-};
+use keydr::engine::skill_tree::{ALL_BRANCHES, BranchId, BranchStatus, DrillScope, SkillTree};
 use keydr::store::json_store::JsonStore;
 use keydr::store::schema::ExportData;
 
@@ -34,7 +32,10 @@ fn ensure_profiles_generated() {
             .args(["run", "--bin", "generate_test_profiles"])
             .status()
             .expect("failed to run generate_test_profiles");
-        assert!(status.success(), "generate_test_profiles exited with {status}");
+        assert!(
+            status.success(),
+            "generate_test_profiles exited with {status}"
+        );
     });
 }
 
@@ -49,11 +50,7 @@ fn load_profile(name: &str) -> ExportData {
 fn completed_branch_keys(data: &ExportData) -> HashSet<char> {
     let mut keys = HashSet::new();
     for branch_def in ALL_BRANCHES {
-        let bp = data
-            .profile
-            .skill_tree
-            .branches
-            .get(branch_def.id.to_key());
+        let bp = data.profile.skill_tree.branches.get(branch_def.id.to_key());
         let is_complete = matches!(bp, Some(bp) if bp.status == BranchStatus::Complete);
         if is_complete {
             for level in branch_def.levels {
@@ -229,8 +226,16 @@ fn profile_01_has_empty_ranked_stats() {
         data.ranked_key_stats.stats.stats.is_empty(),
         "01-brand-new.json: ranked_key_stats should be empty"
     );
-    let ranked_count = data.drill_history.drills.iter().filter(|d| d.ranked).count();
-    assert_eq!(ranked_count, 0, "01-brand-new.json: should have no ranked drills");
+    let ranked_count = data
+        .drill_history
+        .drills
+        .iter()
+        .filter(|d| d.ranked)
+        .count();
+    assert_eq!(
+        ranked_count, 0,
+        "01-brand-new.json: should have no ranked drills"
+    );
 }
 
 #[test]
@@ -241,7 +246,12 @@ fn profiles_02_to_07_have_ranked_stats_and_ranked_drills() {
             !data.ranked_key_stats.stats.stats.is_empty(),
             "{name}: ranked_key_stats should not be empty"
         );
-        let ranked_count = data.drill_history.drills.iter().filter(|d| d.ranked).count();
+        let ranked_count = data
+            .drill_history
+            .drills
+            .iter()
+            .filter(|d| d.ranked)
+            .count();
         assert!(
             ranked_count > 0,
             "{name}: expected at least one ranked drill to populate ranked stores"
@@ -374,7 +384,12 @@ fn streak_and_last_practice_date_consistent_with_history() {
             );
         } else {
             // last_practice_date should match the last drill's date
-            let last_drill_date = drills.last().unwrap().timestamp.format("%Y-%m-%d").to_string();
+            let last_drill_date = drills
+                .last()
+                .unwrap()
+                .timestamp
+                .format("%Y-%m-%d")
+                .to_string();
             assert_eq!(
                 data.profile.last_practice_date.as_deref(),
                 Some(last_drill_date.as_str()),
@@ -495,10 +510,7 @@ fn imports_all_profiles_into_temp_store() {
 
         // Verify we can reload the imported data
         let profile = store.load_profile();
-        assert!(
-            profile.is_some(),
-            "{name}: profile not found after import"
-        );
+        assert!(profile.is_some(), "{name}: profile not found after import");
         let profile = profile.unwrap();
         assert_eq!(
             profile.total_drills, data.profile.total_drills,

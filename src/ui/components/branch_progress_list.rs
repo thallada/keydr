@@ -32,9 +32,8 @@ fn wrapped_branch_columns(area_width: u16, branch_count: usize) -> usize {
         return 1;
     }
     let width = area_width as usize;
-    let max_cols_by_width = ((width + BRANCH_CELL_GUTTER)
-        / (MIN_BRANCH_CELL_WIDTH + BRANCH_CELL_GUTTER))
-        .max(1);
+    let max_cols_by_width =
+        ((width + BRANCH_CELL_GUTTER) / (MIN_BRANCH_CELL_WIDTH + BRANCH_CELL_GUTTER)).max(1);
     max_cols_by_width.min(branch_count)
 }
 

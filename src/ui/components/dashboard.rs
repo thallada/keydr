@@ -160,12 +160,7 @@ impl Widget for Dashboard<'_> {
             ];
             let lines: Vec<Line> = pack_hint_lines(&hints, inner.width as usize)
                 .into_iter()
-                .map(|line| {
-                    Line::from(Span::styled(
-                        line,
-                        Style::default().fg(colors.accent()),
-                    ))
-                })
+                .map(|line| Line::from(Span::styled(line, Style::default().fg(colors.accent()))))
                 .collect();
             Paragraph::new(lines)
         };

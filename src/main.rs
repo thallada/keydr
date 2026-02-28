@@ -29,7 +29,6 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget, Wrap};
 
 use app::{App, AppScreen, DrillMode, MilestoneKind, StatusKind};
-use ui::line_input::{InputResult, LineInput, PathField};
 use engine::skill_tree::{DrillScope, find_key_branch};
 use event::{AppEvent, EventHandler};
 use generator::code_syntax::{code_language_options, is_language_cached, language_by_key};
@@ -37,15 +36,19 @@ use generator::passage::{is_book_cached, passage_options};
 use keyboard::display::key_display_name;
 use keyboard::finger::Hand;
 use ui::components::dashboard::Dashboard;
-use ui::layout::{pack_hint_lines, wrapped_line_count};
 use ui::components::keyboard_diagram::KeyboardDiagram;
-use ui::components::skill_tree::{SkillTreeWidget, detail_line_count, selectable_branches};
+use ui::components::skill_tree::{
+    SkillTreeWidget, detail_line_count_with_level_spacing, selectable_branches,
+    use_expanded_level_spacing, use_side_by_side_layout,
+};
 use ui::components::stats_dashboard::{
     AnomalyBigramRow, NgramTabData, StatsDashboard, history_page_size_for_terminal,
 };
 use ui::components::stats_sidebar::StatsSidebar;
 use ui::components::typing_area::TypingArea;
 use ui::layout::AppLayout;
+use ui::layout::{pack_hint_lines, wrapped_line_count};
+use ui::line_input::{InputResult, LineInput, PathField};
 
 #[derive(Parser)]
 #[command(
@@ -971,6 +974,20 @@ fn handle_code_download_progress_key(app: &mut App, key: KeyEvent) {
 
 fn handle_skill_tree_key(app: &mut App, key: KeyEvent) {
     const DETAIL_SCROLL_STEP: usize = 10;
+    if let Some(branch_id) = app.skill_tree_confirm_unlock {
+        match key.code {
+            KeyCode::Char('y') => {
+                app.unlock_branch(branch_id);
+                app.skill_tree_confirm_unlock = None;
+            }
+            KeyCode::Char('n') | KeyCode::Esc => {
+                app.skill_tree_confirm_unlock = None;
+            }
+            _ => {}
+        }
+        return;
+    }
+
     let max_scroll = skill_tree_detail_max_scroll(app);
     app.skill_tree_detail_scroll = app.skill_tree_detail_scroll.min(max_scroll);
     let branches = selectable_branches();
@@ -1014,9 +1031,9 @@ fn handle_skill_tree_key(app: &mut App, key: KeyEvent) {
             if app.skill_tree_selected < branches.len() {
                 let branch_id = branches[app.skill_tree_selected];
                 let status = app.skill_tree.branch_status(branch_id).clone();
-                if status == engine::skill_tree::BranchStatus::Available
-                    || status == engine::skill_tree::BranchStatus::InProgress
-                {
+                if status == engine::skill_tree::BranchStatus::Available {
+                    app.skill_tree_confirm_unlock = Some(branch_id);
+                } else if status == engine::skill_tree::BranchStatus::InProgress {
                     app.start_branch_drill(branch_id);
                 }
             }
@@ -1040,21 +1057,83 @@ fn skill_tree_detail_max_scroll(app: &App) -> usize {
     if branches.is_empty() {
         return 0;
     }
-    let branch_list_height = branches.len() as u16 * 2 + 1;
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(branch_list_height.min(inner.height.saturating_sub(6))),
-            Constraint::Length(1),
-            Constraint::Min(4),
-            Constraint::Length(2),
-        ])
-        .split(inner);
-    let detail_height = layout.get(2).map(|r| r.height as usize).unwrap_or(0);
     let selected = app
         .skill_tree_selected
         .min(branches.len().saturating_sub(1));
-    let total_lines = detail_line_count(branches[selected]);
+    let bp = app.skill_tree.branch_progress(branches[selected]);
+    let (footer_hints, footer_notice) = if *app.skill_tree.branch_status(branches[selected])
+        == engine::skill_tree::BranchStatus::Locked
+    {
+        (
+            vec![
+                "[↑↓/jk] Navigate",
+                "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                "[q] Back",
+            ],
+            Some("Complete a-z to unlock branches"),
+        )
+    } else if bp.status == engine::skill_tree::BranchStatus::Available {
+        (
+            vec![
+                "[Enter] Unlock",
+                "[↑↓/jk] Navigate",
+                "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                "[q] Back",
+            ],
+            None,
+        )
+    } else if bp.status == engine::skill_tree::BranchStatus::InProgress {
+        (
+            vec![
+                "[Enter] Start Drill",
+                "[↑↓/jk] Navigate",
+                "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                "[q] Back",
+            ],
+            None,
+        )
+    } else {
+        (
+            vec![
+                "[↑↓/jk] Navigate",
+                "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                "[q] Back",
+            ],
+            None,
+        )
+    };
+    let hint_lines = pack_hint_lines(&footer_hints, inner.width as usize);
+    let notice_lines = footer_notice
+        .map(|text| wrapped_line_count(text, inner.width as usize))
+        .unwrap_or(0);
+    let show_notice =
+        footer_notice.is_some() && (inner.height as usize >= hint_lines.len() + notice_lines + 8);
+    let footer_needed = hint_lines.len() + if show_notice { notice_lines } else { 0 } + 1;
+    let footer_height = footer_needed
+        .min(inner.height.saturating_sub(5) as usize)
+        .max(1) as u16;
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(4), Constraint::Length(footer_height)])
+        .split(inner);
+    let side_by_side = use_side_by_side_layout(inner.width);
+    let detail_height = if side_by_side {
+        layout.first().map(|r| r.height as usize).unwrap_or(0)
+    } else {
+        let branch_list_height = branches.len() as u16 * 2 + 1;
+        let main = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(branch_list_height.min(layout[0].height.saturating_sub(4))),
+                Constraint::Length(1),
+                Constraint::Min(3),
+            ])
+            .split(layout[0]);
+        main.get(2).map(|r| r.height as usize).unwrap_or(0)
+    };
+    let expanded = use_expanded_level_spacing(detail_height as u16, branches[selected]);
+    let total_lines = detail_line_count_with_level_spacing(branches[selected], expanded);
     total_lines.saturating_sub(detail_height)
 }
 
@@ -2252,7 +2331,7 @@ mod review_tests {
 
     #[test]
     fn build_ngram_tab_data_maps_fields_correctly() {
-        use crate::engine::ngram_stats::{BigramKey, ANOMALY_STREAK_REQUIRED};
+        use crate::engine::ngram_stats::{ANOMALY_STREAK_REQUIRED, BigramKey};
 
         let mut app = test_app();
 
@@ -2402,7 +2481,10 @@ mod review_tests {
         );
         let after_cursor = app.drill.as_ref().unwrap().cursor;
 
-        assert_eq!(before_cursor, after_cursor, "Key should be blocked during input lock on Drill screen");
+        assert_eq!(
+            before_cursor, after_cursor,
+            "Key should be blocked during input lock on Drill screen"
+        );
         assert_eq!(app.screen, AppScreen::Drill);
     }
 
@@ -2419,15 +2501,34 @@ mod review_tests {
             KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
         );
 
-        assert!(app.should_quit, "Ctrl+C should set should_quit even during input lock");
+        assert!(
+            app.should_quit,
+            "Ctrl+C should set should_quit even during input lock"
+        );
     }
 
     /// Helper: render settings to a test buffer and return its text content.
     fn render_settings_to_string(app: &App) -> String {
         let backend = ratatui::backend::TestBackend::new(80, 40);
         let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render_settings(frame, app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut text = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                text.push(buf[(x, y)].symbol().chars().next().unwrap_or(' '));
+            }
+            text.push('\n');
+        }
+        text
+    }
+
+    /// Helper: render skill tree to a test buffer and return its text content.
+    fn render_skill_tree_to_string_with_size(app: &App, width: u16, height: u16) -> String {
+        let backend = ratatui::backend::TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
         terminal
-            .draw(|frame| render_settings(frame, app))
+            .draw(|frame| render_skill_tree(frame, app))
             .unwrap();
         let buf = terminal.backend().buffer().clone();
         let mut text = String::new();
@@ -2438,6 +2539,10 @@ mod review_tests {
             text.push('\n');
         }
         text
+    }
+
+    fn render_skill_tree_to_string(app: &App) -> String {
+        render_skill_tree_to_string_with_size(app, 120, 40)
     }
 
     #[test]
@@ -2468,10 +2573,7 @@ mod review_tests {
         );
 
         // Press a non-tab key to clear the error
-        handle_settings_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
-        );
+        handle_settings_key(&mut app, KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
 
         // Render again — error hint should be gone
         let output_after = render_settings_to_string(&app);
@@ -2499,6 +2601,152 @@ mod review_tests {
         assert!(output_during.contains("[Enter] Confirm"));
         assert!(output_during.contains("[Esc] Cancel"));
         assert!(output_during.contains("[Tab] Complete"));
+    }
+
+    #[test]
+    fn skill_tree_available_branch_enter_opens_unlock_confirm() {
+        let mut app = test_app();
+        app.screen = AppScreen::SkillTree;
+        app.skill_tree_confirm_unlock = None;
+        app.skill_tree
+            .branch_progress_mut(engine::skill_tree::BranchId::Capitals)
+            .status = engine::skill_tree::BranchStatus::Available;
+        app.skill_tree_selected = selectable_branches()
+            .iter()
+            .position(|id| *id == engine::skill_tree::BranchId::Capitals)
+            .unwrap();
+
+        handle_skill_tree_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(
+            app.skill_tree_confirm_unlock,
+            Some(engine::skill_tree::BranchId::Capitals)
+        );
+        assert_eq!(
+            *app.skill_tree
+                .branch_status(engine::skill_tree::BranchId::Capitals),
+            engine::skill_tree::BranchStatus::Available
+        );
+        assert_eq!(app.screen, AppScreen::SkillTree);
+    }
+
+    #[test]
+    fn skill_tree_unlock_confirm_yes_unlocks_without_starting_drill() {
+        let mut app = test_app();
+        app.screen = AppScreen::SkillTree;
+        app.skill_tree_confirm_unlock = Some(engine::skill_tree::BranchId::Capitals);
+        app.skill_tree
+            .branch_progress_mut(engine::skill_tree::BranchId::Capitals)
+            .status = engine::skill_tree::BranchStatus::Available;
+
+        handle_skill_tree_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE),
+        );
+
+        assert_eq!(app.skill_tree_confirm_unlock, None);
+        assert_eq!(
+            *app.skill_tree
+                .branch_status(engine::skill_tree::BranchId::Capitals),
+            engine::skill_tree::BranchStatus::InProgress
+        );
+        assert_eq!(app.screen, AppScreen::SkillTree);
+    }
+
+    #[test]
+    fn skill_tree_in_progress_branch_enter_starts_branch_drill() {
+        let mut app = test_app();
+        app.screen = AppScreen::SkillTree;
+        app.skill_tree
+            .branch_progress_mut(engine::skill_tree::BranchId::Capitals)
+            .status = engine::skill_tree::BranchStatus::InProgress;
+        app.skill_tree_selected = selectable_branches()
+            .iter()
+            .position(|id| *id == engine::skill_tree::BranchId::Capitals)
+            .unwrap();
+
+        handle_skill_tree_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(app.skill_tree_confirm_unlock, None);
+        assert_eq!(app.screen, AppScreen::Drill);
+        assert_eq!(
+            app.drill_scope,
+            DrillScope::Branch(engine::skill_tree::BranchId::Capitals)
+        );
+    }
+
+    #[test]
+    fn skill_tree_available_branch_footer_shows_unlock_hint() {
+        let mut app = test_app();
+        app.screen = AppScreen::SkillTree;
+        app.skill_tree
+            .branch_progress_mut(engine::skill_tree::BranchId::Capitals)
+            .status = engine::skill_tree::BranchStatus::Available;
+        app.skill_tree_selected = selectable_branches()
+            .iter()
+            .position(|id| *id == engine::skill_tree::BranchId::Capitals)
+            .unwrap();
+
+        let output = render_skill_tree_to_string(&app);
+        assert!(output.contains("[Enter] Unlock"));
+    }
+
+    #[test]
+    fn skill_tree_unlock_modal_shows_body_and_prompt_text() {
+        let mut app = test_app();
+        app.screen = AppScreen::SkillTree;
+        app.skill_tree_confirm_unlock = Some(engine::skill_tree::BranchId::Capitals);
+
+        let output = render_skill_tree_to_string(&app);
+        assert!(output.contains("default adaptive drill will mix in keys"));
+        assert!(output.contains("focus only on this branch"));
+        assert!(output.contains("from this branch in the Skill Tree."));
+        assert!(output.contains("Proceed? (y/n)"));
+    }
+
+    #[test]
+    fn skill_tree_unlock_modal_keeps_full_second_sentence_on_smaller_terminal() {
+        let mut app = test_app();
+        app.screen = AppScreen::SkillTree;
+        app.skill_tree_confirm_unlock = Some(engine::skill_tree::BranchId::Capitals);
+
+        let output = render_skill_tree_to_string_with_size(&app, 90, 24);
+        assert!(output.contains("focus only on this branch"));
+        assert!(output.contains("from this branch in the Skill Tree."));
+        assert!(output.contains("Proceed? (y/n)"));
+    }
+
+    #[test]
+    fn skill_tree_layout_switches_with_width() {
+        assert!(!use_side_by_side_layout(99));
+        assert!(use_side_by_side_layout(100));
+    }
+
+    #[test]
+    fn skill_tree_expanded_branch_spacing_threshold() {
+        // 6 branches => base=13 lines, inter-branch spacing needs +5, separator padding needs +2.
+        assert_eq!(
+            crate::ui::components::skill_tree::branch_list_spacing_flags(17, 6),
+            (false, false)
+        );
+        assert_eq!(
+            crate::ui::components::skill_tree::branch_list_spacing_flags(18, 6),
+            (true, false)
+        );
+        assert_eq!(
+            crate::ui::components::skill_tree::branch_list_spacing_flags(20, 6),
+            (true, true)
+        );
+    }
+
+    #[test]
+    fn skill_tree_expanded_level_spacing_threshold() {
+        use crate::engine::skill_tree::BranchId;
+        let id = BranchId::Capitals;
+        let base = crate::ui::components::skill_tree::detail_line_count(id) as u16;
+        // Capitals has 3 levels, so expanded spacing needs +2 lines.
+        assert!(!use_expanded_level_spacing(base + 1, id));
+        assert!(use_expanded_level_spacing(base + 2, id));
     }
 }
 
@@ -2856,9 +3104,7 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
             if is_editing_this_path {
                 if let Some((_, ref input)) = app.settings_editing_path {
                     let (before, cursor_ch, after) = input.render_parts();
-                    let cursor_style = Style::default()
-                        .fg(colors.bg())
-                        .bg(colors.focused_key());
+                    let cursor_style = Style::default().fg(colors.bg()).bg(colors.focused_key());
                     let path_spans = match cursor_ch {
                         Some(ch) => vec![
                             Span::styled(format!("  {before}"), value_style),
@@ -3008,7 +3254,6 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
         frame.render_widget(dialog, dialog_area);
     }
 }
-
 
 fn render_code_language_select(frame: &mut ratatui::Frame, app: &App) {
     let area = frame.area();
@@ -3715,6 +3960,7 @@ fn render_code_download_progress(frame: &mut ratatui::Frame, app: &App) {
 
 fn render_skill_tree(frame: &mut ratatui::Frame, app: &App) {
     let area = frame.area();
+    let colors = &app.theme.colors;
     let centered = skill_tree_popup_rect(area);
     let widget = SkillTreeWidget::new(
         &app.skill_tree,
@@ -3724,6 +3970,89 @@ fn render_skill_tree(frame: &mut ratatui::Frame, app: &App) {
         app.theme,
     );
     frame.render_widget(widget, centered);
+
+    if let Some(branch_id) = app.skill_tree_confirm_unlock {
+        let sentence_one = "Once unlocked, the default adaptive drill will mix in keys in this branch that are unlocked.";
+        let sentence_two = "If you want to focus only on this branch, launch a drill directly from this branch in the Skill Tree.";
+        let branch_name = engine::skill_tree::get_branch_definition(branch_id).name;
+        let dialog_width = 72u16.min(area.width.saturating_sub(4));
+        let content_width = dialog_width.saturating_sub(6).max(1) as usize; // border + side margins
+        let body_required = 4 // blank + title + blank + blank-between-sentences
+            + wrapped_line_count(sentence_one, content_width)
+            + wrapped_line_count(sentence_two, content_width);
+        // Add one safety line because `wrapped_line_count` is a cheap estimator.
+        let body_required = body_required + 1;
+        let min_dialog_height = (body_required + 1 + 2) as u16; // body + prompt + border
+        let preferred_dialog_height = (body_required + 2 + 2) as u16; // + blank before prompt
+        let max_dialog_height = area.height.saturating_sub(1).max(7);
+        let dialog_height = preferred_dialog_height
+            .min(max_dialog_height)
+            .max(min_dialog_height.min(max_dialog_height));
+        let dialog_x = area.x + area.width.saturating_sub(dialog_width) / 2;
+        let dialog_y = area.y + area.height.saturating_sub(dialog_height) / 2;
+        let dialog_area = Rect::new(dialog_x, dialog_y, dialog_width, dialog_height);
+
+        frame.render_widget(ratatui::widgets::Clear, dialog_area);
+        let block = Block::bordered()
+            .title(" Confirm Unlock ")
+            .border_style(Style::default().fg(colors.error()))
+            .style(Style::default().bg(colors.bg()));
+        let inner = block.inner(dialog_area);
+        frame.render_widget(block, dialog_area);
+        let content = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Length(2),
+                Constraint::Min(1),
+                Constraint::Length(2),
+            ])
+            .split(inner)[1];
+        let prompt_block_height = if content.height as usize > body_required + 1 {
+            2
+        } else {
+            1
+        };
+        let content_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(prompt_block_height)])
+            .split(content);
+        let body = Paragraph::new(vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                format!("Unlock {branch_name}?"),
+                Style::default().fg(colors.fg()),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                sentence_one,
+                Style::default().fg(colors.text_pending()),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                sentence_two,
+                Style::default().fg(colors.text_pending()),
+            )),
+        ])
+        .wrap(Wrap { trim: false })
+        .style(Style::default().bg(colors.bg()));
+        frame.render_widget(body, content_layout[0]);
+        let confirm_lines = if prompt_block_height > 1 {
+            vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Proceed? (y/n)",
+                    Style::default().fg(colors.fg()),
+                )),
+            ]
+        } else {
+            vec![Line::from(Span::styled(
+                "Proceed? (y/n)",
+                Style::default().fg(colors.fg()),
+            ))]
+        };
+        let confirm = Paragraph::new(confirm_lines).style(Style::default().bg(colors.bg()));
+        frame.render_widget(confirm, content_layout[1]);
+    }
 }
 
 fn handle_keyboard_explorer_key(app: &mut App, key: KeyEvent) {

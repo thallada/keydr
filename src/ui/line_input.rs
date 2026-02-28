@@ -89,7 +89,8 @@ impl LineInput {
                 if self.cursor > 0 {
                     let byte_offset = self.char_to_byte(self.cursor - 1);
                     let ch = self.text[byte_offset..].chars().next().unwrap();
-                    self.text.replace_range(byte_offset..byte_offset + ch.len_utf8(), "");
+                    self.text
+                        .replace_range(byte_offset..byte_offset + ch.len_utf8(), "");
                     self.cursor -= 1;
                 }
             }
@@ -99,7 +100,8 @@ impl LineInput {
                 if self.cursor < len {
                     let byte_offset = self.char_to_byte(self.cursor);
                     let ch = self.text[byte_offset..].chars().next().unwrap();
-                    self.text.replace_range(byte_offset..byte_offset + ch.len_utf8(), "");
+                    self.text
+                        .replace_range(byte_offset..byte_offset + ch.len_utf8(), "");
                 }
             }
             KeyCode::Tab => {
@@ -216,11 +218,7 @@ impl LineInput {
 
         // Split seed into (dir_part, partial_filename) by last path separator.
         // Accept both '/' and '\\' so user-typed alternate separators work on any platform.
-        let last_sep_pos = seed
-            .rfind('/')
-            .into_iter()
-            .chain(seed.rfind('\\'))
-            .max();
+        let last_sep_pos = seed.rfind('/').into_iter().chain(seed.rfind('\\')).max();
         let (dir_str, partial) = if let Some(pos) = last_sep_pos {
             (&seed[..=pos], &seed[pos + 1..])
         } else {
@@ -638,7 +636,10 @@ mod tests {
         let mut input = LineInput::new("");
         let entries: Vec<std::io::Result<(String, bool)>> = vec![
             Ok(("alpha.txt".to_string(), false)),
-            Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "mock")),
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "mock",
+            )),
             Ok(("beta.txt".to_string(), false)),
         ];
 

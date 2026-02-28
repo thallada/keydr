@@ -366,8 +366,7 @@ impl TextGenerator for PhoneticGenerator {
         } else if pool_size >= FULL_DICT_THRESHOLD {
             1.0
         } else {
-            (pool_size - MIN_REAL_WORDS) as f64
-                / (FULL_DICT_THRESHOLD - MIN_REAL_WORDS) as f64
+            (pool_size - MIN_REAL_WORDS) as f64 / (FULL_DICT_THRESHOLD - MIN_REAL_WORDS) as f64
         };
 
         // Scaled within-drill dedup window based on dictionary pool size
@@ -379,8 +378,7 @@ impl TextGenerator for PhoneticGenerator {
 
         // Cross-drill history accept probability (computed once)
         let cross_drill_accept_prob = if pool_size > 0 {
-            let pool_set: HashSet<&str> =
-                matching_words.iter().map(|s| s.as_str()).collect();
+            let pool_set: HashSet<&str> = matching_words.iter().map(|s| s.as_str()).collect();
             let history_in_pool = self
                 .cross_drill_history
                 .iter()
@@ -474,8 +472,12 @@ mod tests {
             .filter(|w| w.contains('k'))
             .count();
 
-        let mut baseline_gen =
-            PhoneticGenerator::new(table, Dictionary::load(), SmallRng::seed_from_u64(42), HashSet::new());
+        let mut baseline_gen = PhoneticGenerator::new(
+            table,
+            Dictionary::load(),
+            SmallRng::seed_from_u64(42),
+            HashSet::new(),
+        );
         let baseline_text = baseline_gen.generate(&filter, None, None, 1200);
         let baseline_count = baseline_text
             .split_whitespace()
@@ -506,8 +508,12 @@ mod tests {
             .filter(|w| w.contains("th"))
             .count();
 
-        let mut baseline_gen =
-            PhoneticGenerator::new(table, Dictionary::load(), SmallRng::seed_from_u64(42), HashSet::new());
+        let mut baseline_gen = PhoneticGenerator::new(
+            table,
+            Dictionary::load(),
+            SmallRng::seed_from_u64(42),
+            HashSet::new(),
+        );
         let baseline_text = baseline_gen.generate(&filter, None, None, 1200);
         let baseline_count = baseline_text
             .split_whitespace()
@@ -526,8 +532,12 @@ mod tests {
         let table = TransitionTable::build_from_words(&dictionary.words_list());
         let filter = CharFilter::new(('a'..='z').collect());
 
-        let mut generator =
-            PhoneticGenerator::new(table, Dictionary::load(), SmallRng::seed_from_u64(42), HashSet::new());
+        let mut generator = PhoneticGenerator::new(
+            table,
+            Dictionary::load(),
+            SmallRng::seed_from_u64(42),
+            HashSet::new(),
+        );
         let text = generator.generate(&filter, Some('k'), Some(['t', 'h']), 200);
         let words: Vec<&str> = text.split_whitespace().collect();
 
@@ -580,8 +590,10 @@ mod tests {
             HashSet::new(),
         );
         let text2_no_hist = gen2_no_hist.generate(&filter, Some('k'), None, word_count);
-        let words2_no_hist: HashSet<String> =
-            text2_no_hist.split_whitespace().map(|w| w.to_string()).collect();
+        let words2_no_hist: HashSet<String> = text2_no_hist
+            .split_whitespace()
+            .map(|w| w.to_string())
+            .collect();
         let baseline_intersection = words1.intersection(&words2_no_hist).count();
         let baseline_union = words1.union(&words2_no_hist).count();
         let baseline_jaccard = baseline_intersection as f64 / baseline_union as f64;
@@ -594,8 +606,10 @@ mod tests {
             words1.clone(),
         );
         let text2_with_hist = gen2_with_hist.generate(&filter, Some('k'), None, word_count);
-        let words2_with_hist: HashSet<String> =
-            text2_with_hist.split_whitespace().map(|w| w.to_string()).collect();
+        let words2_with_hist: HashSet<String> = text2_with_hist
+            .split_whitespace()
+            .map(|w| w.to_string())
+            .collect();
         let hist_intersection = words1.intersection(&words2_with_hist).count();
         let hist_union = words1.union(&words2_with_hist).count();
         let hist_jaccard = hist_intersection as f64 / hist_union as f64;
@@ -758,7 +772,11 @@ mod tests {
             .collect();
 
         // Create history containing most of the pool words (up to 8)
-        let history: HashSet<String> = matching.iter().take(8.min(matching.len())).cloned().collect();
+        let history: HashSet<String> = matching
+            .iter()
+            .take(8.min(matching.len()))
+            .cloned()
+            .collect();
 
         let mut generator = PhoneticGenerator::new(
             table,
@@ -773,10 +791,7 @@ mod tests {
         assert!(!words.is_empty(), "Should generate non-empty output");
 
         // History words should still appear (suppression is soft, not hard exclusion)
-        let history_words_in_output: usize = words
-            .iter()
-            .filter(|w| history.contains(**w))
-            .count();
+        let history_words_in_output: usize = words.iter().filter(|w| history.contains(**w)).count();
         // With soft suppression, at least some history words should appear
         // (they're accepted with reduced probability, not blocked)
         assert!(

@@ -8,11 +8,11 @@ use rand::{Rng, SeedableRng};
 use keydr::config::Config;
 use keydr::engine::key_stats::{KeyStat, KeyStatsStore};
 use keydr::engine::skill_tree::{
-    BranchId, BranchProgress, BranchStatus, SkillTreeProgress, ALL_BRANCHES,
+    ALL_BRANCHES, BranchId, BranchProgress, BranchStatus, SkillTreeProgress,
 };
 use keydr::session::result::{DrillResult, KeyTime};
 use keydr::store::schema::{
-    DrillHistoryData, ExportData, KeyStatsData, ProfileData, EXPORT_VERSION,
+    DrillHistoryData, EXPORT_VERSION, ExportData, KeyStatsData, ProfileData,
 };
 
 const SCHEMA_VERSION: u32 = 2;
@@ -62,8 +62,7 @@ fn make_key_stat(rng: &mut SmallRng, confidence: f64, sample_count: usize) -> Ke
 
 /// Generate monotonic timestamps: base_date + day_offset days + drill_offset * 2min.
 fn drill_timestamp(base: DateTime<Utc>, day: u32, drill_in_day: u32) -> DateTime<Utc> {
-    base + chrono::Duration::days(day as i64)
-        + chrono::Duration::seconds(drill_in_day as i64 * 120)
+    base + chrono::Duration::days(day as i64) + chrono::Duration::seconds(drill_in_day as i64 * 120)
 }
 
 /// Generate a DrillResult with deterministic per_key_times.
@@ -267,15 +266,16 @@ fn generate_drills(
 }
 
 fn last_practice_date_from_drills(drills: &[DrillResult]) -> Option<String> {
-    drills.last().map(|d| d.timestamp.format("%Y-%m-%d").to_string())
+    drills
+        .last()
+        .map(|d| d.timestamp.format("%Y-%m-%d").to_string())
 }
 
 // ── Profile Builders ─────────────────────────────────────────────────────
 
 fn build_profile_01() -> ExportData {
-    let skill_tree = make_skill_tree_progress(vec![
-        (BranchId::Lowercase, BranchStatus::InProgress, 0),
-    ]);
+    let skill_tree =
+        make_skill_tree_progress(vec![(BranchId::Lowercase, BranchStatus::InProgress, 0)]);
 
     make_export(
         ProfileData {
@@ -295,13 +295,12 @@ fn build_profile_01() -> ExportData {
 
 fn build_profile_02() -> ExportData {
     // Lowercase InProgress level 4 => 6 + 4 = 10 keys: e,t,a,o,i,n,s,h,r,d
-    let skill_tree = make_skill_tree_progress(vec![
-        (BranchId::Lowercase, BranchStatus::InProgress, 4),
-    ]);
+    let skill_tree =
+        make_skill_tree_progress(vec![(BranchId::Lowercase, BranchStatus::InProgress, 4)]);
 
     let all_keys = lowercase_keys(10);
     let mastered_keys = &all_keys[..6]; // e,t,a,o,i,n
-    let partial_keys = &all_keys[6..];  // s,h,r,d
+    let partial_keys = &all_keys[6..]; // s,h,r,d
 
     let mut rng = SmallRng::seed_from_u64(2002);
     let mut stats = KeyStatsStore::default();
@@ -323,12 +322,11 @@ fn build_profile_02() -> ExportData {
         } else {
             (base.confidence + rng.gen_range(-0.1..0.08)).clamp(0.15, 0.95)
         };
-        let sample_count = ((base.sample_count as f64) * rng.gen_range(0.5..0.8)).round() as usize
-            + 6;
-        ranked_stats.stats.insert(
-            k,
-            make_key_stat(&mut rng, conf, sample_count),
-        );
+        let sample_count =
+            ((base.sample_count as f64) * rng.gen_range(0.5..0.8)).round() as usize + 6;
+        ranked_stats
+            .stats
+            .insert(k, make_key_stat(&mut rng, conf, sample_count));
     }
 
     let drills = generate_drills(
@@ -359,9 +357,8 @@ fn build_profile_02() -> ExportData {
 
 fn build_profile_03() -> ExportData {
     // Lowercase InProgress level 12 => 6 + 12 = 18 keys through 'y'
-    let skill_tree = make_skill_tree_progress(vec![
-        (BranchId::Lowercase, BranchStatus::InProgress, 12),
-    ]);
+    let skill_tree =
+        make_skill_tree_progress(vec![(BranchId::Lowercase, BranchStatus::InProgress, 12)]);
 
     let all_keys = lowercase_keys(18);
     let mastered_keys = &all_keys[..14];
@@ -389,10 +386,9 @@ fn build_profile_03() -> ExportData {
         };
         let sample_count =
             ((base.sample_count as f64) * rng.gen_range(0.52..0.82)).round() as usize + 8;
-        ranked_stats.stats.insert(
-            k,
-            make_key_stat(&mut rng, conf, sample_count),
-        );
+        ranked_stats
+            .stats
+            .insert(k, make_key_stat(&mut rng, conf, sample_count));
     }
 
     let drills = generate_drills(
@@ -445,10 +441,9 @@ fn build_profile_04() -> ExportData {
         let conf = (base.confidence - rng.gen_range(0.0..0.2)).max(1.0);
         let sample_count =
             ((base.sample_count as f64) * rng.gen_range(0.55..0.85)).round() as usize + 10;
-        ranked_stats.stats.insert(
-            k,
-            make_key_stat(&mut rng, conf, sample_count),
-        );
+        ranked_stats
+            .stats
+            .insert(k, make_key_stat(&mut rng, conf, sample_count));
     }
 
     let drills = generate_drills(
@@ -540,7 +535,9 @@ fn build_profile_05() -> ExportData {
     // Ranked key stats: cover all keys used in ranked drills (all_unlocked)
     let mut ranked_stats = KeyStatsStore::default();
     for &k in &all_unlocked {
-        ranked_stats.stats.insert(k, make_key_stat(&mut rng, 1.1, 20));
+        ranked_stats
+            .stats
+            .insert(k, make_key_stat(&mut rng, 1.1, 20));
     }
 
     // level ~7: score ~5000
@@ -632,7 +629,9 @@ fn build_profile_06() -> ExportData {
     // Ranked key stats: cover all keys used in ranked drills (all_unlocked)
     let mut ranked_stats = KeyStatsStore::default();
     for &k in &all_unlocked {
-        ranked_stats.stats.insert(k, make_key_stat(&mut rng, 1.1, 30));
+        ranked_stats
+            .stats
+            .insert(k, make_key_stat(&mut rng, 1.1, 30));
     }
 
     // level ~12: score ~15000
@@ -711,7 +710,9 @@ fn build_profile_07() -> ExportData {
     // Full ranked stats
     let mut ranked_stats = KeyStatsStore::default();
     for &k in &all_keys {
-        ranked_stats.stats.insert(k, make_key_stat(&mut rng, 1.4, 80));
+        ranked_stats
+            .stats
+            .insert(k, make_key_stat(&mut rng, 1.4, 80));
     }
 
     // level ~18: score ~35000
