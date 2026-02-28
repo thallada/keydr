@@ -45,6 +45,7 @@ use crate::store::schema::{
     DrillHistoryData, EXPORT_VERSION, ExportData, KeyStatsData, ProfileData,
 };
 use crate::ui::components::menu::Menu;
+use crate::ui::line_input::{LineInput, PathField};
 use crate::ui::theme::Theme;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -216,7 +217,7 @@ pub struct App {
     pub store: Option<JsonStore>,
     pub should_quit: bool,
     pub settings_selected: usize,
-    pub settings_editing_download_dir: bool,
+    pub settings_editing_path: Option<(PathField, LineInput)>,
     pub stats_tab: usize,
     pub depressed_keys: HashSet<char>,
     pub last_key_time: Option<Instant>,
@@ -266,8 +267,6 @@ pub struct App {
     pub settings_status_message: Option<StatusMessage>,
     pub settings_export_path: String,
     pub settings_import_path: String,
-    pub settings_editing_export_path: bool,
-    pub settings_editing_import_path: bool,
     pub keyboard_explorer_selected: Option<char>,
     pub explorer_accuracy_cache_overall: Option<(char, usize, usize)>,
     pub explorer_accuracy_cache_ranked: Option<(char, usize, usize)>,
@@ -369,7 +368,7 @@ impl App {
             store,
             should_quit: false,
             settings_selected: 0,
-            settings_editing_download_dir: false,
+            settings_editing_path: None,
             stats_tab: 0,
             depressed_keys: HashSet::new(),
             last_key_time: None,
@@ -419,8 +418,6 @@ impl App {
             settings_status_message: None,
             settings_export_path: default_export_path(),
             settings_import_path: default_export_path(),
-            settings_editing_export_path: false,
-            settings_editing_import_path: false,
             keyboard_explorer_selected: None,
             explorer_accuracy_cache_overall: None,
             explorer_accuracy_cache_ranked: None,
@@ -462,9 +459,23 @@ impl App {
     pub fn clear_settings_modals(&mut self) {
         self.settings_confirm_import = false;
         self.settings_export_conflict = false;
-        self.settings_editing_export_path = false;
-        self.settings_editing_import_path = false;
-        self.settings_editing_download_dir = false;
+        self.settings_editing_path = None;
+    }
+
+    pub fn is_editing_path(&self) -> bool {
+        self.settings_editing_path.is_some()
+    }
+
+    pub fn is_editing_field(&self, index: usize) -> bool {
+        self.settings_editing_path
+            .as_ref()
+            .map(|(field, _)| match field {
+                PathField::CodeDownloadDir => index == 5,
+                PathField::PassageDownloadDir => index == 9,
+                PathField::ExportPath => index == 12,
+                PathField::ImportPath => index == 14,
+            })
+            .unwrap_or(false)
     }
 
     pub fn arm_post_drill_input_lock(&mut self) {
@@ -1575,7 +1586,7 @@ impl App {
 
     pub fn go_to_settings(&mut self) {
         self.settings_selected = 0;
-        self.settings_editing_download_dir = false;
+        self.settings_editing_path = None;
         self.screen = AppScreen::Settings;
     }
 
@@ -2199,7 +2210,7 @@ impl App {
             store: None,
             should_quit: false,
             settings_selected: 0,
-            settings_editing_download_dir: false,
+            settings_editing_path: None,
             stats_tab: 0,
             depressed_keys: HashSet::new(),
             last_key_time: None,
@@ -2249,8 +2260,6 @@ impl App {
             settings_status_message: None,
             settings_export_path: default_export_path(),
             settings_import_path: default_export_path(),
-            settings_editing_export_path: false,
-            settings_editing_import_path: false,
             keyboard_explorer_selected: None,
             explorer_accuracy_cache_overall: None,
             explorer_accuracy_cache_ranked: None,

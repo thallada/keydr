@@ -29,6 +29,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget, Wrap};
 
 use app::{App, AppScreen, DrillMode, MilestoneKind, StatusKind};
+use ui::line_input::{InputResult, LineInput, PathField};
 use engine::skill_tree::{DrillScope, find_key_branch};
 use event::{AppEvent, EventHandler};
 use generator::code_syntax::{code_language_options, is_language_cached, language_by_key};
@@ -548,41 +549,22 @@ fn handle_settings_key(app: &mut App, key: KeyEvent) {
     }
 
     // Priority 4: editing a path field
-    if app.settings_editing_download_dir
-        || app.settings_editing_export_path
-        || app.settings_editing_import_path
-    {
-        match key.code {
-            KeyCode::Esc => {
-                app.clear_settings_modals();
-            }
-            KeyCode::Backspace => {
-                if app.settings_editing_download_dir {
-                    if app.settings_selected == 5 {
-                        app.config.code_download_dir.pop();
-                    } else if app.settings_selected == 9 {
-                        app.config.passage_download_dir.pop();
-                    }
-                } else if app.settings_editing_export_path {
-                    app.settings_export_path.pop();
-                } else if app.settings_editing_import_path {
-                    app.settings_import_path.pop();
+    if let Some((field, ref mut input)) = app.settings_editing_path {
+        match input.handle(key) {
+            InputResult::Submit => {
+                let value = input.value().to_string();
+                match field {
+                    PathField::CodeDownloadDir => app.config.code_download_dir = value,
+                    PathField::PassageDownloadDir => app.config.passage_download_dir = value,
+                    PathField::ExportPath => app.settings_export_path = value,
+                    PathField::ImportPath => app.settings_import_path = value,
                 }
+                app.settings_editing_path = None;
             }
-            KeyCode::Char(ch) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                if app.settings_editing_download_dir {
-                    if app.settings_selected == 5 {
-                        app.config.code_download_dir.push(ch);
-                    } else if app.settings_selected == 9 {
-                        app.config.passage_download_dir.push(ch);
-                    }
-                } else if app.settings_editing_export_path {
-                    app.settings_export_path.push(ch);
-                } else if app.settings_editing_import_path {
-                    app.settings_import_path.push(ch);
-                }
+            InputResult::Cancel => {
+                app.settings_editing_path = None;
             }
-            _ => {}
+            InputResult::Continue => {}
         }
         return;
     }
@@ -603,20 +585,36 @@ fn handle_settings_key(app: &mut App, key: KeyEvent) {
             }
         }
         KeyCode::Enter => match app.settings_selected {
-            5 | 9 => {
+            5 => {
                 app.clear_settings_modals();
-                app.settings_editing_download_dir = true;
+                app.settings_editing_path = Some((
+                    PathField::CodeDownloadDir,
+                    LineInput::new(&app.config.code_download_dir),
+                ));
+            }
+            9 => {
+                app.clear_settings_modals();
+                app.settings_editing_path = Some((
+                    PathField::PassageDownloadDir,
+                    LineInput::new(&app.config.passage_download_dir),
+                ));
             }
             7 => app.start_code_downloads_from_settings(),
             11 => app.start_passage_downloads_from_settings(),
             12 => {
                 app.clear_settings_modals();
-                app.settings_editing_export_path = true;
+                app.settings_editing_path = Some((
+                    PathField::ExportPath,
+                    LineInput::new(&app.settings_export_path),
+                ));
             }
             13 => app.export_data(),
             14 => {
                 app.clear_settings_modals();
-                app.settings_editing_import_path = true;
+                app.settings_editing_path = Some((
+                    PathField::ImportPath,
+                    LineInput::new(&app.settings_import_path),
+                ));
             }
             15 => {
                 app.clear_settings_modals();
@@ -1788,16 +1786,17 @@ mod review_tests {
 
     /// Helper: count how many settings modal/edit flags are active
     fn modal_edit_count(app: &App) -> usize {
-        [
-            app.settings_confirm_import,
-            app.settings_export_conflict,
-            app.settings_editing_export_path,
-            app.settings_editing_import_path,
-            app.settings_editing_download_dir,
-        ]
-        .iter()
-        .filter(|&&f| f)
-        .count()
+        let mut count = 0;
+        if app.settings_confirm_import {
+            count += 1;
+        }
+        if app.settings_export_conflict {
+            count += 1;
+        }
+        if app.is_editing_path() {
+            count += 1;
+        }
+        count
     }
 
     #[test]
@@ -1818,12 +1817,12 @@ mod review_tests {
         // Enter export path editing
         app.settings_selected = 12; // Export Path
         handle_settings_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert!(app.settings_editing_export_path);
+        assert!(app.is_editing_field(12));
         assert!(modal_edit_count(&app) <= 1);
 
         // Esc out
         handle_settings_key(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        assert!(!app.settings_editing_export_path);
+        assert!(!app.is_editing_path());
     }
 
     #[test]
@@ -1834,14 +1833,14 @@ mod review_tests {
         // Activate export path editing first
         app.settings_selected = 12;
         handle_settings_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert!(app.settings_editing_export_path);
+        assert!(app.is_editing_field(12));
 
         // Esc out, then enter import path editing
         handle_settings_key(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         app.settings_selected = 14; // Import Path
         handle_settings_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert!(app.settings_editing_import_path);
-        assert!(!app.settings_editing_export_path);
+        assert!(app.is_editing_field(14));
+        assert!(!app.is_editing_field(12));
         assert!(modal_edit_count(&app) <= 1);
     }
 
@@ -2387,6 +2386,85 @@ mod review_tests {
 
         assert!(app.should_quit, "Ctrl+C should set should_quit even during input lock");
     }
+
+    /// Helper: render settings to a test buffer and return its text content.
+    fn render_settings_to_string(app: &App) -> String {
+        let backend = ratatui::backend::TestBackend::new(80, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_settings(frame, app))
+            .unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut text = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                text.push(buf[(x, y)].symbol().chars().next().unwrap_or(' '));
+            }
+            text.push('\n');
+        }
+        text
+    }
+
+    #[test]
+    fn footer_shows_completion_error_and_clears_on_keystroke() {
+        let mut app = test_app();
+        app.screen = AppScreen::Settings;
+        app.settings_selected = 12; // Export Path
+
+        // Enter editing mode
+        handle_settings_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(app.is_editing_field(12));
+
+        // Set path to nonexistent dir and trigger tab completion error
+        if let Some((_, ref mut input)) = app.settings_editing_path {
+            input.handle(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL)); // clear
+            for ch in "/nonexistent_zzz_dir/".chars() {
+                input.handle(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+            }
+            input.handle(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+            assert!(input.completion_error);
+        }
+
+        // Render and check footer contains the error hint
+        let output = render_settings_to_string(&app);
+        assert!(
+            output.contains("(cannot read directory)"),
+            "Footer should show completion error hint"
+        );
+
+        // Press a non-tab key to clear the error
+        handle_settings_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
+        );
+
+        // Render again — error hint should be gone
+        let output_after = render_settings_to_string(&app);
+        assert!(
+            !output_after.contains("(cannot read directory)"),
+            "Footer error hint should clear after non-Tab keystroke"
+        );
+    }
+
+    #[test]
+    fn footer_shows_editing_hints_when_path_editing() {
+        let mut app = test_app();
+        app.screen = AppScreen::Settings;
+        app.settings_selected = 12;
+
+        // Before editing: shows default hints
+        let output_before = render_settings_to_string(&app);
+        assert!(output_before.contains("[ESC] Save & back"));
+
+        // Enter editing mode
+        handle_settings_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        // After editing: shows editing hints
+        let output_during = render_settings_to_string(&app);
+        assert!(output_during.contains("[Enter] Confirm"));
+        assert!(output_during.contains("[Esc] Cancel"));
+        assert!(output_during.contains("[Tab] Complete"));
+    }
 }
 
 fn render_result(frame: &mut ratatui::Frame, app: &App) {
@@ -2621,7 +2699,38 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
     ];
 
     let header_height = if inner.height > 0 { 1 } else { 0 };
-    let footer_height = if inner.height > header_height { 1 } else { 0 };
+
+    // Compute footer hints early so we know how many lines they need.
+    let completion_error = app
+        .settings_editing_path
+        .as_ref()
+        .map(|(_, input)| input.completion_error)
+        .unwrap_or(false);
+    let footer_hints: Vec<&str> = if app.is_editing_path() {
+        let mut hints = vec![
+            "[←→] Move",
+            "[Tab] Complete (at end)",
+            "[Enter] Confirm",
+            "[Esc] Cancel",
+        ];
+        if completion_error {
+            hints.push("(cannot read directory)");
+        }
+        hints
+    } else {
+        vec![
+            "[ESC] Save & back",
+            "[Enter/arrows] Change value",
+            "[Enter on path] Edit",
+        ]
+    };
+    let footer_packed = pack_hint_lines(&footer_hints, inner.width as usize);
+    let footer_height = if inner.height > header_height {
+        (footer_packed.len() as u16).max(1)
+    } else {
+        0
+    };
+
     let field_height = inner.height.saturating_sub(header_height + footer_height);
 
     let layout = Layout::default()
@@ -2690,28 +2799,44 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
             colors.text_pending()
         });
 
-        let is_editing_this_path = is_selected
-            && *is_path
-            && (app.settings_editing_download_dir
-                || app.settings_editing_export_path
-                || app.settings_editing_import_path);
+        let is_editing_this_path = is_selected && *is_path && app.is_editing_field(i);
         let lines = if *is_path {
-            let path_line = if is_editing_this_path {
-                format!("  {value}_")
+            if is_editing_this_path {
+                if let Some((_, ref input)) = app.settings_editing_path {
+                    let (before, cursor_ch, after) = input.render_parts();
+                    let cursor_style = Style::default()
+                        .fg(colors.bg())
+                        .bg(colors.focused_key());
+                    let path_spans = match cursor_ch {
+                        Some(ch) => vec![
+                            Span::styled(format!("  {before}"), value_style),
+                            Span::styled(ch.to_string(), cursor_style),
+                            Span::styled(after.to_string(), value_style),
+                        ],
+                        None => vec![
+                            Span::styled(format!("  {before}"), value_style),
+                            Span::styled(" ", cursor_style),
+                        ],
+                    };
+                    vec![
+                        Line::from(Span::styled(
+                            format!("{indicator}{label}: (editing)"),
+                            label_style,
+                        )),
+                        Line::from(path_spans),
+                    ]
+                } else {
+                    vec![
+                        Line::from(Span::styled(label_text, label_style)),
+                        Line::from(Span::styled(format!("  {value}"), value_style)),
+                    ]
+                }
             } else {
-                format!("  {value}")
-            };
-            vec![
-                Line::from(Span::styled(
-                    if is_editing_this_path {
-                        format!("{indicator}{label}: (editing)")
-                    } else {
-                        label_text
-                    },
-                    label_style,
-                )),
-                Line::from(Span::styled(path_line, value_style)),
-            ]
+                vec![
+                    Line::from(Span::styled(label_text, label_style)),
+                    Line::from(Span::styled(format!("  {value}"), value_style)),
+                ]
+            }
         } else {
             vec![
                 Line::from(Span::styled(label_text, label_style)),
@@ -2721,23 +2846,7 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
         Paragraph::new(lines).render(field_layout[row], frame.buffer_mut());
     }
 
-    let any_path_editing = app.settings_editing_download_dir
-        || app.settings_editing_export_path
-        || app.settings_editing_import_path;
-    let footer_hints: Vec<&str> = if any_path_editing {
-        vec![
-            "Editing path:",
-            "[Type/Backspace] Modify",
-            "[ESC] Done editing",
-        ]
-    } else {
-        vec![
-            "[ESC] Save & back",
-            "[Enter/arrows] Change value",
-            "[Enter on path] Edit",
-        ]
-    };
-    let footer_lines: Vec<Line> = pack_hint_lines(&footer_hints, layout[2].width as usize)
+    let footer_lines: Vec<Line> = footer_packed
         .into_iter()
         .map(|line| Line::from(Span::styled(line, Style::default().fg(colors.accent()))))
         .collect();
