@@ -1810,8 +1810,25 @@ where
 
     let cache_path =
         std::path::Path::new(cache_dir).join(format!("{}_{}.txt", language_key, repo.key));
+    let sources_path =
+        std::path::Path::new(cache_dir).join(format!("{}_{}.sources.txt", language_key, repo.key));
     let combined = all_snippets.join("\n---SNIPPET---\n");
-    fs::write(cache_path, combined).is_ok()
+    if fs::write(cache_path, combined).is_err() {
+        return false;
+    }
+
+    let mut sources = String::from(
+        "Downloaded snippet sources for keydr code drill cache.\n\
+         Upstream licenses remain with original repositories.\n\
+         Source URLs:\n",
+    );
+    for url in repo.urls {
+        sources.push_str("- ");
+        sources.push_str(url);
+        sources.push('\n');
+    }
+    let _ = fs::write(sources_path, sources);
+    true
 }
 
 /// Extract function-length snippets from raw source code, preserving whitespace.

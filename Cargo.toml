@@ -3,6 +3,7 @@ name = "keydr"
 version = "0.1.0"
 edition = "2024"
 description = "Terminal typing tutor with adaptive learning"
+license = "AGPL-3.0-only"
 
 [dependencies]
 ratatui = { version = "0.30", features = ["crossterm_0_28"] }
