@@ -37,6 +37,13 @@ impl<'a> SkillTreeWidget<'a> {
     }
 }
 
+fn locked_branch_notice(skill_tree: &SkillTreeEngine) -> String {
+    format!(
+        "Complete {} primary letters to unlock branches",
+        skill_tree.primary_letters().len()
+    )
+}
+
 /// Get the list of selectable branch IDs (Lowercase first, then other branches).
 pub fn selectable_branches() -> Vec<BranchId> {
     vec![
@@ -59,8 +66,21 @@ pub fn detail_line_count(branch_id: BranchId) -> usize {
         .sum::<usize>()
 }
 
-pub fn detail_line_count_with_level_spacing(branch_id: BranchId, level_spacing: bool) -> usize {
-    let base = detail_line_count(branch_id);
+pub fn detail_line_count_for_tree(skill_tree: &SkillTreeEngine, branch_id: BranchId) -> usize {
+    if branch_id == BranchId::Lowercase {
+        // 1 branch header + 1 level header + one line per primary letter.
+        1 + 1 + skill_tree.primary_letters().len()
+    } else {
+        detail_line_count(branch_id)
+    }
+}
+
+pub fn detail_line_count_with_level_spacing_for_tree(
+    skill_tree: &SkillTreeEngine,
+    branch_id: BranchId,
+    level_spacing: bool,
+) -> usize {
+    let base = detail_line_count_for_tree(skill_tree, branch_id);
     if !level_spacing {
         return base;
     }
@@ -68,9 +88,21 @@ pub fn detail_line_count_with_level_spacing(branch_id: BranchId, level_spacing: 
     base + def.levels.len().saturating_sub(1)
 }
 
+#[cfg(test)]
 pub fn use_expanded_level_spacing(detail_area_height: u16, branch_id: BranchId) -> bool {
     let def = get_branch_definition(branch_id);
     let base = detail_line_count(branch_id);
+    let extra = def.levels.len().saturating_sub(1);
+    (detail_area_height as usize) >= base + extra
+}
+
+pub fn use_expanded_level_spacing_for_tree(
+    skill_tree: &SkillTreeEngine,
+    detail_area_height: u16,
+    branch_id: BranchId,
+) -> bool {
+    let def = get_branch_definition(branch_id);
+    let base = detail_line_count_for_tree(skill_tree, branch_id);
     let extra = def.levels.len().saturating_sub(1);
     (detail_area_height as usize) >= base + extra
 }
@@ -107,37 +139,48 @@ impl Widget for SkillTreeWidget<'_> {
 
         // Layout: main split (branch list + detail) and footer (adaptive height)
         let branches = selectable_branches();
-        let (footer_hints, footer_notice) = if self.selected < branches.len() {
-            let bp = self.skill_tree.branch_progress(branches[self.selected]);
-            if *self.skill_tree.branch_status(branches[self.selected]) == BranchStatus::Locked {
-                (
-                    vec![
-                        "[↑↓/jk] Navigate",
-                        "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                        "[q] Back",
-                    ],
-                    Some("Complete a-z to unlock branches"),
-                )
-            } else if bp.status == BranchStatus::Available {
-                (
-                    vec![
-                        "[Enter] Unlock",
-                        "[↑↓/jk] Navigate",
-                        "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                        "[q] Back",
-                    ],
-                    None,
-                )
-            } else if bp.status == BranchStatus::InProgress {
-                (
-                    vec![
-                        "[Enter] Start Drill",
-                        "[↑↓/jk] Navigate",
-                        "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                        "[q] Back",
-                    ],
-                    None,
-                )
+        let (footer_hints, footer_notice): (Vec<&str>, Option<String>) =
+            if self.selected < branches.len() {
+                let bp = self.skill_tree.branch_progress(branches[self.selected]);
+                if *self.skill_tree.branch_status(branches[self.selected]) == BranchStatus::Locked {
+                    (
+                        vec![
+                            "[↑↓/jk] Navigate",
+                            "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                            "[q] Back",
+                        ],
+                        Some(locked_branch_notice(self.skill_tree)),
+                    )
+                } else if bp.status == BranchStatus::Available {
+                    (
+                        vec![
+                            "[Enter] Unlock",
+                            "[↑↓/jk] Navigate",
+                            "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                            "[q] Back",
+                        ],
+                        None,
+                    )
+                } else if bp.status == BranchStatus::InProgress {
+                    (
+                        vec![
+                            "[Enter] Start Drill",
+                            "[↑↓/jk] Navigate",
+                            "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                            "[q] Back",
+                        ],
+                        None,
+                    )
+                } else {
+                    (
+                        vec![
+                            "[↑↓/jk] Navigate",
+                            "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                            "[q] Back",
+                        ],
+                        None,
+                    )
+                }
             } else {
                 (
                     vec![
@@ -147,19 +190,10 @@ impl Widget for SkillTreeWidget<'_> {
                     ],
                     None,
                 )
-            }
-        } else {
-            (
-                vec![
-                    "[↑↓/jk] Navigate",
-                    "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                    "[q] Back",
-                ],
-                None,
-            )
-        };
+            };
         let hint_lines = pack_hint_lines(&footer_hints, inner.width as usize);
         let notice_lines = footer_notice
+            .as_deref()
             .map(|text| wrapped_line_count(text, inner.width as usize))
             .unwrap_or(0);
         let show_notice = footer_notice.is_some()
@@ -273,7 +307,7 @@ impl SkillTreeWidget<'_> {
 
             let bp = self.skill_tree.branch_progress(branch_id);
             let def = get_branch_definition(branch_id);
-            let total_keys = def.levels.iter().map(|l| l.keys.len()).sum::<usize>();
+            let total_keys = self.skill_tree.branch_total_keys_for(branch_id);
             let confident_keys = self
                 .skill_tree
                 .branch_confident_keys(branch_id, self.key_stats);
@@ -346,7 +380,10 @@ impl SkillTreeWidget<'_> {
                     lines.push(Line::from(""));
                 }
                 lines.push(Line::from(Span::styled(
-                    "  \u{2500}\u{2500} Branches (available after a-z) \u{2500}\u{2500}",
+                    format!(
+                        "  \u{2500}\u{2500} Branches (available after {} primary letters) \u{2500}\u{2500}",
+                        self.skill_tree.primary_letters().len()
+                    ),
                     Style::default().fg(colors.text_pending()),
                 )));
                 // If inter-branch spacing is enabled, the next branch will already
@@ -377,15 +414,15 @@ impl SkillTreeWidget<'_> {
         let branch_id = branches[self.selected];
         let bp = self.skill_tree.branch_progress(branch_id);
         let def = get_branch_definition(branch_id);
-        let expanded_level_spacing =
-            allow_expanded_level_spacing && use_expanded_level_spacing(area.height, branch_id);
+        let expanded_level_spacing = allow_expanded_level_spacing
+            && use_expanded_level_spacing_for_tree(self.skill_tree, area.height, branch_id);
 
         let mut lines: Vec<Line> = Vec::new();
 
         // Branch title with level info
         let level_text = if branch_id == BranchId::Lowercase {
             let unlocked = self.skill_tree.branch_unlocked_count(BranchId::Lowercase);
-            let total = SkillTreeEngine::branch_total_keys(BranchId::Lowercase);
+            let total = self.skill_tree.branch_total_keys_for(BranchId::Lowercase);
             format!("Unlocked {unlocked}/{total} letters")
         } else {
             match bp.status {
@@ -441,7 +478,12 @@ impl SkillTreeWidget<'_> {
             )));
 
             // Per-key mastery bars
-            for &key in level.keys {
+            let level_keys: Vec<char> = if branch_id == BranchId::Lowercase {
+                self.skill_tree.primary_letters().to_vec()
+            } else {
+                level.keys.to_vec()
+            };
+            for &key in &level_keys {
                 let is_focused = focused == Some(key);
                 let confidence = self.key_stats.get_confidence(key).min(1.0);
                 let is_confident = confidence >= 1.0;

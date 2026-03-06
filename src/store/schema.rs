@@ -1,17 +1,23 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::config::Config;
 use crate::engine::key_stats::KeyStatsStore;
 use crate::engine::skill_tree::SkillTreeProgress;
 use crate::session::result::DrillResult;
 
-const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProfileData {
     pub schema_version: u32,
+    /// Legacy single-scope progress mirror retained for import/export compatibility.
+    /// Always write this via `set_skill_tree_for_language`, never directly.
     pub skill_tree: SkillTreeProgress,
+    /// Language-scoped skill tree progression state keyed by dictionary language.
+    #[serde(default)]
+    pub skill_tree_by_language: HashMap<String, SkillTreeProgress>,
     pub total_score: f64,
     #[serde(alias = "total_lessons")]
     pub total_drills: u32,
@@ -25,6 +31,7 @@ impl Default for ProfileData {
         Self {
             schema_version: SCHEMA_VERSION,
             skill_tree: SkillTreeProgress::default(),
+            skill_tree_by_language: HashMap::new(),
             total_score: 0.0,
             total_drills: 0,
             streak_days: 0,
@@ -38,6 +45,20 @@ impl ProfileData {
     /// Check if loaded data has a stale schema version and needs reset.
     pub fn needs_reset(&self) -> bool {
         self.schema_version != SCHEMA_VERSION
+    }
+
+    pub fn skill_tree_for_language(&self, language_key: &str) -> SkillTreeProgress {
+        self.skill_tree_by_language
+            .get(language_key)
+            .cloned()
+            .unwrap_or_else(|| self.skill_tree.clone())
+    }
+
+    pub fn set_skill_tree_for_language(&mut self, language_key: &str, progress: SkillTreeProgress) {
+        self.skill_tree_by_language
+            .insert(language_key.to_string(), progress.clone());
+        // Keep legacy mirror aligned with the current active scope.
+        self.skill_tree = progress;
     }
 }
 
@@ -86,4 +107,51 @@ pub struct ExportData {
     pub key_stats: KeyStatsData,
     pub ranked_key_stats: KeyStatsData,
     pub drill_history: DrillHistoryData,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn profile_skill_tree_for_language_falls_back_to_legacy() {
+        let profile = ProfileData::default();
+        let scoped = profile.skill_tree_for_language("de");
+        let lowercase = scoped
+            .branches
+            .get("lowercase")
+            .expect("lowercase branch should exist");
+        assert_eq!(lowercase.current_level, 0);
+    }
+
+    #[test]
+    fn profile_set_skill_tree_for_language_updates_scoped_map() {
+        let mut profile = ProfileData::default();
+        let mut progress = SkillTreeProgress::default();
+        progress
+            .branches
+            .get_mut("lowercase")
+            .expect("lowercase branch should exist")
+            .current_level = 3;
+        profile.set_skill_tree_for_language("de", progress.clone());
+
+        let loaded = profile.skill_tree_for_language("de");
+        assert_eq!(
+            loaded
+                .branches
+                .get("lowercase")
+                .expect("lowercase branch should exist")
+                .current_level,
+            3
+        );
+        assert_eq!(
+            profile
+                .skill_tree
+                .branches
+                .get("lowercase")
+                .expect("lowercase branch should exist")
+                .current_level,
+            3
+        );
+    }
 }

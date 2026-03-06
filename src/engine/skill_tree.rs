@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::engine::key_stats::KeyStatsStore;
 use crate::keyboard::display::{BACKSPACE, SPACE};
+use crate::l10n::language_pack::{
+    DEFAULT_LATIN_PRIMARY_SEQUENCE, normalized_primary_letter_sequence,
+};
 
 /// Events returned by `SkillTree::update` describing what changed.
 pub struct SkillTreeUpdate {
@@ -87,6 +90,8 @@ pub struct BranchDefinition {
     pub levels: &'static [LevelDefinition],
 }
 
+// Lowercase metadata remains for static branch lookup/UI labels. Runtime
+// progression and unlock counts are driven by `SkillTree::primary_letters`.
 const LOWERCASE_LEVELS: &[LevelDefinition] = &[LevelDefinition {
     name: "Frequency Order",
     keys: &[
@@ -169,12 +174,12 @@ const CODE_SYMBOLS_LEVELS: &[LevelDefinition] = &[
 pub const ALL_BRANCHES: &[BranchDefinition] = &[
     BranchDefinition {
         id: BranchId::Lowercase,
-        name: "Lowercase a-z",
+        name: "Primary Letters",
         levels: LOWERCASE_LEVELS,
     },
     BranchDefinition {
         id: BranchId::Capitals,
-        name: "Capitals A-Z",
+        name: "Capital Letters",
         levels: CAPITALS_LEVELS,
     },
     BranchDefinition {
@@ -272,13 +277,14 @@ impl Default for SkillTreeProgress {
 pub enum DrillScope {
     /// Global adaptive: all InProgress + Complete branches
     Global,
-    /// Branch-specific drill: specific branch + a-z background
+    /// Branch-specific drill: specific branch + primary-letter background
     Branch(BranchId),
 }
 
 pub struct SkillTree {
     pub progress: SkillTreeProgress,
     pub total_unique_keys: usize,
+    primary_letters: Vec<char>,
 }
 
 /// Number of lowercase letters to start with before unlocking one-at-a-time
@@ -287,24 +293,47 @@ const ALWAYS_UNLOCKED_KEYS: &[char] = &[SPACE, BACKSPACE];
 
 impl SkillTree {
     pub fn new(progress: SkillTreeProgress) -> Self {
-        let total_unique_keys = Self::compute_total_unique_keys();
+        Self::new_with_primary_sequence(progress, DEFAULT_LATIN_PRIMARY_SEQUENCE)
+    }
+
+    pub fn new_with_primary_sequence(progress: SkillTreeProgress, sequence: &str) -> Self {
+        let primary_letters = Self::normalize_primary_sequence(sequence);
+        let total_unique_keys = Self::compute_total_unique_keys(&primary_letters);
         Self {
             progress,
             total_unique_keys,
+            primary_letters,
         }
     }
 
-    fn compute_total_unique_keys() -> usize {
+    fn normalize_primary_sequence(sequence: &str) -> Vec<char> {
+        let normalized = normalized_primary_letter_sequence(sequence);
+        if normalized.is_empty() {
+            DEFAULT_LATIN_PRIMARY_SEQUENCE.chars().collect()
+        } else {
+            normalized
+        }
+    }
+
+    fn compute_total_unique_keys(primary_letters: &[char]) -> usize {
         let mut all_keys: HashSet<char> = HashSet::new();
         for branch in ALL_BRANCHES {
+            if branch.id == BranchId::Lowercase {
+                continue;
+            }
             for level in branch.levels {
                 for &key in level.keys {
                     all_keys.insert(key);
                 }
             }
         }
+        all_keys.extend(primary_letters.iter().copied());
         all_keys.extend(ALWAYS_UNLOCKED_KEYS.iter().copied());
         all_keys.len()
+    }
+
+    pub fn primary_letters(&self) -> &[char] {
+        &self.primary_letters
     }
 
     pub fn branch_status(&self, id: BranchId) -> &BranchStatus {
@@ -366,8 +395,12 @@ impl SkillTree {
                     }
                 }
                 BranchStatus::Complete => {
-                    for level in branch_def.levels {
-                        keys.extend_from_slice(level.keys);
+                    if branch_def.id == BranchId::Lowercase {
+                        keys.extend(self.primary_letters.iter().copied());
+                    } else {
+                        for level in branch_def.levels {
+                            keys.extend_from_slice(level.keys);
+                        }
                     }
                 }
                 _ => {}
@@ -379,16 +412,13 @@ impl SkillTree {
     fn branch_unlocked_keys(&self, id: BranchId) -> Vec<char> {
         let mut keys = ALWAYS_UNLOCKED_KEYS.to_vec();
 
-        // Always include a-z background keys
+        // Always include primary-letter background keys
         if id != BranchId::Lowercase {
-            let lowercase_def = get_branch_definition(BranchId::Lowercase);
             let lowercase_bp = self.branch_progress(BranchId::Lowercase);
             match lowercase_bp.status {
                 BranchStatus::InProgress => keys.extend(self.lowercase_unlocked_keys()),
                 BranchStatus::Complete => {
-                    for level in lowercase_def.levels {
-                        keys.extend_from_slice(level.keys);
-                    }
+                    keys.extend(self.primary_letters.iter().copied());
                 }
                 _ => {}
             }
@@ -422,9 +452,8 @@ impl SkillTree {
 
     /// Get the progressively-unlocked lowercase keys (mirrors old LetterUnlock logic).
     fn lowercase_unlocked_keys(&self) -> Vec<char> {
-        let def = get_branch_definition(BranchId::Lowercase);
         let bp = self.branch_progress(BranchId::Lowercase);
-        let all_keys = def.levels[0].keys;
+        let all_keys = self.primary_letters();
 
         match bp.status {
             BranchStatus::Complete => all_keys.to_vec(),
@@ -470,8 +499,12 @@ impl SkillTree {
                     }
                 }
                 BranchStatus::Complete => {
-                    for level in branch_def.levels {
-                        focus_candidates.extend_from_slice(level.keys);
+                    if branch_def.id == BranchId::Lowercase {
+                        focus_candidates.extend(self.primary_letters.iter().copied());
+                    } else {
+                        for level in branch_def.levels {
+                            focus_candidates.extend_from_slice(level.keys);
+                        }
                     }
                 }
                 _ => {}
@@ -645,11 +678,11 @@ impl SkillTree {
             return;
         }
 
-        let all_keys = get_branch_definition(BranchId::Lowercase).levels[0].keys;
+        let all_keys = self.primary_letters.clone();
         let current_count = LOWERCASE_MIN_KEYS + bp.current_level;
 
         if current_count >= all_keys.len() {
-            // All 26 keys unlocked, check if all confident
+            // All primary letters unlocked, check if all confident
             let all_confident = all_keys.iter().all(|&ch| stats.get_confidence(ch) >= 1.0);
             if all_confident {
                 let bp_mut = self.branch_progress_mut(BranchId::Lowercase);
@@ -718,9 +751,15 @@ impl SkillTree {
                     }
                 }
                 BranchStatus::Complete => {
-                    for level in branch_def.levels {
-                        for &key in level.keys {
+                    if branch_def.id == BranchId::Lowercase {
+                        for &key in self.primary_letters() {
                             keys.insert(key);
+                        }
+                    } else {
+                        for level in branch_def.levels {
+                            for &key in level.keys {
+                                keys.insert(key);
+                            }
                         }
                     }
                 }
@@ -749,7 +788,13 @@ impl SkillTree {
         let def = get_branch_definition(id);
         let bp = self.branch_progress(id);
         match bp.status {
-            BranchStatus::Complete => def.levels.iter().map(|l| l.keys.len()).sum(),
+            BranchStatus::Complete => {
+                if id == BranchId::Lowercase {
+                    self.primary_letters().len()
+                } else {
+                    def.levels.iter().map(|l| l.keys.len()).sum()
+                }
+            }
             BranchStatus::InProgress => {
                 if id == BranchId::Lowercase {
                     self.lowercase_unlocked_count()
@@ -772,6 +817,15 @@ impl SkillTree {
         def.levels.iter().map(|l| l.keys.len()).sum()
     }
 
+    /// Total keys defined in a branch for this tree configuration.
+    pub fn branch_total_keys_for(&self, id: BranchId) -> usize {
+        if id == BranchId::Lowercase {
+            self.primary_letters().len()
+        } else {
+            Self::branch_total_keys(id)
+        }
+    }
+
     /// Count of unique confident keys across all branches.
     pub fn total_confident_keys(&self, stats: &KeyStatsStore) -> usize {
         let mut keys: HashSet<char> = HashSet::new();
@@ -780,7 +834,15 @@ impl SkillTree {
                 keys.insert(ch);
             }
         }
+        for &ch in self.primary_letters() {
+            if stats.get_confidence(ch) >= 1.0 {
+                keys.insert(ch);
+            }
+        }
         for branch_def in ALL_BRANCHES {
+            if branch_def.id == BranchId::Lowercase {
+                continue;
+            }
             for level in branch_def.levels {
                 for &ch in level.keys {
                     if stats.get_confidence(ch) >= 1.0 {
@@ -794,12 +856,19 @@ impl SkillTree {
 
     /// Count of confident keys in a branch.
     pub fn branch_confident_keys(&self, id: BranchId, stats: &KeyStatsStore) -> usize {
-        let def = get_branch_definition(id);
-        def.levels
-            .iter()
-            .flat_map(|l| l.keys.iter())
-            .filter(|&&ch| stats.get_confidence(ch) >= 1.0)
-            .count()
+        if id == BranchId::Lowercase {
+            self.primary_letters()
+                .iter()
+                .filter(|&&ch| stats.get_confidence(ch) >= 1.0)
+                .count()
+        } else {
+            let def = get_branch_definition(id);
+            def.levels
+                .iter()
+                .flat_map(|l| l.keys.iter())
+                .filter(|&&ch| stats.get_confidence(ch) >= 1.0)
+                .count()
+        }
     }
 }
 
@@ -812,6 +881,7 @@ impl Default for SkillTree {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::l10n::language_pack::language_packs;
 
     fn make_stats_confident(stats: &mut KeyStatsStore, keys: &[char]) {
         for &ch in keys {
@@ -852,6 +922,21 @@ mod tests {
     }
 
     #[test]
+    fn test_custom_primary_sequence_drives_lowercase_progression() {
+        let tree = SkillTree::new_with_primary_sequence(SkillTreeProgress::default(), "abcde");
+        let keys = tree.unlocked_keys(DrillScope::Global);
+
+        // With a shorter primary sequence, all primary letters are immediately unlocked.
+        assert!(keys.contains(&'a'));
+        assert!(keys.contains(&'e'));
+        assert_eq!(tree.primary_letters(), &['a', 'b', 'c', 'd', 'e']);
+        assert_eq!(
+            tree.branch_total_keys_for(BranchId::Lowercase),
+            tree.primary_letters().len()
+        );
+    }
+
+    #[test]
     fn test_lowercase_progressive_unlock() {
         let mut tree = SkillTree::default();
         let mut stats = KeyStatsStore::default();
@@ -871,9 +956,9 @@ mod tests {
         let mut tree = SkillTree::default();
         let mut stats = KeyStatsStore::default();
 
-        // Make all 26 lowercase keys confident
-        let all_lowercase = get_branch_definition(BranchId::Lowercase).levels[0].keys;
-        make_stats_confident(&mut stats, all_lowercase);
+        // Make all primary letters confident.
+        let all_primary = tree.primary_letters().to_vec();
+        make_stats_confident(&mut stats, &all_primary);
 
         // Need to repeatedly update as each unlock requires all current keys confident
         for _ in 0..30 {
@@ -1041,8 +1126,8 @@ mod tests {
         bp.current_level = 1;
 
         let keys = tree.unlocked_keys(DrillScope::Branch(BranchId::Capitals));
-        // Should include all 26 lowercase + Capitals L1 (8) + Capitals L2 (10)
-        assert!(keys.contains(&'e')); // lowercase background
+        // Should include full primary-letter background + Capitals L1 (8) + Capitals L2 (10)
+        assert!(keys.contains(&tree.primary_letters()[0])); // primary-letter background
         assert!(keys.contains(&'T')); // Capitals L1
         assert!(keys.contains(&'J')); // Capitals L2 (current level)
         assert!(!keys.contains(&'O')); // Capitals L3 (locked)
@@ -1094,6 +1179,73 @@ mod tests {
         // Selection at 0 and at max index should be valid
         assert!(0 < branches.len());
         assert!(branches.len() - 1 < branches.len());
+    }
+
+    #[test]
+    fn progression_is_monotonic_for_all_language_pack_sequences() {
+        for pack in language_packs() {
+            let mut tree = SkillTree::new_with_primary_sequence(
+                SkillTreeProgress::default(),
+                pack.primary_letter_sequence,
+            );
+            let primary = tree.primary_letters().to_vec();
+            assert!(
+                !primary.is_empty(),
+                "primary sequence should be non-empty for {}",
+                pack.language_key
+            );
+
+            let mut stats = KeyStatsStore::default();
+            let mut previous_count = tree.lowercase_unlocked_count();
+            assert!(
+                previous_count <= primary.len(),
+                "initial unlock count must be bounded for {}",
+                pack.language_key
+            );
+
+            // Master keys in configured sequence order and verify unlocked count never decreases.
+            for &ch in &primary {
+                make_stats_confident(&mut stats, &[ch]);
+                for _ in 0..3 {
+                    tree.update(&stats, None);
+                    let current_count = tree.lowercase_unlocked_count();
+                    assert!(
+                        current_count >= previous_count,
+                        "unlock count regressed for {}: {} -> {}",
+                        pack.language_key,
+                        previous_count,
+                        current_count
+                    );
+                    previous_count = current_count;
+                }
+            }
+
+            for _ in 0..30 {
+                tree.update(&stats, None);
+                let current_count = tree.lowercase_unlocked_count();
+                assert!(
+                    current_count >= previous_count,
+                    "unlock count regressed in completion pass for {}: {} -> {}",
+                    pack.language_key,
+                    previous_count,
+                    current_count
+                );
+                previous_count = current_count;
+            }
+
+            assert_eq!(
+                tree.lowercase_unlocked_count(),
+                primary.len(),
+                "all primary letters should unlock for {}",
+                pack.language_key
+            );
+            assert_eq!(
+                *tree.branch_status(BranchId::Lowercase),
+                BranchStatus::Complete,
+                "lowercase branch should complete for {}",
+                pack.language_key
+            );
+        }
     }
 
     #[test]
@@ -1166,8 +1318,8 @@ mod tests {
         let mut tree = SkillTree::default();
         let mut stats = KeyStatsStore::default();
 
-        let all_lowercase = get_branch_definition(BranchId::Lowercase).levels[0].keys;
-        make_stats_confident(&mut stats, all_lowercase);
+        let all_primary = tree.primary_letters().to_vec();
+        make_stats_confident(&mut stats, &all_primary);
 
         // Run updates to advance through progressive unlock
         let mut found_available = false;
@@ -1262,8 +1414,8 @@ mod tests {
 
         // Set all branches to InProgress at last level with all keys confident
         // First complete lowercase
-        let all_lowercase = get_branch_definition(BranchId::Lowercase).levels[0].keys;
-        make_stats_confident(&mut stats, all_lowercase);
+        let all_primary = tree.primary_letters().to_vec();
+        make_stats_confident(&mut stats, &all_primary);
         for _ in 0..30 {
             tree.update(&stats, None);
         }
@@ -1359,8 +1511,8 @@ mod tests {
         let mut tree = SkillTree::default();
         let mut stats = KeyStatsStore::default();
 
-        let all_lowercase = get_branch_definition(BranchId::Lowercase).levels[0].keys;
-        make_stats_confident(&mut stats, all_lowercase);
+        let all_primary = tree.primary_letters().to_vec();
+        make_stats_confident(&mut stats, &all_primary);
 
         for _ in 0..30 {
             let result = tree.update(&stats, None);
@@ -1382,8 +1534,8 @@ mod tests {
         let mut tree = SkillTree::default();
         let mut stats = KeyStatsStore::default();
 
-        let all_lowercase = get_branch_definition(BranchId::Lowercase).levels[0].keys;
-        make_stats_confident(&mut stats, all_lowercase);
+        let all_primary = tree.primary_letters().to_vec();
+        make_stats_confident(&mut stats, &all_primary);
 
         for _ in 0..30 {
             let result = tree.update(&stats, None);

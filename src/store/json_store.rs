@@ -16,6 +16,13 @@ pub struct JsonStore {
 }
 
 impl JsonStore {
+    const STORE_FILES: [&'static str; 4] = [
+        "profile.json",
+        "key_stats.json",
+        "key_stats_ranked.json",
+        "lesson_history.json",
+    ];
+
     pub fn new() -> Result<Self> {
         let base_dir = dirs::data_dir()
             .unwrap_or_else(|| PathBuf::from("."))
@@ -32,6 +39,31 @@ impl JsonStore {
 
     fn file_path(&self, name: &str) -> PathBuf {
         self.base_dir.join(name)
+    }
+
+    pub fn archive_legacy_data_files(&self) {
+        for name in Self::STORE_FILES {
+            let path = self.file_path(name);
+            if !path.exists() {
+                continue;
+            }
+            let legacy_path = self.file_path(&format!("{name}.legacy"));
+            if let Err(e) = fs::remove_file(&legacy_path)
+                && e.kind() != std::io::ErrorKind::NotFound
+            {
+                eprintln!(
+                    "warning: failed to remove old legacy archive {}: {e}",
+                    legacy_path.display()
+                );
+            }
+            if let Err(e) = fs::rename(&path, &legacy_path) {
+                eprintln!(
+                    "warning: failed to archive legacy store file {} -> {}: {e}",
+                    path.display(),
+                    legacy_path.display()
+                );
+            }
+        }
     }
 
     fn load<T: DeserializeOwned + Default>(&self, name: &str) -> T {
@@ -236,15 +268,9 @@ impl JsonStore {
     /// Check for leftover .bak files from an interrupted import.
     /// Returns true if recovery files were found (and cleaned up).
     pub fn check_interrupted_import(&self) -> bool {
-        let bak_names = [
-            "profile.json.bak",
-            "key_stats.json.bak",
-            "key_stats_ranked.json.bak",
-            "lesson_history.json.bak",
-        ];
         let mut found = false;
-        for name in &bak_names {
-            let bak_path = self.base_dir.join(name);
+        for name in Self::STORE_FILES {
+            let bak_path = self.file_path(&format!("{name}.bak"));
             if bak_path.exists() {
                 found = true;
                 let _ = fs::remove_file(&bak_path);
@@ -403,5 +429,20 @@ mod tests {
 
         // Should have been cleaned up
         assert!(!store.file_path("profile.json.bak").exists());
+    }
+
+    #[test]
+    fn test_archive_legacy_data_files_renames_known_store_files() {
+        let (_dir, store) = make_test_store();
+
+        fs::write(store.file_path("profile.json"), "{}").unwrap();
+        fs::write(store.file_path("key_stats.json"), "{}").unwrap();
+
+        store.archive_legacy_data_files();
+
+        assert!(!store.file_path("profile.json").exists());
+        assert!(store.file_path("profile.json.legacy").exists());
+        assert!(!store.file_path("key_stats.json").exists());
+        assert!(store.file_path("key_stats.json.legacy").exists());
     }
 }

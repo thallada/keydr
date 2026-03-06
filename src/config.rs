@@ -1,6 +1,11 @@
 use std::fs;
 use std::path::PathBuf;
 
+use crate::keyboard::model::KeyboardModel;
+use crate::l10n::language_pack::{
+    LanguageLayoutValidationError, dictionary_languages_for_layout, supported_dictionary_languages,
+    validate_language_layout_pair,
+};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +21,8 @@ pub struct Config {
     pub word_count: usize,
     #[serde(default = "default_code_language")]
     pub code_language: String,
+    #[serde(default = "default_dictionary_language")]
+    pub dictionary_language: String,
     #[serde(default = "default_passage_book")]
     pub passage_book: String,
     #[serde(default = "default_passage_downloads_enabled")]
@@ -50,6 +57,9 @@ fn default_word_count() -> usize {
 }
 fn default_code_language() -> String {
     "rust".to_string()
+}
+fn default_dictionary_language() -> String {
+    "en".to_string()
 }
 fn default_passage_book() -> String {
     "all".to_string()
@@ -97,6 +107,7 @@ impl Default for Config {
             keyboard_layout: default_keyboard_layout(),
             word_count: default_word_count(),
             code_language: default_code_language(),
+            dictionary_language: default_dictionary_language(),
             passage_book: default_passage_book(),
             passage_downloads_enabled: default_passage_downloads_enabled(),
             passage_download_dir: default_passage_download_dir(),
@@ -149,11 +160,14 @@ impl Config {
         self.target_wpm = self.target_wpm.clamp(10, 200);
         self.word_count = self.word_count.clamp(5, 100);
         self.normalize_code_language(valid_language_keys);
+        self.normalize_keyboard_layout();
+        self.normalize_dictionary_language();
+        self.normalize_language_layout_pair();
     }
 
     /// Validate `code_language` against known options, resetting to default if invalid.
     /// Call after deserialization to handle stale/renamed keys from old configs.
-    pub fn normalize_code_language(&mut self, valid_keys: &[&str]) {
+    fn normalize_code_language(&mut self, valid_keys: &[&str]) {
         // Backwards compatibility: old "shell" key is now "bash".
         if self.code_language == "shell" {
             self.code_language = "bash".to_string();
@@ -161,6 +175,48 @@ impl Config {
         if !valid_keys.contains(&self.code_language.as_str()) {
             self.code_language = default_code_language();
         }
+    }
+
+    /// Validate `dictionary_language` against supported keys.
+    fn normalize_dictionary_language(&mut self) {
+        if !supported_dictionary_languages().contains(&self.dictionary_language.as_str()) {
+            self.dictionary_language = default_dictionary_language();
+        }
+    }
+
+    /// Validate `keyboard_layout` against canonical profile keys.
+    fn normalize_keyboard_layout(&mut self) {
+        if !KeyboardModel::supported_layout_keys().contains(&self.keyboard_layout.as_str()) {
+            self.keyboard_layout = default_keyboard_layout();
+        }
+    }
+
+    /// Ensure the language/layout combination is explicitly supported.
+    fn normalize_language_layout_pair(&mut self) {
+        match self.validate_language_layout_pair() {
+            Ok(()) => {}
+            Err(LanguageLayoutValidationError::UnknownLanguage(_))
+            | Err(LanguageLayoutValidationError::LanguageBlockedBySupportLevel(_)) => {
+                self.dictionary_language = default_dictionary_language();
+            }
+            Err(LanguageLayoutValidationError::UnknownLayout(_)) => {
+                self.keyboard_layout = default_keyboard_layout();
+            }
+            Err(LanguageLayoutValidationError::UnsupportedLanguageLayoutPair { .. }) => {
+                if let Some(first_supported) =
+                    dictionary_languages_for_layout(&self.keyboard_layout).first()
+                {
+                    self.dictionary_language = (*first_supported).to_string();
+                } else {
+                    self.keyboard_layout = default_keyboard_layout();
+                    self.dictionary_language = default_dictionary_language();
+                }
+            }
+        }
+    }
+
+    pub fn validate_language_layout_pair(&self) -> Result<(), LanguageLayoutValidationError> {
+        validate_language_layout_pair(&self.dictionary_language, &self.keyboard_layout).map(|_| ())
     }
 }
 
@@ -175,6 +231,7 @@ mod tests {
         assert_eq!(config.code_downloads_enabled, false);
         assert_eq!(config.code_snippets_per_repo, 200);
         assert_eq!(config.code_onboarding_done, false);
+        assert_eq!(config.dictionary_language, "en");
         assert!(!config.code_download_dir.is_empty());
         assert!(config.code_download_dir.contains("code"));
     }
@@ -191,6 +248,7 @@ code_language = "go"
         assert_eq!(config.target_wpm, 60);
         assert_eq!(config.theme, "monokai");
         assert_eq!(config.code_language, "go");
+        assert_eq!(config.dictionary_language, "en");
         // New fields should have defaults
         assert_eq!(config.code_downloads_enabled, false);
         assert_eq!(config.code_snippets_per_repo, 200);
@@ -215,6 +273,7 @@ code_language = "go"
             config.code_onboarding_done,
             deserialized.code_onboarding_done
         );
+        assert_eq!(config.dictionary_language, deserialized.dictionary_language);
     }
 
     #[test]
@@ -251,5 +310,53 @@ code_language = "go"
         let valid_keys = vec!["rust", "python", "javascript", "go", "bash", "all"];
         config.normalize_code_language(&valid_keys);
         assert_eq!(config.code_language, "bash");
+    }
+
+    #[test]
+    fn test_normalize_dictionary_language_invalid_key_resets() {
+        let mut config = Config::default();
+        config.dictionary_language = "zz".to_string();
+        config.normalize_dictionary_language();
+        assert_eq!(config.dictionary_language, "en");
+    }
+
+    #[test]
+    fn test_normalize_keyboard_layout_invalid_key_resets() {
+        let mut config = Config::default();
+        config.keyboard_layout = "foo".to_string();
+        config.normalize_keyboard_layout();
+        assert_eq!(config.keyboard_layout, "qwerty");
+    }
+
+    #[test]
+    fn test_normalize_language_layout_pair_resets_invalid_pair() {
+        let mut config = Config::default();
+        config.dictionary_language = "de".to_string();
+        config.keyboard_layout = "dvorak".to_string();
+        config.normalize_language_layout_pair();
+        assert_eq!(config.dictionary_language, "en");
+        assert_eq!(config.keyboard_layout, "dvorak");
+    }
+
+    #[test]
+    fn test_validate_language_layout_pair_returns_typed_error() {
+        let mut config = Config::default();
+        config.dictionary_language = "de".to_string();
+        config.keyboard_layout = "dvorak".to_string();
+        let err = config.validate_language_layout_pair().unwrap_err();
+        assert!(matches!(
+            err,
+            LanguageLayoutValidationError::UnsupportedLanguageLayoutPair { .. }
+        ));
+    }
+
+    #[test]
+    fn test_normalize_language_layout_pair_unknown_language_resets_language_only() {
+        let mut config = Config::default();
+        config.dictionary_language = "zz".to_string();
+        config.keyboard_layout = "qwerty".to_string();
+        config.normalize_language_layout_pair();
+        assert_eq!(config.dictionary_language, "en");
+        assert_eq!(config.keyboard_layout, "qwerty");
     }
 }

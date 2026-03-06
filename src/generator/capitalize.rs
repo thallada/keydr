@@ -1,6 +1,10 @@
 use rand::Rng;
 use rand::rngs::SmallRng;
 
+fn lowercase_eq(a: char, b: char) -> bool {
+    a.to_lowercase().eq(b.to_lowercase())
+}
+
 /// Post-processing pass that capitalizes words in generated text.
 /// Only capitalizes using letters from `unlocked_capitals`.
 pub fn apply_capitalization(
@@ -13,7 +17,7 @@ pub fn apply_capitalization(
         return text.to_string();
     }
 
-    let focused_upper = focused.filter(|ch| ch.is_ascii_uppercase());
+    let focused_upper = focused.filter(|ch| ch.is_uppercase());
     let mut words: Vec<String> = text.split_whitespace().map(|w| w.to_string()).collect();
     if words.is_empty() {
         return text.to_string();
@@ -72,7 +76,7 @@ pub fn apply_capitalization(
     if let Some(focused_upper) = focused_upper.filter(|ch| unlocked_capitals.contains(ch)) {
         let alpha_words = words
             .iter()
-            .filter(|w| w.chars().any(|ch| ch.is_ascii_alphabetic()))
+            .filter(|w| w.chars().any(|ch| ch.is_alphabetic()))
             .count();
         let min_focused = alpha_words.min(4);
         ensure_min_focused_occurrences(&mut words, focused_upper, min_focused);
@@ -88,20 +92,20 @@ pub fn apply_capitalization(
 
 fn word_start_upper(word: &str) -> Option<char> {
     word.chars()
-        .find(|ch| ch.is_ascii_alphabetic())
-        .map(|ch| ch.to_ascii_uppercase())
+        .find(|ch| ch.is_alphabetic())
+        .and_then(|ch| ch.to_uppercase().next())
 }
 
 fn capitalize_word_start(word: &mut String) -> Option<char> {
     let mut chars: Vec<char> = word.chars().collect();
     for i in 0..chars.len() {
-        if chars[i].is_ascii_lowercase() {
-            chars[i] = chars[i].to_ascii_uppercase();
+        if chars[i].is_lowercase() {
+            chars[i] = chars[i].to_uppercase().next().unwrap_or(chars[i]);
             let upper = chars[i];
             *word = chars.into_iter().collect();
             return Some(upper);
         }
-        if chars[i].is_ascii_uppercase() {
+        if chars[i].is_uppercase() {
             return Some(chars[i]);
         }
     }
@@ -111,20 +115,20 @@ fn capitalize_word_start(word: &mut String) -> Option<char> {
 fn ends_sentence(word: &str) -> bool {
     word.chars()
         .rev()
-        .find(|ch| !ch.is_ascii_whitespace())
+        .find(|ch| !ch.is_whitespace())
         .is_some_and(|ch| matches!(ch, '.' | '?' | '!'))
 }
 
 fn word_starts_with_lower(word: &str, lower: char) -> bool {
     word.chars()
-        .find(|ch| ch.is_ascii_alphabetic())
-        .is_some_and(|ch| ch == lower)
+        .find(|ch| ch.is_alphabetic())
+        .is_some_and(|ch| lowercase_eq(ch, lower))
 }
 
 fn force_word_start_to_upper(word: &mut String, upper: char) -> bool {
     let mut chars: Vec<char> = word.chars().collect();
     for i in 0..chars.len() {
-        if chars[i].is_ascii_alphabetic() {
+        if chars[i].is_alphabetic() {
             if chars[i] == upper {
                 return false;
             }
@@ -137,7 +141,7 @@ fn force_word_start_to_upper(word: &mut String, upper: char) -> bool {
 }
 
 fn ensure_min_focused_occurrences(words: &mut Vec<String>, focused_upper: char, min_count: usize) {
-    let focused_lower = focused_upper.to_ascii_lowercase();
+    let focused_lower = focused_upper.to_lowercase().next().unwrap_or(focused_upper);
     let mut count = words
         .iter()
         .map(|w| w.chars().filter(|&ch| ch == focused_upper).count())
@@ -173,8 +177,8 @@ fn ensure_min_focused_occurrences(words: &mut Vec<String>, focused_upper: char, 
         }
         let next_starts_focused = words[i + 1]
             .chars()
-            .find(|ch| ch.is_ascii_alphabetic())
-            .is_some_and(|ch| ch.eq_ignore_ascii_case(&focused_lower));
+            .find(|ch| ch.is_alphabetic())
+            .is_some_and(|ch| lowercase_eq(ch, focused_lower));
         if next_starts_focused {
             capitalize_word_start(&mut words[i + 1]);
             let next = words.remove(i + 1);
@@ -204,7 +208,7 @@ fn ensure_min_total_capitals(
 ) {
     let mut count = words
         .iter()
-        .map(|w| w.chars().filter(|ch| ch.is_ascii_uppercase()).count())
+        .map(|w| w.chars().filter(|ch| ch.is_uppercase()).count())
         .sum::<usize>();
     if count >= min_count || unlocked_capitals.is_empty() {
         return;
@@ -219,7 +223,7 @@ fn ensure_min_total_capitals(
             continue;
         };
         if unlocked_capitals.contains(&upper)
-            && word_starts_with_lower(word, upper.to_ascii_lowercase())
+            && word_starts_with_lower(word, upper.to_lowercase().next().unwrap_or(upper))
         {
             if capitalize_word_start(word) == Some(upper) {
                 count += 1;

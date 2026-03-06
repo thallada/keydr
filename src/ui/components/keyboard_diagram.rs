@@ -1,4 +1,5 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Mutex, OnceLock};
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -6,7 +7,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Widget};
 
 use crate::keyboard::display::{self, BACKSPACE, ENTER, SPACE, TAB};
-use crate::keyboard::model::KeyboardModel;
+use crate::keyboard::model::{KeyboardModel, PhysicalKey};
 use crate::ui::theme::Theme;
 
 pub struct KeyboardDiagram<'a> {
@@ -20,6 +21,31 @@ pub struct KeyboardDiagram<'a> {
     pub shift_held: bool,
     pub caps_lock: bool,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum KeyboardRenderMode {
+    Compact,
+    Full,
+    FullFallback,
+}
+
+#[derive(Clone, Debug)]
+struct KeyboardGeometry {
+    key_width: u16,
+    row_offsets: Vec<u16>,
+    keyboard_width: u16,
+    start_inset: u16,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct GeometryCacheKey {
+    layout_key: String,
+    mode: KeyboardRenderMode,
+    width: u16,
+    height: u16,
+}
+
+const MAX_GEOMETRY_CACHE_ENTRIES: usize = 128;
 
 impl<'a> KeyboardDiagram<'a> {
     pub fn new(
@@ -70,6 +96,154 @@ impl<'a> KeyboardDiagram<'a> {
     /// Check if a sentinel/modifier key matches the selected key.
     fn is_sentinel_selected(&self, sentinel: char) -> bool {
         self.selected_key == Some(sentinel)
+    }
+}
+
+fn geometry_cache() -> &'static Mutex<HashMap<GeometryCacheKey, KeyboardGeometry>> {
+    static CACHE: OnceLock<Mutex<HashMap<GeometryCacheKey, KeyboardGeometry>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn rows_for_mode<'a>(model: &'a KeyboardModel, mode: KeyboardRenderMode) -> &'a [Vec<PhysicalKey>] {
+    match mode {
+        KeyboardRenderMode::Compact | KeyboardRenderMode::FullFallback => model.letter_rows(),
+        KeyboardRenderMode::Full => &model.rows,
+    }
+}
+
+fn render_mode_for(inner: Rect, compact: bool) -> KeyboardRenderMode {
+    if compact {
+        KeyboardRenderMode::Compact
+    } else if inner.height >= 4 && inner.width >= 75 {
+        KeyboardRenderMode::Full
+    } else {
+        KeyboardRenderMode::FullFallback
+    }
+}
+
+fn build_geometry(
+    inner: Rect,
+    model: &KeyboardModel,
+    mode: KeyboardRenderMode,
+) -> Option<KeyboardGeometry> {
+    let rows = rows_for_mode(model, mode);
+    match mode {
+        KeyboardRenderMode::Compact => {
+            if inner.height < 3 || inner.width < 21 {
+                return None;
+            }
+            let key_width = 3;
+            let row_offsets = vec![3, 4, 6];
+            let keyboard_width = rows
+                .iter()
+                .enumerate()
+                .map(|(row_idx, row)| {
+                    let offset = row_offsets.get(row_idx).copied().unwrap_or(0);
+                    offset + row.len() as u16 * key_width + 3
+                })
+                .max()
+                .unwrap_or(0);
+            Some(KeyboardGeometry {
+                key_width,
+                row_offsets,
+                keyboard_width,
+                start_inset: inner.width.saturating_sub(keyboard_width) / 2,
+            })
+        }
+        KeyboardRenderMode::Full => {
+            if inner.height < 4 || inner.width < 75 {
+                return None;
+            }
+            let key_width = 5;
+            let row_offsets = vec![0, 5, 5, 6];
+            let keyboard_width = rows
+                .iter()
+                .enumerate()
+                .map(|(row_idx, row)| {
+                    let offset = row_offsets.get(row_idx).copied().unwrap_or(0);
+                    let row_end = offset + row.len() as u16 * key_width;
+                    match row_idx {
+                        0 => row_end + 6,
+                        2 => row_end + 7,
+                        3 => row_end + 6,
+                        _ => row_end,
+                    }
+                })
+                .max()
+                .unwrap_or(0);
+            Some(KeyboardGeometry {
+                key_width,
+                row_offsets,
+                keyboard_width,
+                start_inset: inner.width.saturating_sub(keyboard_width) / 2,
+            })
+        }
+        KeyboardRenderMode::FullFallback => {
+            if inner.height < 3 || inner.width < 30 {
+                return None;
+            }
+            let key_width = 5;
+            let row_offsets = vec![1, 3, 5];
+            let keyboard_width = rows
+                .iter()
+                .enumerate()
+                .map(|(row_idx, row)| {
+                    let offset = row_offsets.get(row_idx).copied().unwrap_or(0);
+                    offset + row.len() as u16 * key_width
+                })
+                .max()
+                .unwrap_or(0);
+            Some(KeyboardGeometry {
+                key_width,
+                row_offsets,
+                keyboard_width,
+                start_inset: inner.width.saturating_sub(keyboard_width) / 2,
+            })
+        }
+    }
+}
+
+fn geometry_for_mode(
+    inner: Rect,
+    model: &KeyboardModel,
+    mode: KeyboardRenderMode,
+) -> Option<KeyboardGeometry> {
+    let key = GeometryCacheKey {
+        layout_key: model.layout_key.to_string(),
+        mode,
+        width: inner.width,
+        height: inner.height,
+    };
+    if let Some(geom) = geometry_cache()
+        .lock()
+        .expect("keyboard geometry cache poisoned")
+        .get(&key)
+        .cloned()
+    {
+        return Some(geom);
+    }
+
+    let built = build_geometry(inner, model, mode)?;
+    let mut cache = geometry_cache()
+        .lock()
+        .expect("keyboard geometry cache poisoned");
+    if cache.len() >= MAX_GEOMETRY_CACHE_ENTRIES {
+        // Bounded cache: simple full-clear avoids unbounded growth across long resize sessions.
+        cache.clear();
+    }
+    cache.insert(key, built.clone());
+    Some(built)
+}
+
+fn geometry_for(inner: Rect, model: &KeyboardModel, compact: bool) -> Option<KeyboardGeometry> {
+    geometry_for_mode(inner, model, render_mode_for(inner, compact))
+}
+
+fn show_shifted_for_key(key: &PhysicalKey, shift_held: bool, caps_lock: bool) -> bool {
+    if key.base.is_alphabetic() {
+        shift_held ^ caps_lock
+    } else {
+        shift_held
     }
 }
 
@@ -297,30 +471,13 @@ impl KeyboardDiagram<'_> {
     fn render_compact(&self, inner: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
         let letter_rows = self.model.letter_rows();
-        let key_width: u16 = 3;
-        let min_width: u16 = 21;
-
-        if inner.height < 3 || inner.width < min_width {
+        let Some(geometry) = geometry_for_mode(inner, self.model, KeyboardRenderMode::Compact)
+        else {
             return;
-        }
-
-        let offsets: &[u16] = &[3, 4, 6];
-        let keyboard_width = letter_rows
-            .iter()
-            .enumerate()
-            .map(|(row_idx, row)| {
-                let offset = offsets.get(row_idx).copied().unwrap_or(0);
-                let row_end = offset + row.len() as u16 * key_width;
-                match row_idx {
-                    0 => row_end + 3, // [B]
-                    1 => row_end + 3, // [E]
-                    2 => row_end + 3, // [S]
-                    _ => row_end,
-                }
-            })
-            .max()
-            .unwrap_or(0);
-        let start_x = inner.x + inner.width.saturating_sub(keyboard_width) / 2;
+        };
+        let key_width = geometry.key_width;
+        let offsets = &geometry.row_offsets;
+        let start_x = inner.x + geometry.start_inset;
 
         for (row_idx, row) in letter_rows.iter().enumerate() {
             let y = inner.y + row_idx as u16;
@@ -353,12 +510,8 @@ impl KeyboardDiagram<'_> {
                     break;
                 }
 
-                // Caps lock inverts shift for alpha keys only
-                let show_shifted = if physical_key.base.is_ascii_alphabetic() {
-                    self.shift_held ^ self.caps_lock
-                } else {
-                    self.shift_held
-                };
+                let show_shifted =
+                    show_shifted_for_key(physical_key, self.shift_held, self.caps_lock);
                 let display_char = if show_shifted {
                     physical_key.shifted
                 } else {
@@ -403,7 +556,7 @@ impl KeyboardDiagram<'_> {
         }
 
         // Backspace at end of first row
-        if inner.height >= 3 {
+        if inner.height >= 3 && !letter_rows.is_empty() {
             let y = inner.y;
             let row_end_x = start_x + offsets[0] + letter_rows[0].len() as u16 * key_width;
             if row_end_x + 3 <= inner.x + inner.width {
@@ -418,33 +571,17 @@ impl KeyboardDiagram<'_> {
 
     fn render_full(&self, inner: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
-        let key_width: u16 = 5;
-        let min_width: u16 = 75;
-
-        if inner.height < 4 || inner.width < min_width {
+        let Some(geometry) = geometry_for(inner, self.model, false) else {
+            return;
+        };
+        if render_mode_for(inner, false) != KeyboardRenderMode::Full {
             self.render_full_fallback(inner, buf);
             return;
         }
-
-        let offsets: &[u16] = &[0, 5, 5, 6];
-        let keyboard_width = self
-            .model
-            .rows
-            .iter()
-            .enumerate()
-            .map(|(row_idx, row)| {
-                let offset = offsets.get(row_idx).copied().unwrap_or(0);
-                let row_end = offset + row.len() as u16 * key_width;
-                match row_idx {
-                    0 => row_end + 6, // [Bksp]
-                    2 => row_end + 7, // [Enter]
-                    3 => row_end + 6, // [Shft]
-                    _ => row_end,
-                }
-            })
-            .max()
-            .unwrap_or(0);
-        let start_x = inner.x + inner.width.saturating_sub(keyboard_width) / 2;
+        let key_width = geometry.key_width;
+        let offsets = &geometry.row_offsets;
+        let keyboard_width = geometry.keyboard_width;
+        let start_x = inner.x + geometry.start_inset;
 
         for (row_idx, row) in self.model.rows.iter().enumerate() {
             let y = inner.y + row_idx as u16;
@@ -496,12 +633,8 @@ impl KeyboardDiagram<'_> {
                     break;
                 }
 
-                // Caps lock inverts shift for alpha keys only
-                let show_shifted = if physical_key.base.is_ascii_alphabetic() {
-                    self.shift_held ^ self.caps_lock
-                } else {
-                    self.shift_held
-                };
+                let show_shifted =
+                    show_shifted_for_key(physical_key, self.shift_held, self.caps_lock);
                 let display_char = if show_shifted {
                     physical_key.shifted
                 } else {
@@ -576,22 +709,13 @@ impl KeyboardDiagram<'_> {
     fn render_full_fallback(&self, inner: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
         let letter_rows = self.model.letter_rows();
-        let key_width: u16 = 5;
-        let offsets: &[u16] = &[1, 3, 5];
-        let keyboard_width = letter_rows
-            .iter()
-            .enumerate()
-            .map(|(row_idx, row)| {
-                let offset = offsets.get(row_idx).copied().unwrap_or(0);
-                offset + row.len() as u16 * key_width
-            })
-            .max()
-            .unwrap_or(0);
-        let start_x = inner.x + inner.width.saturating_sub(keyboard_width) / 2;
-
-        if inner.height < 3 || inner.width < 30 {
+        let Some(geometry) = geometry_for_mode(inner, self.model, KeyboardRenderMode::FullFallback)
+        else {
             return;
-        }
+        };
+        let key_width = geometry.key_width;
+        let offsets = &geometry.row_offsets;
+        let start_x = inner.x + geometry.start_inset;
 
         for (row_idx, row) in letter_rows.iter().enumerate() {
             let y = inner.y + row_idx as u16;
@@ -607,12 +731,8 @@ impl KeyboardDiagram<'_> {
                     break;
                 }
 
-                // Caps lock inverts shift for alpha keys only
-                let show_shifted = if physical_key.base.is_ascii_alphabetic() {
-                    self.shift_held ^ self.caps_lock
-                } else {
-                    self.shift_held
-                };
+                let show_shifted =
+                    show_shifted_for_key(physical_key, self.shift_held, self.caps_lock);
                 let display_char = if show_shifted {
                     physical_key.shifted
                 } else {
@@ -641,30 +761,11 @@ fn rect_contains(area: Rect, x: u16, y: u16) -> bool {
 }
 
 fn key_at_compact_position(inner: Rect, model: &KeyboardModel, x: u16, y: u16) -> Option<char> {
+    let geometry = geometry_for_mode(inner, model, KeyboardRenderMode::Compact)?;
     let letter_rows = model.letter_rows();
-    let key_width: u16 = 3;
-    let min_width: u16 = 21;
-    if inner.height < 3 || inner.width < min_width {
-        return None;
-    }
-
-    let offsets: &[u16] = &[3, 4, 6];
-    let keyboard_width = letter_rows
-        .iter()
-        .enumerate()
-        .map(|(row_idx, row)| {
-            let offset = offsets.get(row_idx).copied().unwrap_or(0);
-            let row_end = offset + row.len() as u16 * key_width;
-            match row_idx {
-                0 => row_end + 3,
-                1 => row_end + 3,
-                2 => row_end + 3,
-                _ => row_end,
-            }
-        })
-        .max()
-        .unwrap_or(0);
-    let start_x = inner.x + inner.width.saturating_sub(keyboard_width) / 2;
+    let key_width = geometry.key_width;
+    let offsets = &geometry.row_offsets;
+    let start_x = inner.x + geometry.start_inset;
 
     for (row_idx, row) in letter_rows.iter().enumerate() {
         let row_y = inner.y + row_idx as u16;
@@ -727,30 +828,13 @@ fn key_at_compact_position(inner: Rect, model: &KeyboardModel, x: u16, y: u16) -
 }
 
 fn shift_at_compact_position(inner: Rect, model: &KeyboardModel, x: u16, y: u16) -> bool {
-    let letter_rows = model.letter_rows();
-    let key_width: u16 = 3;
-    let min_width: u16 = 21;
-    if inner.height < 3 || inner.width < min_width {
+    let Some(geometry) = geometry_for_mode(inner, model, KeyboardRenderMode::Compact) else {
         return false;
-    }
-
-    let offsets: &[u16] = &[3, 4, 6];
-    let keyboard_width = letter_rows
-        .iter()
-        .enumerate()
-        .map(|(row_idx, row)| {
-            let offset = offsets.get(row_idx).copied().unwrap_or(0);
-            let row_end = offset + row.len() as u16 * key_width;
-            match row_idx {
-                0 => row_end + 3,
-                1 => row_end + 3,
-                2 => row_end + 3,
-                _ => row_end,
-            }
-        })
-        .max()
-        .unwrap_or(0);
-    let start_x = inner.x + inner.width.saturating_sub(keyboard_width) / 2;
+    };
+    let letter_rows = model.letter_rows();
+    let key_width = geometry.key_width;
+    let offsets = &geometry.row_offsets;
+    let start_x = inner.x + geometry.start_inset;
     let shift_row_y = inner.y + 2;
     if y != shift_row_y {
         return false;
@@ -759,6 +843,9 @@ fn shift_at_compact_position(inner: Rect, model: &KeyboardModel, x: u16, y: u16)
     if rect_contains(left_shift, x, y) {
         return true;
     }
+    if letter_rows.len() <= 2 {
+        return false;
+    }
     let offset = offsets[2];
     let row_end_x = start_x + offset + letter_rows[2].len() as u16 * key_width;
     let right_shift = Rect::new(row_end_x, shift_row_y, 3, 1);
@@ -766,25 +853,11 @@ fn shift_at_compact_position(inner: Rect, model: &KeyboardModel, x: u16, y: u16)
 }
 
 fn key_at_full_position(inner: Rect, model: &KeyboardModel, x: u16, y: u16) -> Option<char> {
-    let key_width: u16 = 5;
-    let offsets: &[u16] = &[0, 5, 5, 6];
-    let keyboard_width = model
-        .rows
-        .iter()
-        .enumerate()
-        .map(|(row_idx, row)| {
-            let offset = offsets.get(row_idx).copied().unwrap_or(0);
-            let row_end = offset + row.len() as u16 * key_width;
-            match row_idx {
-                0 => row_end + 6,
-                2 => row_end + 7,
-                3 => row_end + 6,
-                _ => row_end,
-            }
-        })
-        .max()
-        .unwrap_or(0);
-    let start_x = inner.x + inner.width.saturating_sub(keyboard_width) / 2;
+    let geometry = geometry_for_mode(inner, model, KeyboardRenderMode::Full)?;
+    let key_width = geometry.key_width;
+    let offsets = &geometry.row_offsets;
+    let keyboard_width = geometry.keyboard_width;
+    let start_x = inner.x + geometry.start_inset;
 
     for (row_idx, row) in model.rows.iter().enumerate() {
         let row_y = inner.y + row_idx as u16;
@@ -862,25 +935,12 @@ fn key_at_full_position(inner: Rect, model: &KeyboardModel, x: u16, y: u16) -> O
 }
 
 fn shift_at_full_position(inner: Rect, model: &KeyboardModel, x: u16, y: u16) -> bool {
-    let key_width: u16 = 5;
-    let offsets: &[u16] = &[0, 5, 5, 6];
-    let keyboard_width = model
-        .rows
-        .iter()
-        .enumerate()
-        .map(|(row_idx, row)| {
-            let offset = offsets.get(row_idx).copied().unwrap_or(0);
-            let row_end = offset + row.len() as u16 * key_width;
-            match row_idx {
-                0 => row_end + 6,
-                2 => row_end + 7,
-                3 => row_end + 6,
-                _ => row_end,
-            }
-        })
-        .max()
-        .unwrap_or(0);
-    let start_x = inner.x + inner.width.saturating_sub(keyboard_width) / 2;
+    let Some(geometry) = geometry_for_mode(inner, model, KeyboardRenderMode::Full) else {
+        return false;
+    };
+    let key_width = geometry.key_width;
+    let offsets = &geometry.row_offsets;
+    let start_x = inner.x + geometry.start_inset;
     let shift_row_y = inner.y + 3;
     if y != shift_row_y {
         return false;
@@ -889,6 +949,9 @@ fn shift_at_full_position(inner: Rect, model: &KeyboardModel, x: u16, y: u16) ->
     let left_shift = Rect::new(start_x, shift_row_y, 6, 1);
     if rect_contains(left_shift, x, y) {
         return true;
+    }
+    if model.rows.len() <= 3 {
+        return false;
     }
     let offset = offsets[3];
     let row_end_x = start_x + offset + model.rows[3].len() as u16 * key_width;
@@ -902,23 +965,11 @@ fn key_at_full_fallback_position(
     x: u16,
     y: u16,
 ) -> Option<char> {
+    let geometry = geometry_for_mode(inner, model, KeyboardRenderMode::FullFallback)?;
     let letter_rows = model.letter_rows();
-    let key_width: u16 = 5;
-    let offsets: &[u16] = &[1, 3, 5];
-    let keyboard_width = letter_rows
-        .iter()
-        .enumerate()
-        .map(|(row_idx, row)| {
-            let offset = offsets.get(row_idx).copied().unwrap_or(0);
-            offset + row.len() as u16 * key_width
-        })
-        .max()
-        .unwrap_or(0);
-    let start_x = inner.x + inner.width.saturating_sub(keyboard_width) / 2;
-
-    if inner.height < 3 || inner.width < 30 {
-        return None;
-    }
+    let key_width = geometry.key_width;
+    let offsets = &geometry.row_offsets;
+    let start_x = inner.x + geometry.start_inset;
 
     for (row_idx, row) in letter_rows.iter().enumerate() {
         let row_y = inner.y + row_idx as u16;
@@ -939,4 +990,184 @@ fn key_at_full_fallback_position(
 
 fn shift_at_full_fallback_position(_inner: Rect, _model: &KeyboardModel, _x: u16, _y: u16) -> bool {
     false
+}
+
+#[cfg(test)]
+fn geometry_cache_len() -> usize {
+    geometry_cache()
+        .lock()
+        .expect("keyboard geometry cache poisoned")
+        .len()
+}
+
+#[cfg(test)]
+fn geometry_cache_clear() {
+    geometry_cache()
+        .lock()
+        .expect("keyboard geometry cache poisoned")
+        .clear();
+}
+
+#[cfg(test)]
+fn geometry_cache_matching_entries(
+    layout_key: &str,
+    mode: KeyboardRenderMode,
+    width: u16,
+    height: u16,
+) -> usize {
+    geometry_cache()
+        .lock()
+        .expect("keyboard geometry cache poisoned")
+        .keys()
+        .filter(|k| {
+            k.layout_key == layout_key && k.mode == mode && k.width == width && k.height == height
+        })
+        .count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn cache_test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn assert_roundtrip_for_render_mode(
+        model: &KeyboardModel,
+        area: Rect,
+        compact: bool,
+        mode: KeyboardRenderMode,
+    ) {
+        let inner = Block::bordered().inner(area);
+        let geometry =
+            geometry_for_mode(inner, model, mode).expect("expected geometry for test render mode");
+        let rows = rows_for_mode(model, mode);
+
+        for (row_idx, row) in rows.iter().enumerate() {
+            let row_y = inner.y + row_idx as u16;
+            let offset = geometry.row_offsets.get(row_idx).copied().unwrap_or(0);
+            for (col_idx, key) in row.iter().enumerate() {
+                let key_x =
+                    inner.x + geometry.start_inset + offset + col_idx as u16 * geometry.key_width;
+                let hit_x = key_x;
+                let hit_y = row_y;
+                let hit = KeyboardDiagram::key_at_position(area, model, compact, hit_x, hit_y);
+                assert_eq!(
+                    hit,
+                    Some(key.base),
+                    "round-trip hit-test mismatch for layout={}, mode={mode:?}, row={row_idx}, col={col_idx}, key={}",
+                    model.layout_key,
+                    key.base
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn geometry_cache_reuses_entries_for_same_layout_mode_and_viewport() {
+        let _guard = cache_test_lock()
+            .lock()
+            .expect("cache test lock should not be poisoned");
+        geometry_cache_clear();
+
+        let model = KeyboardModel::from_key("qwerty").expect("qwerty model must exist");
+        let area = Rect::new(0, 0, 100, 10);
+        let inner = Block::bordered().inner(area);
+        let mode = render_mode_for(inner, false);
+
+        let _ = KeyboardDiagram::key_at_position(area, &model, false, 10, 2);
+        assert_eq!(
+            geometry_cache_matching_entries(model.layout_key, mode, inner.width, inner.height),
+            1
+        );
+
+        for _ in 0..50 {
+            let _ = KeyboardDiagram::key_at_position(area, &model, false, 12, 2);
+            let _ = KeyboardDiagram::shift_at_position(area, &model, false, 5, 3);
+        }
+
+        assert_eq!(
+            geometry_cache_matching_entries(model.layout_key, mode, inner.width, inner.height),
+            1,
+            "expected exactly one cached geometry entry for repeated same key"
+        );
+    }
+
+    #[test]
+    fn geometry_cache_distinguishes_layout_and_viewport_keys() {
+        let _guard = cache_test_lock()
+            .lock()
+            .expect("cache test lock should not be poisoned");
+        geometry_cache_clear();
+
+        let qwerty = KeyboardModel::from_key("qwerty").expect("qwerty model must exist");
+        let azerty = KeyboardModel::from_key("fr_azerty").expect("fr_azerty model must exist");
+
+        let _ = KeyboardDiagram::key_at_position(Rect::new(0, 0, 100, 10), &qwerty, false, 8, 2);
+        let after_first = geometry_cache_len();
+        assert!(after_first >= 1);
+
+        let _ = KeyboardDiagram::key_at_position(Rect::new(0, 0, 120, 10), &qwerty, false, 8, 2);
+        let _ = KeyboardDiagram::key_at_position(Rect::new(0, 0, 100, 10), &azerty, false, 8, 2);
+
+        assert!(
+            geometry_cache_len() >= after_first + 2,
+            "expected separate cached geometry entries for viewport/layout changes"
+        );
+    }
+
+    #[test]
+    fn geometry_cache_is_bounded() {
+        let _guard = cache_test_lock()
+            .lock()
+            .expect("cache test lock should not be poisoned");
+        geometry_cache_clear();
+
+        let model = KeyboardModel::from_key("qwerty").expect("qwerty model must exist");
+        for i in 0..(MAX_GEOMETRY_CACHE_ENTRIES as u16 + 10) {
+            let width = 90 + i;
+            let area = Rect::new(0, 0, width, 10);
+            let _ = KeyboardDiagram::key_at_position(area, &model, false, 10, 2);
+        }
+
+        assert!(
+            geometry_cache_len() <= MAX_GEOMETRY_CACHE_ENTRIES,
+            "geometry cache exceeded bounded capacity"
+        );
+    }
+
+    #[test]
+    fn hit_test_roundtrip_invariants_hold_for_all_layouts() {
+        let _guard = cache_test_lock()
+            .lock()
+            .expect("cache test lock should not be poisoned");
+        for &layout_key in KeyboardModel::supported_layout_keys() {
+            let model = KeyboardModel::from_key(layout_key).expect("profile should exist");
+
+            // Full render mode.
+            assert_roundtrip_for_render_mode(
+                &model,
+                Rect::new(0, 0, 100, 10),
+                false,
+                KeyboardRenderMode::Full,
+            );
+            // Full fallback mode (non-compact, but too small for full keyboard).
+            assert_roundtrip_for_render_mode(
+                &model,
+                Rect::new(0, 0, 60, 8),
+                false,
+                KeyboardRenderMode::FullFallback,
+            );
+            // Compact mode.
+            assert_roundtrip_for_render_mode(
+                &model,
+                Rect::new(0, 0, 60, 8),
+                true,
+                KeyboardRenderMode::Compact,
+            );
+        }
+    }
 }

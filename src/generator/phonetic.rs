@@ -75,15 +75,60 @@ impl PhoneticGenerator {
         filter: &CharFilter,
         focused_char: Option<char>,
         focused_bigram: Option<[char; 2]>,
+        starters: &[(char, f64)],
     ) -> String {
         for _attempt in 0..5 {
-            let word = self.try_generate_word(filter, focused_char, focused_bigram);
-            if word.len() >= MIN_WORD_LEN {
+            let word = self.try_generate_word(filter, focused_char, focused_bigram, starters);
+            if word.chars().count() >= MIN_WORD_LEN {
                 return word;
             }
         }
-        // Fallback
-        "the".to_string()
+        self.default_fallback_word(filter)
+    }
+
+    fn default_fallback_word(&self, filter: &CharFilter) -> String {
+        let matching = self.dictionary.find_matching(filter, None);
+        if let Some(word) = matching.first() {
+            return (*word).to_string();
+        }
+        let mut chars: Vec<char> = filter
+            .allowed
+            .iter()
+            .copied()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        chars.sort_unstable();
+        let fallback: String = chars.into_iter().take(3).collect();
+        if fallback.chars().count() >= MIN_WORD_LEN {
+            return fallback;
+        }
+        let seed = fallback
+            .chars()
+            .next()
+            .or_else(|| filter.allowed.iter().copied().find(|c| !c.is_whitespace()))
+            .unwrap_or('x');
+        std::iter::repeat_n(seed, MIN_WORD_LEN).collect()
+    }
+
+    fn starter_weights(&self, filter: &CharFilter) -> Vec<(char, f64)> {
+        let mut weights = std::collections::HashMap::<char, f64>::new();
+        for word in self.dictionary.words_list() {
+            if let Some(first) = word.chars().next()
+                && filter.is_allowed(first)
+            {
+                *weights.entry(first).or_insert(0.0) += 1.0;
+            }
+        }
+        if weights.is_empty() {
+            return filter
+                .allowed
+                .iter()
+                .copied()
+                .filter(|c| !c.is_whitespace())
+                .map(|c| (c, 1.0))
+                .collect();
+        }
+        weights.into_iter().collect()
     }
 
     fn try_generate_word(
@@ -91,6 +136,7 @@ impl PhoneticGenerator {
         filter: &CharFilter,
         focused: Option<char>,
         focused_bigram: Option<[char; 2]>,
+        starters: &[(char, f64)],
     ) -> String {
         let mut word = Vec::new();
 
@@ -149,22 +195,10 @@ impl PhoneticGenerator {
             }
             // Fallback: weighted random start
             if word.is_empty() {
-                let starters: Vec<(char, f64)> = filter
-                    .allowed
-                    .iter()
-                    .map(|&ch| {
-                        let w = match ch {
-                            'e' | 't' | 'a' => 3.0,
-                            'o' | 'i' | 'n' | 's' => 2.0,
-                            _ => 1.0,
-                        };
-                        (ch, w)
-                    })
-                    .collect();
                 if let Some(ch) = Self::pick_weighted_from(&mut self.rng, &starters, filter) {
                     word.push(ch);
                 } else {
-                    return "the".to_string();
+                    return self.default_fallback_word(filter);
                 }
             }
         }
@@ -224,14 +258,16 @@ impl PhoneticGenerator {
                     break;
                 }
             } else {
-                // Fallback to vowel
-                let vowels: Vec<(char, f64)> = ['a', 'e', 'i', 'o', 'u']
+                // Fallback to any allowed alphabetic character.
+                let next_chars: Vec<(char, f64)> = filter
+                    .allowed
                     .iter()
-                    .filter(|&&v| filter.is_allowed(v))
-                    .map(|&v| (v, 1.0))
+                    .copied()
+                    .filter(|ch| ch.is_alphabetic())
+                    .map(|ch| (ch, 1.0))
                     .collect();
-                if let Some(v) = Self::pick_weighted_from(&mut self.rng, &vowels, filter) {
-                    word.push(v);
+                if let Some(next) = Self::pick_weighted_from(&mut self.rng, &next_chars, filter) {
+                    word.push(next);
                 } else {
                     break;
                 }
@@ -357,6 +393,7 @@ impl TextGenerator for PhoneticGenerator {
             .iter()
             .map(|s| s.to_string())
             .collect();
+        let starters = self.starter_weights(filter);
         let pool_size = matching_words.len();
         let use_dict = pool_size >= MIN_REAL_WORDS;
 
@@ -392,7 +429,7 @@ impl TextGenerator for PhoneticGenerator {
 
         // Pre-categorize words into tiers for dictionary picks
         let bigram_str = focused_bigram.map(|b| format!("{}{}", b[0], b[1]));
-        let focus_char_lower = focused_char.filter(|ch| ch.is_ascii_lowercase());
+        let focus_char_lower = focused_char.filter(|ch| ch.is_lowercase());
 
         let (bigram_indices, char_indices, other_indices) = if use_dict {
             let mut bi = Vec::new();
@@ -436,7 +473,8 @@ impl TextGenerator for PhoneticGenerator {
                 }
                 words.push(word);
             } else {
-                let word = self.generate_phonetic_word(filter, focused_char, focused_bigram);
+                let word =
+                    self.generate_phonetic_word(filter, focused_char, focused_bigram, &starters);
                 recent.push(word.clone());
                 if recent.len() > dedup_window {
                     recent.remove(0);
@@ -456,13 +494,13 @@ mod tests {
 
     #[test]
     fn focused_key_biases_real_word_sampling() {
-        let dictionary = Dictionary::load();
-        let table = TransitionTable::build_from_words(&dictionary.words_list());
+        let dictionary = Dictionary::load_for_language("en");
+        let table = TransitionTable::build_from_words(dictionary.words_list());
         let filter = CharFilter::new(('a'..='z').collect());
 
         let mut focused_gen = PhoneticGenerator::new(
             table.clone(),
-            Dictionary::load(),
+            Dictionary::load_for_language("en"),
             SmallRng::seed_from_u64(42),
             HashSet::new(),
         );
@@ -474,7 +512,7 @@ mod tests {
 
         let mut baseline_gen = PhoneticGenerator::new(
             table,
-            Dictionary::load(),
+            Dictionary::load_for_language("en"),
             SmallRng::seed_from_u64(42),
             HashSet::new(),
         );
@@ -492,13 +530,13 @@ mod tests {
 
     #[test]
     fn test_phonetic_bigram_focus_increases_bigram_words() {
-        let dictionary = Dictionary::load();
-        let table = TransitionTable::build_from_words(&dictionary.words_list());
+        let dictionary = Dictionary::load_for_language("en");
+        let table = TransitionTable::build_from_words(dictionary.words_list());
         let filter = CharFilter::new(('a'..='z').collect());
 
         let mut bigram_gen = PhoneticGenerator::new(
             table.clone(),
-            Dictionary::load(),
+            Dictionary::load_for_language("en"),
             SmallRng::seed_from_u64(42),
             HashSet::new(),
         );
@@ -510,7 +548,7 @@ mod tests {
 
         let mut baseline_gen = PhoneticGenerator::new(
             table,
-            Dictionary::load(),
+            Dictionary::load_for_language("en"),
             SmallRng::seed_from_u64(42),
             HashSet::new(),
         );
@@ -528,13 +566,13 @@ mod tests {
 
     #[test]
     fn test_phonetic_dual_focus_no_excessive_repeats() {
-        let dictionary = Dictionary::load();
-        let table = TransitionTable::build_from_words(&dictionary.words_list());
+        let dictionary = Dictionary::load_for_language("en");
+        let table = TransitionTable::build_from_words(dictionary.words_list());
         let filter = CharFilter::new(('a'..='z').collect());
 
         let mut generator = PhoneticGenerator::new(
             table,
-            Dictionary::load(),
+            Dictionary::load_for_language("en"),
             SmallRng::seed_from_u64(42),
             HashSet::new(),
         );
@@ -561,8 +599,8 @@ mod tests {
 
     #[test]
     fn cross_drill_history_suppresses_repeats() {
-        let dictionary = Dictionary::load();
-        let table = TransitionTable::build_from_words(&dictionary.words_list());
+        let dictionary = Dictionary::load_for_language("en");
+        let table = TransitionTable::build_from_words(dictionary.words_list());
         // Use a filter yielding a pool above FULL_DICT_THRESHOLD so dict_ratio=1.0
         // (all words are dictionary picks, maximizing history suppression signal).
         // Focus on 'k' to constrain the effective tier pool further.
@@ -575,7 +613,7 @@ mod tests {
         // Drill 1: generate words and collect the set
         let mut gen1 = PhoneticGenerator::new(
             table.clone(),
-            Dictionary::load(),
+            Dictionary::load_for_language("en"),
             SmallRng::seed_from_u64(100),
             HashSet::new(),
         );
@@ -585,7 +623,7 @@ mod tests {
         // Drill 2 without history (baseline)
         let mut gen2_no_hist = PhoneticGenerator::new(
             table.clone(),
-            Dictionary::load(),
+            Dictionary::load_for_language("en"),
             SmallRng::seed_from_u64(200),
             HashSet::new(),
         );
@@ -601,7 +639,7 @@ mod tests {
         // Drill 2 with history from drill 1
         let mut gen2_with_hist = PhoneticGenerator::new(
             table.clone(),
-            Dictionary::load(),
+            Dictionary::load_for_language("en"),
             SmallRng::seed_from_u64(200),
             words1.clone(),
         );
@@ -626,8 +664,8 @@ mod tests {
 
     #[test]
     fn hybrid_mode_produces_mixed_output() {
-        let dictionary = Dictionary::load();
-        let table = TransitionTable::build_from_words(&dictionary.words_list());
+        let dictionary = Dictionary::load_for_language("en");
+        let table = TransitionTable::build_from_words(dictionary.words_list());
         // Use a constrained filter to get a pool in the hybrid range (8-60).
         let allowed: Vec<char> = "abcdef ".chars().collect();
         let filter = CharFilter::new(allowed);
@@ -647,7 +685,7 @@ mod tests {
 
         let mut generator = PhoneticGenerator::new(
             table,
-            Dictionary::load(),
+            Dictionary::load_for_language("en"),
             SmallRng::seed_from_u64(42),
             HashSet::new(),
         );
@@ -676,8 +714,8 @@ mod tests {
 
     #[test]
     fn boundary_phonetic_only_below_threshold() {
-        let dictionary = Dictionary::load();
-        let table = TransitionTable::build_from_words(&dictionary.words_list());
+        let dictionary = Dictionary::load_for_language("en");
+        let table = TransitionTable::build_from_words(dictionary.words_list());
         // Very small filter — should yield < MIN_REAL_WORDS (8) dictionary matches.
         // With pool < MIN_REAL_WORDS, use_dict=false so 0% intentional dictionary
         // selections (the code never enters pick_tiered_word).
@@ -697,7 +735,7 @@ mod tests {
 
         let mut generator = PhoneticGenerator::new(
             table,
-            Dictionary::load(),
+            Dictionary::load_for_language("en"),
             SmallRng::seed_from_u64(42),
             HashSet::new(),
         );
@@ -720,8 +758,8 @@ mod tests {
 
     #[test]
     fn boundary_full_dict_above_threshold() {
-        let dictionary = Dictionary::load();
-        let table = TransitionTable::build_from_words(&dictionary.words_list());
+        let dictionary = Dictionary::load_for_language("en");
+        let table = TransitionTable::build_from_words(dictionary.words_list());
         // Full alphabet — should yield 100+ dictionary matches
         let filter = CharFilter::new(('a'..='z').collect());
 
@@ -741,7 +779,7 @@ mod tests {
         // All picks come from matching_words → 100% dictionary.
         let mut generator = PhoneticGenerator::new(
             table,
-            Dictionary::load(),
+            Dictionary::load_for_language("en"),
             SmallRng::seed_from_u64(42),
             HashSet::new(),
         );
@@ -759,8 +797,8 @@ mod tests {
 
     #[test]
     fn weighted_suppression_graceful_degradation() {
-        let dictionary = Dictionary::load();
-        let table = TransitionTable::build_from_words(&dictionary.words_list());
+        let dictionary = Dictionary::load_for_language("en");
+        let table = TransitionTable::build_from_words(dictionary.words_list());
         // Use a small filter to get a small pool
         let allowed: Vec<char> = "abcdefghijk ".chars().collect();
         let filter = CharFilter::new(allowed);
@@ -780,7 +818,7 @@ mod tests {
 
         let mut generator = PhoneticGenerator::new(
             table,
-            Dictionary::load(),
+            Dictionary::load_for_language("en"),
             SmallRng::seed_from_u64(42),
             history.clone(),
         );

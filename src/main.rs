@@ -4,6 +4,7 @@ mod engine;
 mod event;
 mod generator;
 mod keyboard;
+mod l10n;
 mod session;
 mod store;
 mod ui;
@@ -29,18 +30,22 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget, Wrap};
 
-use app::{App, AppScreen, DrillMode, MilestoneKind, StatusKind};
+use app::{App, AppScreen, DrillMode, MilestoneKind, SettingItem, StatusKind};
 use engine::skill_tree::{BranchStatus, DrillScope, find_key_branch, get_branch_definition};
 use event::{AppEvent, EventHandler};
 use generator::code_syntax::{code_language_options, is_language_cached, language_by_key};
 use generator::passage::{is_book_cached, passage_options};
 use keyboard::display::key_display_name;
 use keyboard::finger::Hand;
+use l10n::language_pack::{
+    CapabilityState, default_keyboard_layout_for_language, dictionary_languages_for_layout,
+    find_language_pack, language_packs, validate_language_layout_pair,
+};
 use ui::components::dashboard::Dashboard;
 use ui::components::keyboard_diagram::KeyboardDiagram;
 use ui::components::skill_tree::{
-    SkillTreeWidget, branch_list_spacing_flags, detail_line_count_with_level_spacing,
-    selectable_branches, use_expanded_level_spacing, use_side_by_side_layout,
+    SkillTreeWidget, branch_list_spacing_flags, detail_line_count_with_level_spacing_for_tree,
+    selectable_branches, use_expanded_level_spacing_for_tree, use_side_by_side_layout,
 };
 use ui::components::stats_dashboard::{
     AnomalyBigramRow, NgramTabData, StatsDashboard, history_page_size_for_terminal,
@@ -61,7 +66,11 @@ struct Cli {
     #[arg(short, long, help = "Theme name")]
     theme: Option<String>,
 
-    #[arg(short, long, help = "Keyboard layout (qwerty, dvorak, colemak)")]
+    #[arg(
+        short,
+        long,
+        help = "Keyboard layout (qwerty, dvorak, colemak, de_qwertz, fr_azerty)"
+    )]
     layout: Option<String>,
 
     #[arg(short, long, help = "Number of words per drill")]
@@ -81,6 +90,16 @@ fn main() -> Result<()> {
             let theme: &'static ui::theme::Theme = Box::leak(Box::new(theme));
             app.theme = theme;
             app.menu.theme = theme;
+        }
+    }
+    if let Some(layout_key) = cli.layout {
+        match app.set_keyboard_layout(&layout_key) {
+            Ok(_capability) => {
+                let _ = app.config.save();
+            }
+            Err(err) => {
+                eprintln!("Ignoring --layout {layout_key:?}: {err}");
+            }
         }
     }
 
@@ -208,9 +227,9 @@ fn handle_key(app: &mut App, key: KeyEvent) {
     // on and the char is uppercase, that's caps lock alone, not shift.
     let infer_shift = |ch: char, mods: KeyModifiers, caps: bool| -> bool {
         let has_shift = mods.contains(KeyModifiers::SHIFT);
-        if caps && ch.is_ascii_alphabetic() {
+        if caps && ch.is_alphabetic() {
             // Caps lock on: shift would invert to lowercase
-            has_shift && ch.is_ascii_lowercase()
+            has_shift && ch.is_lowercase()
         } else {
             has_shift
         }
@@ -234,12 +253,14 @@ fn handle_key(app: &mut App, key: KeyEvent) {
             return;
         }
         (KeyCode::Char(ch), KeyEventKind::Press) => {
-            app.depressed_keys.insert(ch.to_ascii_lowercase());
+            let normalized = app.keyboard_model.shifted_to_base(*ch).unwrap_or(*ch);
+            app.depressed_keys.insert(normalized);
             app.last_key_time = Some(Instant::now());
             app.shift_held = infer_shift(*ch, key.modifiers, app.caps_lock);
         }
         (KeyCode::Char(ch), KeyEventKind::Release) => {
-            app.depressed_keys.remove(&ch.to_ascii_lowercase());
+            let normalized = app.keyboard_model.shifted_to_base(*ch).unwrap_or(*ch);
+            app.depressed_keys.remove(&normalized);
             return; // Don't process Release events as input
         }
         (KeyCode::Backspace, KeyEventKind::Press) => {
@@ -313,6 +334,8 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         AppScreen::DrillResult => handle_result_key(app, key),
         AppScreen::StatsDashboard => handle_stats_key(app, key),
         AppScreen::Settings => handle_settings_key(app, key),
+        AppScreen::DictionaryLanguageSelect => handle_dictionary_language_key(app, key),
+        AppScreen::KeyboardLayoutSelect => handle_keyboard_layout_key(app, key),
         AppScreen::SkillTree => handle_skill_tree_key(app, key),
         AppScreen::CodeLanguageSelect => handle_code_language_key(app, key),
         AppScreen::PassageBookSelect => handle_passage_book_key(app, key),
@@ -506,6 +529,8 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
         AppScreen::DrillResult => handle_result_mouse(app, mouse),
         AppScreen::StatsDashboard => handle_stats_mouse(app, mouse),
         AppScreen::Settings => handle_settings_mouse(app, mouse),
+        AppScreen::DictionaryLanguageSelect => handle_dictionary_language_mouse(app, mouse),
+        AppScreen::KeyboardLayoutSelect => handle_keyboard_layout_mouse(app, mouse),
         AppScreen::SkillTree => handle_skill_tree_mouse(app, mouse),
         AppScreen::CodeLanguageSelect => handle_code_language_mouse(app, mouse),
         AppScreen::PassageBookSelect => handle_passage_book_mouse(app, mouse),
@@ -520,9 +545,7 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
 fn activate_menu_selected(app: &mut App) {
     match app.menu.selected {
         0 => {
-            app.drill_mode = DrillMode::Adaptive;
-            app.drill_scope = DrillScope::Global;
-            app.start_drill();
+            app.start_global_adaptive_drill();
         }
         1 => {
             if app.config.code_onboarding_done {
@@ -929,92 +952,119 @@ fn handle_stats_mouse(app: &mut App, mouse: MouseEvent) {
     }
 }
 
-fn settings_fields(app: &App) -> Vec<(String, String, bool)> {
+fn settings_fields(app: &App) -> Vec<(SettingItem, String, String)> {
+    let dictionary_language_label = find_language_pack(&app.config.dictionary_language)
+        .map(|pack| pack.display_name.to_string())
+        .unwrap_or_else(|| app.config.dictionary_language.clone());
+    let keyboard_layout_label = app.config.keyboard_layout.clone();
+
     vec![
         (
+            SettingItem::TargetWpm,
             "Target WPM".to_string(),
             format!("{}", app.config.target_wpm),
-            false,
         ),
-        ("Theme".to_string(), app.config.theme.clone(), false),
         (
+            SettingItem::Theme,
+            "Theme".to_string(),
+            app.config.theme.clone(),
+        ),
+        (
+            SettingItem::WordCount,
             "Word Count".to_string(),
             format!("{}", app.config.word_count),
-            false,
         ),
         (
+            SettingItem::DictionaryLanguage,
+            "Dictionary Language".to_string(),
+            dictionary_language_label,
+        ),
+        (
+            SettingItem::KeyboardLayout,
+            "Keyboard Layout".to_string(),
+            keyboard_layout_label,
+        ),
+        (
+            SettingItem::CodeLanguage,
             "Code Language".to_string(),
             app.config.code_language.clone(),
-            false,
         ),
         (
+            SettingItem::CodeDownloads,
             "Code Downloads".to_string(),
             if app.config.code_downloads_enabled {
                 "On".to_string()
             } else {
                 "Off".to_string()
             },
-            false,
         ),
         (
+            SettingItem::CodeDownloadDir,
             "Code Download Dir".to_string(),
             app.config.code_download_dir.clone(),
-            true,
         ),
         (
+            SettingItem::SnippetsPerRepo,
             "Snippets per Repo".to_string(),
             if app.config.code_snippets_per_repo == 0 {
                 "Unlimited".to_string()
             } else {
                 format!("{}", app.config.code_snippets_per_repo)
             },
-            false,
         ),
         (
+            SettingItem::DownloadCodeNow,
             "Download Code Now".to_string(),
             "Run downloader".to_string(),
-            false,
         ),
         (
+            SettingItem::PassageDownloads,
             "Passage Downloads".to_string(),
             if app.config.passage_downloads_enabled {
                 "On".to_string()
             } else {
                 "Off".to_string()
             },
-            false,
         ),
         (
+            SettingItem::PassageDownloadDir,
             "Passage Download Dir".to_string(),
             app.config.passage_download_dir.clone(),
-            true,
         ),
         (
+            SettingItem::ParagraphsPerBook,
             "Paragraphs per Book".to_string(),
             if app.config.passage_paragraphs_per_book == 0 {
                 "Whole book".to_string()
             } else {
                 format!("{}", app.config.passage_paragraphs_per_book)
             },
-            false,
         ),
         (
+            SettingItem::DownloadPassagesNow,
             "Download Passages Now".to_string(),
             "Run downloader".to_string(),
-            false,
         ),
         (
+            SettingItem::ExportPath,
             "Export Path".to_string(),
             app.settings_export_path.clone(),
-            true,
         ),
-        ("Export Data".to_string(), "Export now".to_string(), false),
         (
+            SettingItem::ExportData,
+            "Export Data".to_string(),
+            "Export now".to_string(),
+        ),
+        (
+            SettingItem::ImportPath,
             "Import Path".to_string(),
             app.settings_import_path.clone(),
-            true,
         ),
-        ("Import Data".to_string(), "Import now".to_string(), false),
+        (
+            SettingItem::ImportData,
+            "Import Data".to_string(),
+            "Import now".to_string(),
+        ),
     ]
 }
 
@@ -1031,7 +1081,8 @@ fn handle_settings_mouse(app: &mut App, mouse: MouseEvent) {
             return;
         }
         MouseEventKind::ScrollDown => {
-            app.settings_selected = (app.settings_selected + 1).min(15);
+            let max_settings = SettingItem::ALL.len().saturating_sub(1);
+            app.settings_selected = (app.settings_selected + 1).min(max_settings);
             return;
         }
         MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right) => {}
@@ -1206,8 +1257,9 @@ fn handle_settings_mouse(app: &mut App, mouse: MouseEvent) {
         if point_in_rect(mouse.column, mouse.row, rect) {
             let idx = start + row;
             app.settings_selected = idx;
-            let is_button = idx == 7 || idx == 11 || idx == 13 || idx == 15;
-            let is_path = idx == 5 || idx == 9 || idx == 12 || idx == 14;
+            let setting = SettingItem::from_index(idx);
+            let is_button = setting.is_action_button();
+            let is_path = setting.is_path_field();
             let value_row = mouse.row > rect.y;
             if is_button || is_path || value_row {
                 activate_settings_selected(app);
@@ -1222,9 +1274,7 @@ fn handle_menu_key(app: &mut App, key: KeyEvent) {
         KeyCode::Char('q') | KeyCode::Esc => app.should_quit = true,
         KeyCode::Char('1') => {
             app.menu.selected = 0;
-            app.drill_mode = DrillMode::Adaptive;
-            app.drill_scope = DrillScope::Global;
-            app.start_drill();
+            app.start_global_adaptive_drill();
         }
         KeyCode::Char('2') => {
             app.menu.selected = 1;
@@ -1411,39 +1461,43 @@ fn handle_stats_key(app: &mut App, key: KeyEvent) {
 }
 
 fn activate_settings_selected(app: &mut App) {
-    match app.settings_selected {
-        5 => {
+    match SettingItem::from_index(app.settings_selected) {
+        SettingItem::DictionaryLanguage => app.go_to_dictionary_language_select(),
+        SettingItem::KeyboardLayout => app.go_to_keyboard_layout_select(),
+        SettingItem::CodeDownloadDir => {
             app.clear_settings_modals();
             app.settings_editing_path = Some((
                 PathField::CodeDownloadDir,
                 LineInput::new(&app.config.code_download_dir),
             ));
         }
-        9 => {
+        SettingItem::PassageDownloadDir => {
             app.clear_settings_modals();
             app.settings_editing_path = Some((
                 PathField::PassageDownloadDir,
                 LineInput::new(&app.config.passage_download_dir),
             ));
         }
-        7 => app.start_code_downloads_from_settings(),
-        11 => app.start_passage_downloads_from_settings(),
-        12 => {
+        SettingItem::DownloadCodeNow => app.start_code_downloads_from_settings(),
+        SettingItem::DownloadPassagesNow => app.start_passage_downloads_from_settings(),
+        SettingItem::ExportPath => {
             app.clear_settings_modals();
             app.settings_editing_path = Some((
                 PathField::ExportPath,
                 LineInput::new(&app.settings_export_path),
             ));
         }
-        13 => app.export_data(),
-        14 => {
+        SettingItem::ExportData => {
+            app.export_data();
+        }
+        SettingItem::ImportPath => {
             app.clear_settings_modals();
             app.settings_editing_path = Some((
                 PathField::ImportPath,
                 LineInput::new(&app.settings_import_path),
             ));
         }
-        15 => {
+        SettingItem::ImportData => {
             app.clear_settings_modals();
             app.settings_confirm_import = true;
         }
@@ -1452,7 +1506,7 @@ fn activate_settings_selected(app: &mut App) {
 }
 
 fn handle_settings_key(app: &mut App, key: KeyEvent) {
-    const MAX_SETTINGS: usize = 15;
+    let max_settings: usize = SettingItem::ALL.len().saturating_sub(1);
 
     // Priority 1: dismiss status message
     if app.settings_status_message.is_some() {
@@ -1526,24 +1580,379 @@ fn handle_settings_key(app: &mut App, key: KeyEvent) {
             }
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            if app.settings_selected < MAX_SETTINGS {
+            if app.settings_selected < max_settings {
                 app.settings_selected += 1;
             }
         }
         KeyCode::Enter => activate_settings_selected(app),
         KeyCode::Right | KeyCode::Char('l') => {
-            match app.settings_selected {
-                5 | 7 | 9 | 11 | 12 | 13 | 14 | 15 => {} // path/button fields
-                _ => app.settings_cycle_forward(),
+            if SettingItem::from_index(app.settings_selected).supports_left_right_cycle() {
+                app.settings_cycle_forward();
             }
         }
         KeyCode::Left | KeyCode::Char('h') => {
-            match app.settings_selected {
-                5 | 7 | 9 | 11 | 12 | 13 | 14 | 15 => {} // path/button fields
-                _ => app.settings_cycle_backward(),
+            if SettingItem::from_index(app.settings_selected).supports_left_right_cycle() {
+                app.settings_cycle_backward();
             }
         }
         _ => {}
+    }
+}
+
+fn is_dictionary_language_disabled(_app: &App, language_key: &str) -> bool {
+    find_language_pack(language_key).is_none()
+}
+
+fn dictionary_language_list_area(area: Rect) -> Rect {
+    let centered = ui::layout::centered_rect(60, 70, area);
+    let inner = Block::bordered().inner(centered);
+    let hint_lines = pack_hint_lines(
+        &[
+            "[Up/Down/PgUp/PgDn] Navigate",
+            "[Enter] Confirm",
+            "[ESC] Back",
+        ],
+        inner.width as usize,
+    );
+    let footer_height = (hint_lines.len() as u16).max(1);
+    if inner.height > footer_height {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(footer_height)])
+            .split(inner)[0]
+    } else {
+        inner
+    }
+}
+
+fn confirm_dictionary_language_selection(app: &mut App) {
+    let options = language_packs();
+    if app.dictionary_language_selected >= options.len() {
+        return;
+    }
+    let selected = options[app.dictionary_language_selected];
+    if is_dictionary_language_disabled(app, selected.language_key) {
+        return;
+    }
+    match app.set_dictionary_language(selected.language_key) {
+        Ok(CapabilityState::Enabled | CapabilityState::Disabled) => {
+            app.settings_status_message = Some(app::StatusMessage {
+                kind: StatusKind::Success,
+                text: format!(
+                    "Switched to {}. Keyboard layout reset to {}",
+                    selected.display_name, app.config.keyboard_layout
+                ),
+            });
+        }
+        Err(err) => {
+            app.settings_status_message = Some(app::StatusMessage {
+                kind: StatusKind::Error,
+                text: err.to_string(),
+            });
+        }
+    }
+    app.go_to_settings();
+    app.settings_selected = SettingItem::DictionaryLanguage.index();
+}
+
+fn handle_dictionary_language_key(app: &mut App, key: KeyEvent) {
+    let options = language_packs();
+    let len = options.len();
+    if len == 0 {
+        return;
+    }
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => {
+            app.go_to_settings();
+            app.settings_selected = SettingItem::DictionaryLanguage.index();
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.dictionary_language_selected = app.dictionary_language_selected.saturating_sub(1);
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if app.dictionary_language_selected + 1 < len {
+                app.dictionary_language_selected += 1;
+            }
+        }
+        KeyCode::PageUp => {
+            app.dictionary_language_selected = app.dictionary_language_selected.saturating_sub(10);
+        }
+        KeyCode::PageDown => {
+            app.dictionary_language_selected = (app.dictionary_language_selected + 10).min(len - 1);
+        }
+        KeyCode::Home | KeyCode::Char('g') => {
+            app.dictionary_language_selected = 0;
+        }
+        KeyCode::End | KeyCode::Char('G') => {
+            app.dictionary_language_selected = len - 1;
+        }
+        KeyCode::Enter => confirm_dictionary_language_selection(app),
+        KeyCode::Char(ch) if ('1'..='9').contains(&ch) => {
+            let idx = (ch as usize) - ('1' as usize);
+            if idx < len {
+                app.dictionary_language_selected = idx;
+                confirm_dictionary_language_selection(app);
+                return;
+            }
+        }
+        _ => {}
+    }
+
+    let viewport = 15usize;
+    if app.dictionary_language_selected < app.dictionary_language_scroll {
+        app.dictionary_language_scroll = app.dictionary_language_selected;
+    } else if app.dictionary_language_selected >= app.dictionary_language_scroll + viewport {
+        app.dictionary_language_scroll = app.dictionary_language_selected + 1 - viewport;
+    }
+}
+
+fn handle_dictionary_language_mouse(app: &mut App, mouse: MouseEvent) {
+    let options = language_packs();
+    if options.is_empty() {
+        return;
+    }
+    match mouse.kind {
+        MouseEventKind::ScrollUp => {
+            app.dictionary_language_selected = app.dictionary_language_selected.saturating_sub(1);
+        }
+        MouseEventKind::ScrollDown => {
+            if app.dictionary_language_selected + 1 < options.len() {
+                app.dictionary_language_selected += 1;
+            }
+        }
+        MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right) => {
+            let area = terminal_area();
+            let centered = ui::layout::centered_rect(60, 70, area);
+            let inner = Block::bordered().inner(centered);
+            let hints = [
+                "[Up/Down/PgUp/PgDn] Navigate",
+                "[Enter] Confirm",
+                "[ESC] Back",
+            ];
+            let footer_h = pack_hint_lines(&hints, inner.width as usize).len().max(1) as u16;
+            let chunks = if inner.height > footer_h {
+                Some(
+                    Layout::default()
+                        .direction(Direction::Vertical)
+                        .constraints([Constraint::Min(1), Constraint::Length(footer_h)])
+                        .split(inner),
+                )
+            } else {
+                None
+            };
+            if let Some(chunks) = &chunks
+                && let Some(token) = hint_token_at(chunks[1], &hints, mouse.column, mouse.row)
+            {
+                match token.as_str() {
+                    "Enter" => confirm_dictionary_language_selection(app),
+                    "ESC" => {
+                        app.go_to_settings();
+                        app.settings_selected = SettingItem::DictionaryLanguage.index();
+                    }
+                    _ => {}
+                }
+                return;
+            }
+            let list_area = dictionary_language_list_area(area);
+            if !point_in_rect(mouse.column, mouse.row, list_area) {
+                return;
+            }
+            let viewport_height = (list_area.height as usize).saturating_sub(2).max(1);
+            let scroll = app.dictionary_language_scroll;
+            let visible_end = (scroll + viewport_height).min(options.len());
+            let line_offset = (mouse.row - list_area.y) as usize;
+            if line_offset == 0 {
+                return;
+            }
+            let idx = scroll + line_offset - 1;
+            if idx < visible_end {
+                let was_selected = idx == app.dictionary_language_selected;
+                app.dictionary_language_selected = idx;
+                if was_selected {
+                    confirm_dictionary_language_selection(app);
+                    return;
+                }
+            }
+        }
+        _ => {}
+    }
+    let viewport = 15usize;
+    if app.dictionary_language_selected < app.dictionary_language_scroll {
+        app.dictionary_language_scroll = app.dictionary_language_selected;
+    } else if app.dictionary_language_selected >= app.dictionary_language_scroll + viewport {
+        app.dictionary_language_scroll = app.dictionary_language_selected + 1 - viewport;
+    }
+}
+
+fn is_keyboard_layout_disabled(layout_key: &str) -> bool {
+    dictionary_languages_for_layout(layout_key).is_empty()
+}
+
+fn keyboard_layout_list_area(area: Rect) -> Rect {
+    let centered = ui::layout::centered_rect(60, 70, area);
+    let inner = Block::bordered().inner(centered);
+    let hint_lines = pack_hint_lines(
+        &[
+            "[Up/Down/PgUp/PgDn] Navigate",
+            "[Enter] Confirm",
+            "[ESC] Back",
+        ],
+        inner.width as usize,
+    );
+    let footer_height = (hint_lines.len() as u16).max(1);
+    if inner.height > footer_height {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(footer_height)])
+            .split(inner)[0]
+    } else {
+        inner
+    }
+}
+
+fn confirm_keyboard_layout_selection(app: &mut App) {
+    let options = keyboard::model::KeyboardModel::supported_layout_keys();
+    if app.keyboard_layout_selected >= options.len() {
+        return;
+    }
+    let selected = options[app.keyboard_layout_selected];
+    if is_keyboard_layout_disabled(selected) {
+        return;
+    }
+    match app.set_keyboard_layout(selected) {
+        Ok(CapabilityState::Enabled | CapabilityState::Disabled) => {}
+        Err(err) => {
+            app.settings_status_message = Some(app::StatusMessage {
+                kind: StatusKind::Error,
+                text: err.to_string(),
+            });
+        }
+    }
+    app.go_to_settings();
+    app.settings_selected = SettingItem::KeyboardLayout.index();
+}
+
+fn handle_keyboard_layout_key(app: &mut App, key: KeyEvent) {
+    let options = keyboard::model::KeyboardModel::supported_layout_keys();
+    let len = options.len();
+    if len == 0 {
+        return;
+    }
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => {
+            app.go_to_settings();
+            app.settings_selected = SettingItem::KeyboardLayout.index();
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.keyboard_layout_selected = app.keyboard_layout_selected.saturating_sub(1);
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if app.keyboard_layout_selected + 1 < len {
+                app.keyboard_layout_selected += 1;
+            }
+        }
+        KeyCode::PageUp => {
+            app.keyboard_layout_selected = app.keyboard_layout_selected.saturating_sub(10);
+        }
+        KeyCode::PageDown => {
+            app.keyboard_layout_selected = (app.keyboard_layout_selected + 10).min(len - 1);
+        }
+        KeyCode::Home | KeyCode::Char('g') => app.keyboard_layout_selected = 0,
+        KeyCode::End | KeyCode::Char('G') => app.keyboard_layout_selected = len - 1,
+        KeyCode::Enter => confirm_keyboard_layout_selection(app),
+        KeyCode::Char(ch) if ('1'..='9').contains(&ch) => {
+            let idx = (ch as usize) - ('1' as usize);
+            if idx < len {
+                app.keyboard_layout_selected = idx;
+                confirm_keyboard_layout_selection(app);
+                return;
+            }
+        }
+        _ => {}
+    }
+    let viewport = 15usize;
+    if app.keyboard_layout_selected < app.keyboard_layout_scroll {
+        app.keyboard_layout_scroll = app.keyboard_layout_selected;
+    } else if app.keyboard_layout_selected >= app.keyboard_layout_scroll + viewport {
+        app.keyboard_layout_scroll = app.keyboard_layout_selected + 1 - viewport;
+    }
+}
+
+fn handle_keyboard_layout_mouse(app: &mut App, mouse: MouseEvent) {
+    let options = keyboard::model::KeyboardModel::supported_layout_keys();
+    if options.is_empty() {
+        return;
+    }
+    match mouse.kind {
+        MouseEventKind::ScrollUp => {
+            app.keyboard_layout_selected = app.keyboard_layout_selected.saturating_sub(1);
+        }
+        MouseEventKind::ScrollDown => {
+            if app.keyboard_layout_selected + 1 < options.len() {
+                app.keyboard_layout_selected += 1;
+            }
+        }
+        MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right) => {
+            let area = terminal_area();
+            let centered = ui::layout::centered_rect(60, 70, area);
+            let inner = Block::bordered().inner(centered);
+            let hints = [
+                "[Up/Down/PgUp/PgDn] Navigate",
+                "[Enter] Confirm",
+                "[ESC] Back",
+            ];
+            let footer_h = pack_hint_lines(&hints, inner.width as usize).len().max(1) as u16;
+            let chunks = if inner.height > footer_h {
+                Some(
+                    Layout::default()
+                        .direction(Direction::Vertical)
+                        .constraints([Constraint::Min(1), Constraint::Length(footer_h)])
+                        .split(inner),
+                )
+            } else {
+                None
+            };
+            if let Some(chunks) = &chunks
+                && let Some(token) = hint_token_at(chunks[1], &hints, mouse.column, mouse.row)
+            {
+                match token.as_str() {
+                    "Enter" => confirm_keyboard_layout_selection(app),
+                    "ESC" => {
+                        app.go_to_settings();
+                        app.settings_selected = SettingItem::KeyboardLayout.index();
+                    }
+                    _ => {}
+                }
+                return;
+            }
+            let list_area = keyboard_layout_list_area(area);
+            if !point_in_rect(mouse.column, mouse.row, list_area) {
+                return;
+            }
+            let viewport_height = (list_area.height as usize).saturating_sub(2).max(1);
+            let scroll = app.keyboard_layout_scroll;
+            let visible_end = (scroll + viewport_height).min(options.len());
+            let line_offset = (mouse.row - list_area.y) as usize;
+            if line_offset == 0 {
+                return;
+            }
+            let idx = scroll + line_offset - 1;
+            if idx < visible_end {
+                let was_selected = idx == app.keyboard_layout_selected;
+                app.keyboard_layout_selected = idx;
+                if was_selected {
+                    confirm_keyboard_layout_selection(app);
+                    return;
+                }
+            }
+        }
+        _ => {}
+    }
+    let viewport = 15usize;
+    if app.keyboard_layout_selected < app.keyboard_layout_scroll {
+        app.keyboard_layout_scroll = app.keyboard_layout_selected;
+    } else if app.keyboard_layout_selected >= app.keyboard_layout_scroll + viewport {
+        app.keyboard_layout_scroll = app.keyboard_layout_selected + 1 - viewport;
     }
 }
 
@@ -2449,6 +2858,13 @@ struct SkillTreeMouseLayout {
     separator_padding: bool,
 }
 
+fn locked_branch_notice(app: &App) -> String {
+    format!(
+        "Complete {} primary letters to unlock branches",
+        app.skill_tree.primary_letters().len()
+    )
+}
+
 fn skill_tree_interactive_areas(app: &App, area: Rect) -> SkillTreeMouseLayout {
     let centered = skill_tree_popup_rect(area);
     let inner = Block::bordered().inner(centered);
@@ -2459,44 +2875,46 @@ fn skill_tree_interactive_areas(app: &App, area: Rect) -> SkillTreeMouseLayout {
     let bp = branches
         .get(selected)
         .map(|id| app.skill_tree.branch_progress(*id));
-    let (footer_hints, footer_notice) = match bp.map(|b| b.status.clone()) {
-        Some(BranchStatus::Locked) => (
-            vec![
-                "[↑↓/jk] Navigate",
-                "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                "[q] Back",
-            ],
-            Some("Complete a-z to unlock branches"),
-        ),
-        Some(BranchStatus::Available) => (
-            vec![
-                "[Enter] Unlock",
-                "[↑↓/jk] Navigate",
-                "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                "[q] Back",
-            ],
-            None,
-        ),
-        Some(BranchStatus::InProgress) => (
-            vec![
-                "[Enter] Start Drill",
-                "[↑↓/jk] Navigate",
-                "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                "[q] Back",
-            ],
-            None,
-        ),
-        _ => (
-            vec![
-                "[↑↓/jk] Navigate",
-                "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                "[q] Back",
-            ],
-            None,
-        ),
-    };
+    let (footer_hints, footer_notice): (Vec<&str>, Option<String>) =
+        match bp.map(|b| b.status.clone()) {
+            Some(BranchStatus::Locked) => (
+                vec![
+                    "[↑↓/jk] Navigate",
+                    "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                    "[q] Back",
+                ],
+                Some(locked_branch_notice(app)),
+            ),
+            Some(BranchStatus::Available) => (
+                vec![
+                    "[Enter] Unlock",
+                    "[↑↓/jk] Navigate",
+                    "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                    "[q] Back",
+                ],
+                None,
+            ),
+            Some(BranchStatus::InProgress) => (
+                vec![
+                    "[Enter] Start Drill",
+                    "[↑↓/jk] Navigate",
+                    "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                    "[q] Back",
+                ],
+                None,
+            ),
+            _ => (
+                vec![
+                    "[↑↓/jk] Navigate",
+                    "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                    "[q] Back",
+                ],
+                None,
+            ),
+        };
     let hint_lines = pack_hint_lines(&footer_hints, inner.width as usize);
     let notice_lines = footer_notice
+        .as_deref()
         .map(|text| wrapped_line_count(text, inner.width as usize))
         .unwrap_or(0);
     let show_notice =
@@ -2643,49 +3061,51 @@ fn handle_skill_tree_mouse(app: &mut App, mouse: MouseEvent) {
                 .skill_tree_selected
                 .min(branches.len().saturating_sub(1));
             let bp = app.skill_tree.branch_progress(branches[selected]);
-            let (footer_hints, footer_notice) = if *app.skill_tree.branch_status(branches[selected])
-                == engine::skill_tree::BranchStatus::Locked
-            {
-                (
-                    vec![
-                        "[↑↓/jk] Navigate",
-                        "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                        "[q] Back",
-                    ],
-                    Some("Complete a-z to unlock branches"),
-                )
-            } else if bp.status == engine::skill_tree::BranchStatus::Available {
-                (
-                    vec![
-                        "[Enter] Unlock",
-                        "[↑↓/jk] Navigate",
-                        "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                        "[q] Back",
-                    ],
-                    None,
-                )
-            } else if bp.status == engine::skill_tree::BranchStatus::InProgress {
-                (
-                    vec![
-                        "[Enter] Start Drill",
-                        "[↑↓/jk] Navigate",
-                        "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                        "[q] Back",
-                    ],
-                    None,
-                )
-            } else {
-                (
-                    vec![
-                        "[↑↓/jk] Navigate",
-                        "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                        "[q] Back",
-                    ],
-                    None,
-                )
-            };
+            let (footer_hints, footer_notice): (Vec<&str>, Option<String>) =
+                if *app.skill_tree.branch_status(branches[selected])
+                    == engine::skill_tree::BranchStatus::Locked
+                {
+                    (
+                        vec![
+                            "[↑↓/jk] Navigate",
+                            "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                            "[q] Back",
+                        ],
+                        Some(locked_branch_notice(app)),
+                    )
+                } else if bp.status == engine::skill_tree::BranchStatus::Available {
+                    (
+                        vec![
+                            "[Enter] Unlock",
+                            "[↑↓/jk] Navigate",
+                            "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                            "[q] Back",
+                        ],
+                        None,
+                    )
+                } else if bp.status == engine::skill_tree::BranchStatus::InProgress {
+                    (
+                        vec![
+                            "[Enter] Start Drill",
+                            "[↑↓/jk] Navigate",
+                            "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                            "[q] Back",
+                        ],
+                        None,
+                    )
+                } else {
+                    (
+                        vec![
+                            "[↑↓/jk] Navigate",
+                            "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                            "[q] Back",
+                        ],
+                        None,
+                    )
+                };
             let hint_lines = pack_hint_lines(&footer_hints, inner.width as usize);
             let notice_lines = footer_notice
+                .as_deref()
                 .map(|text| wrapped_line_count(text, inner.width as usize))
                 .unwrap_or(0);
             let show_notice = footer_notice.is_some()
@@ -2796,49 +3216,51 @@ fn skill_tree_detail_max_scroll(app: &App) -> usize {
         .skill_tree_selected
         .min(branches.len().saturating_sub(1));
     let bp = app.skill_tree.branch_progress(branches[selected]);
-    let (footer_hints, footer_notice) = if *app.skill_tree.branch_status(branches[selected])
-        == engine::skill_tree::BranchStatus::Locked
-    {
-        (
-            vec![
-                "[↑↓/jk] Navigate",
-                "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                "[q] Back",
-            ],
-            Some("Complete a-z to unlock branches"),
-        )
-    } else if bp.status == engine::skill_tree::BranchStatus::Available {
-        (
-            vec![
-                "[Enter] Unlock",
-                "[↑↓/jk] Navigate",
-                "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                "[q] Back",
-            ],
-            None,
-        )
-    } else if bp.status == engine::skill_tree::BranchStatus::InProgress {
-        (
-            vec![
-                "[Enter] Start Drill",
-                "[↑↓/jk] Navigate",
-                "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                "[q] Back",
-            ],
-            None,
-        )
-    } else {
-        (
-            vec![
-                "[↑↓/jk] Navigate",
-                "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                "[q] Back",
-            ],
-            None,
-        )
-    };
+    let (footer_hints, footer_notice): (Vec<&str>, Option<String>) =
+        if *app.skill_tree.branch_status(branches[selected])
+            == engine::skill_tree::BranchStatus::Locked
+        {
+            (
+                vec![
+                    "[↑↓/jk] Navigate",
+                    "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                    "[q] Back",
+                ],
+                Some(locked_branch_notice(app)),
+            )
+        } else if bp.status == engine::skill_tree::BranchStatus::Available {
+            (
+                vec![
+                    "[Enter] Unlock",
+                    "[↑↓/jk] Navigate",
+                    "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                    "[q] Back",
+                ],
+                None,
+            )
+        } else if bp.status == engine::skill_tree::BranchStatus::InProgress {
+            (
+                vec![
+                    "[Enter] Start Drill",
+                    "[↑↓/jk] Navigate",
+                    "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                    "[q] Back",
+                ],
+                None,
+            )
+        } else {
+            (
+                vec![
+                    "[↑↓/jk] Navigate",
+                    "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
+                    "[q] Back",
+                ],
+                None,
+            )
+        };
     let hint_lines = pack_hint_lines(&footer_hints, inner.width as usize);
     let notice_lines = footer_notice
+        .as_deref()
         .map(|text| wrapped_line_count(text, inner.width as usize))
         .unwrap_or(0);
     let show_notice =
@@ -2867,8 +3289,16 @@ fn skill_tree_detail_max_scroll(app: &App) -> usize {
             .split(layout[0]);
         main.get(2).map(|r| r.height as usize).unwrap_or(0)
     };
-    let expanded = use_expanded_level_spacing(detail_height as u16, branches[selected]);
-    let total_lines = detail_line_count_with_level_spacing(branches[selected], expanded);
+    let expanded = use_expanded_level_spacing_for_tree(
+        &app.skill_tree,
+        detail_height as u16,
+        branches[selected],
+    );
+    let total_lines = detail_line_count_with_level_spacing_for_tree(
+        &app.skill_tree,
+        branches[selected],
+        expanded,
+    );
     total_lines.saturating_sub(detail_height)
 }
 
@@ -2897,6 +3327,8 @@ fn render(frame: &mut ratatui::Frame, app: &App) {
         AppScreen::DrillResult => render_result(frame, app),
         AppScreen::StatsDashboard => render_stats(frame, app),
         AppScreen::Settings => render_settings(frame, app),
+        AppScreen::DictionaryLanguageSelect => render_dictionary_language_select(frame, app),
+        AppScreen::KeyboardLayoutSelect => render_keyboard_layout_select(frame, app),
         AppScreen::SkillTree => render_skill_tree(frame, app),
         AppScreen::CodeLanguageSelect => render_code_language_select(frame, app),
         AppScreen::PassageBookSelect => render_passage_book_select(frame, app),
@@ -3313,10 +3745,11 @@ fn render_milestone_overlay(
 
                     // Shift key guidance for shifted characters
                     let fa = app.keyboard_model.finger_for_char(*ch);
-                    if ch.is_ascii_uppercase()
-                        || (!ch.is_ascii_lowercase()
+                    if ch.is_uppercase()
+                        || (!ch.is_lowercase()
+                            // Digits are intentionally ASCII-scoped in current drills/keyboard progression.
                             && !ch.is_ascii_digit()
-                            && !ch.is_ascii_whitespace()
+                            && !ch.is_whitespace()
                             && *ch != ' ')
                     {
                         let shift_hint = if fa.hand == keyboard::finger::Hand::Left {
@@ -3342,14 +3775,9 @@ fn render_milestone_overlay(
 
         MilestoneKind::BranchesAvailable => {
             lines.push(Line::from(""));
+            let primary_count = app.skill_tree.primary_letters().len();
             lines.push(Line::from(Span::styled(
-                "  Congratulations! You've mastered all 26 lowercase",
-                Style::default()
-                    .fg(colors.accent())
-                    .add_modifier(Modifier::BOLD),
-            )));
-            lines.push(Line::from(Span::styled(
-                "  keys!",
+                format!("  Congratulations! You've mastered all {primary_count} primary letters"),
                 Style::default()
                     .fg(colors.accent())
                     .add_modifier(Modifier::BOLD),
@@ -3482,7 +3910,7 @@ fn render_milestone_overlay(
             let milestone_key = milestone.keys.first().copied();
             let unlocked_keys = app.skill_tree.unlocked_keys(app.drill_scope);
             let is_shifted = milestone_key.is_some_and(|ch| {
-                ch.is_ascii_uppercase() || app.keyboard_model.shifted_to_base(ch).is_some()
+                ch.is_uppercase() || app.keyboard_model.shifted_to_base(ch).is_some()
             });
             let kbd = KeyboardDiagram::new(
                 None,
@@ -3540,6 +3968,7 @@ fn overlay_keyboard_mode(height: u16) -> u8 {
 #[cfg(test)]
 mod review_tests {
     use super::*;
+    use crate::engine::skill_tree::SkillTreeProgress;
     use crate::session::result::DrillResult;
     use chrono::{TimeDelta, Utc};
 
@@ -3565,6 +3994,19 @@ mod review_tests {
             partial: false,
             completion_percent: 100.0,
         }
+    }
+
+    #[test]
+    fn locked_branch_notice_uses_primary_letter_count() {
+        let mut app = test_app();
+        app.skill_tree = crate::engine::skill_tree::SkillTree::new_with_primary_sequence(
+            SkillTreeProgress::default(),
+            "abcde",
+        );
+        assert_eq!(
+            locked_branch_notice(&app),
+            "Complete 5 primary letters to unlock branches"
+        );
     }
 
     #[test]
@@ -3832,7 +4274,7 @@ mod review_tests {
         app.screen = AppScreen::Settings;
 
         // First, activate import confirmation
-        app.settings_selected = 15; // Import Data
+        app.settings_selected = SettingItem::ImportData.index();
         handle_settings_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(app.settings_confirm_import);
         assert!(modal_edit_count(&app) <= 1);
@@ -3842,9 +4284,9 @@ mod review_tests {
         assert!(!app.settings_confirm_import);
 
         // Enter export path editing
-        app.settings_selected = 12; // Export Path
+        app.settings_selected = SettingItem::ExportPath.index();
         handle_settings_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert!(app.is_editing_field(12));
+        assert!(app.is_editing_field(SettingItem::ExportPath.index()));
         assert!(modal_edit_count(&app) <= 1);
 
         // Esc out
@@ -3858,16 +4300,16 @@ mod review_tests {
         app.screen = AppScreen::Settings;
 
         // Activate export path editing first
-        app.settings_selected = 12;
+        app.settings_selected = SettingItem::ExportPath.index();
         handle_settings_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert!(app.is_editing_field(12));
+        assert!(app.is_editing_field(SettingItem::ExportPath.index()));
 
         // Esc out, then enter import path editing
         handle_settings_key(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        app.settings_selected = 14; // Import Path
+        app.settings_selected = SettingItem::ImportPath.index();
         handle_settings_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert!(app.is_editing_field(14));
-        assert!(!app.is_editing_field(12));
+        assert!(app.is_editing_field(SettingItem::ImportPath.index()));
+        assert!(!app.is_editing_field(SettingItem::ExportPath.index()));
         assert!(modal_edit_count(&app) <= 1);
     }
 
@@ -3877,7 +4319,7 @@ mod review_tests {
         app.screen = AppScreen::Settings;
 
         // Trigger import confirmation
-        app.settings_selected = 15;
+        app.settings_selected = SettingItem::ImportData.index();
         handle_settings_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(app.settings_confirm_import);
 
@@ -3889,7 +4331,7 @@ mod review_tests {
         assert!(!app.settings_confirm_import);
 
         // Trigger again
-        app.settings_selected = 15;
+        app.settings_selected = SettingItem::ImportData.index();
         handle_settings_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(app.settings_confirm_import);
 
@@ -4197,6 +4639,43 @@ mod review_tests {
     }
 
     #[test]
+    fn depressed_keys_normalizes_shifted_chars_to_keyboard_base_key() {
+        let mut app = test_app();
+        app.set_keyboard_layout("fr_azerty")
+            .expect("fr_azerty should be available in tests");
+        app.screen = AppScreen::Drill;
+        app.drill = Some(crate::session::drill::DrillState::new("2"));
+
+        handle_key(
+            &mut app,
+            key_event_with_state(
+                KeyCode::Char('2'),
+                KeyModifiers::SHIFT,
+                KeyEventKind::Press,
+                KeyEventState::NONE,
+            ),
+        );
+        assert!(
+            app.depressed_keys.contains(&'é'),
+            "AZERTY shifted digit should map to its base physical key"
+        );
+
+        handle_key(
+            &mut app,
+            key_event_with_state(
+                KeyCode::Char('2'),
+                KeyModifiers::SHIFT,
+                KeyEventKind::Release,
+                KeyEventState::NONE,
+            ),
+        );
+        assert!(
+            !app.depressed_keys.contains(&'é'),
+            "Release should clear normalized depressed key entry"
+        );
+    }
+
+    #[test]
     fn caps_lock_cleared_by_capslock_key_without_caps_flag() {
         let mut app = test_app();
         app.caps_lock = true;
@@ -4477,11 +4956,11 @@ mod review_tests {
     fn footer_shows_completion_error_and_clears_on_keystroke() {
         let mut app = test_app();
         app.screen = AppScreen::Settings;
-        app.settings_selected = 12; // Export Path
+        app.settings_selected = SettingItem::ExportPath.index();
 
         // Enter editing mode
         handle_settings_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert!(app.is_editing_field(12));
+        assert!(app.is_editing_field(SettingItem::ExportPath.index()));
 
         // Set path to nonexistent dir and trigger tab completion error
         if let Some((_, ref mut input)) = app.settings_editing_path {
@@ -4515,7 +4994,7 @@ mod review_tests {
     fn footer_shows_editing_hints_when_path_editing() {
         let mut app = test_app();
         app.screen = AppScreen::Settings;
-        app.settings_selected = 12;
+        app.settings_selected = SettingItem::ExportPath.index();
 
         // Before editing: shows default hints
         let output_before = render_settings_to_string(&app);
@@ -4529,6 +5008,142 @@ mod review_tests {
         assert!(output_during.contains("[Enter] Confirm"));
         assert!(output_during.contains("[Esc] Cancel"));
         assert!(output_during.contains("[Tab] Complete"));
+    }
+
+    #[test]
+    fn settings_show_dictionary_language_display_name() {
+        let mut app = test_app();
+        app.screen = AppScreen::Settings;
+        app.config.dictionary_language = "en".to_string();
+
+        let output = render_settings_to_string(&app);
+        assert!(output.contains("Dictionary Language"));
+        assert!(output.contains("English"));
+    }
+
+    #[test]
+    fn settings_show_keyboard_layout_value() {
+        let mut app = test_app();
+        app.screen = AppScreen::Settings;
+        app.config.keyboard_layout = "qwerty".to_string();
+
+        let output = render_settings_to_string(&app);
+        assert!(output.contains("Keyboard Layout"));
+        assert!(output.contains("qwerty"));
+    }
+
+    #[test]
+    fn settings_show_language_without_preview_label() {
+        let mut app = test_app();
+        app.screen = AppScreen::Settings;
+        app.set_dictionary_language("de")
+            .expect("de should be selectable");
+
+        let output = render_settings_to_string(&app);
+        assert!(output.contains("German"));
+        assert!(!output.contains("German (preview)"));
+        assert!(output.contains("de_qwertz"));
+        assert!(!output.contains("qwerty (preview)"));
+    }
+
+    #[test]
+    fn settings_enter_on_dictionary_language_opens_selector() {
+        let mut app = test_app();
+        app.screen = AppScreen::Settings;
+        app.settings_selected = SettingItem::DictionaryLanguage.index();
+
+        handle_settings_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(app.screen, AppScreen::DictionaryLanguageSelect);
+        assert_eq!(app.dictionary_language_selected, 0);
+    }
+
+    #[test]
+    fn settings_enter_on_keyboard_layout_opens_selector() {
+        let mut app = test_app();
+        app.screen = AppScreen::Settings;
+        app.settings_selected = SettingItem::KeyboardLayout.index();
+
+        handle_settings_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(app.screen, AppScreen::KeyboardLayoutSelect);
+        assert_eq!(app.keyboard_layout_selected, 0);
+    }
+
+    #[test]
+    fn dictionary_language_selector_confirm_applies_selection_and_returns_to_settings() {
+        let mut app = test_app();
+        app.go_to_dictionary_language_select();
+        app.dictionary_language_selected = crate::l10n::language_pack::language_packs()
+            .iter()
+            .position(|pack| pack.language_key == "de")
+            .expect("de language pack should exist");
+
+        handle_dictionary_language_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(app.screen, AppScreen::Settings);
+        assert_eq!(app.config.dictionary_language, "de");
+        assert_eq!(
+            app.settings_selected,
+            SettingItem::DictionaryLanguage.index()
+        );
+        let status = app
+            .settings_status_message
+            .as_ref()
+            .expect("language switch should show layout reset message");
+        assert!(status.text.contains("Keyboard layout reset"));
+        assert!(status.text.contains("de_qwertz"));
+    }
+
+    #[test]
+    fn keyboard_layout_selector_confirm_keeps_selected_language() {
+        let mut app = test_app();
+        app.set_dictionary_language("es")
+            .expect("es should be selectable");
+        app.go_to_keyboard_layout_select();
+        app.keyboard_layout_selected =
+            crate::keyboard::model::KeyboardModel::supported_layout_keys()
+                .iter()
+                .position(|&key| key == "de_qwertz")
+                .expect("de_qwertz layout should exist");
+
+        handle_keyboard_layout_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(app.screen, AppScreen::Settings);
+        assert_eq!(app.config.keyboard_layout, "de_qwertz");
+        assert_eq!(app.config.dictionary_language, "es");
+        assert_eq!(app.settings_selected, SettingItem::KeyboardLayout.index());
+        assert!(app.settings_status_message.is_none());
+    }
+
+    #[test]
+    fn dictionary_language_selector_zero_shortcut_is_ignored() {
+        let mut app = test_app();
+        app.go_to_dictionary_language_select();
+        app.dictionary_language_selected = 3;
+
+        handle_dictionary_language_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('0'), KeyModifiers::NONE),
+        );
+
+        assert_eq!(app.screen, AppScreen::DictionaryLanguageSelect);
+        assert_eq!(app.dictionary_language_selected, 3);
+    }
+
+    #[test]
+    fn keyboard_layout_selector_zero_shortcut_is_ignored() {
+        let mut app = test_app();
+        app.go_to_keyboard_layout_select();
+        app.keyboard_layout_selected = 2;
+
+        handle_keyboard_layout_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('0'), KeyModifiers::NONE),
+        );
+
+        assert_eq!(app.screen, AppScreen::KeyboardLayoutSelect);
+        assert_eq!(app.keyboard_layout_selected, 2);
     }
 
     #[test]
@@ -4714,8 +5329,8 @@ mod review_tests {
         let id = BranchId::Capitals;
         let base = crate::ui::components::skill_tree::detail_line_count(id) as u16;
         // Capitals has 3 levels, so expanded spacing needs +2 lines.
-        assert!(!use_expanded_level_spacing(base + 1, id));
-        assert!(use_expanded_level_spacing(base + 2, id));
+        assert!(!crate::ui::components::skill_tree::use_expanded_level_spacing(base + 1, id));
+        assert!(crate::ui::components::skill_tree::use_expanded_level_spacing(base + 2, id));
     }
 }
 
@@ -4880,92 +5495,7 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
     let inner = block.inner(centered);
     block.render(centered, frame.buffer_mut());
 
-    let fields: Vec<(String, String, bool)> = vec![
-        (
-            "Target WPM".to_string(),
-            format!("{}", app.config.target_wpm),
-            false,
-        ),
-        ("Theme".to_string(), app.config.theme.clone(), false),
-        (
-            "Word Count".to_string(),
-            format!("{}", app.config.word_count),
-            false,
-        ),
-        (
-            "Code Language".to_string(),
-            app.config.code_language.clone(),
-            false,
-        ),
-        (
-            "Code Downloads".to_string(),
-            if app.config.code_downloads_enabled {
-                "On".to_string()
-            } else {
-                "Off".to_string()
-            },
-            false,
-        ),
-        (
-            "Code Download Dir".to_string(),
-            app.config.code_download_dir.clone(),
-            true, // path field
-        ),
-        (
-            "Snippets per Repo".to_string(),
-            if app.config.code_snippets_per_repo == 0 {
-                "Unlimited".to_string()
-            } else {
-                format!("{}", app.config.code_snippets_per_repo)
-            },
-            false,
-        ),
-        (
-            "Download Code Now".to_string(),
-            "Run downloader".to_string(),
-            false,
-        ),
-        (
-            "Passage Downloads".to_string(),
-            if app.config.passage_downloads_enabled {
-                "On".to_string()
-            } else {
-                "Off".to_string()
-            },
-            false,
-        ),
-        (
-            "Passage Download Dir".to_string(),
-            app.config.passage_download_dir.clone(),
-            true, // path field
-        ),
-        (
-            "Paragraphs per Book".to_string(),
-            if app.config.passage_paragraphs_per_book == 0 {
-                "Whole book".to_string()
-            } else {
-                format!("{}", app.config.passage_paragraphs_per_book)
-            },
-            false,
-        ),
-        (
-            "Download Passages Now".to_string(),
-            "Run downloader".to_string(),
-            false,
-        ),
-        (
-            "Export Path".to_string(),
-            app.settings_export_path.clone(),
-            true, // path field
-        ),
-        ("Export Data".to_string(), "Export now".to_string(), false),
-        (
-            "Import Path".to_string(),
-            app.settings_import_path.clone(),
-            true, // path field
-        ),
-        ("Import Data".to_string(), "Import now".to_string(), false),
-    ];
+    let fields = settings_fields(app);
 
     let header_height = if inner.height > 0 { 1 } else { 0 };
 
@@ -5037,13 +5567,13 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
         )
         .split(layout[1]);
 
-    for (row, (label, value, is_path)) in visible_fields.iter().enumerate() {
+    for (row, (item, label, value)) in visible_fields.iter().enumerate() {
         let i = start + row;
         let is_selected = i == app.settings_selected;
         let indicator = if is_selected { " > " } else { "   " };
 
         let label_text = format!("{indicator}{label}:");
-        let is_button = i == 7 || i == 11 || i == 13 || i == 15;
+        let is_button = item.is_action_button();
         let value_text = if is_button {
             format!("  [ {value} ]")
         } else {
@@ -5068,8 +5598,8 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
             colors.text_pending()
         });
 
-        let is_editing_this_path = is_selected && *is_path && app.is_editing_field(i);
-        let lines = if *is_path {
+        let is_editing_this_path = is_selected && item.is_path_field() && app.is_editing_field(i);
+        let lines = if item.is_path_field() {
             if is_editing_this_path {
                 if let Some((_, ref input)) = app.settings_editing_path {
                     let (before, cursor_ch, after) = input.render_parts();
@@ -5221,6 +5751,255 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
                 .style(Style::default().bg(colors.bg())),
         );
         frame.render_widget(dialog, dialog_area);
+    }
+}
+
+fn render_dictionary_language_select(frame: &mut ratatui::Frame, app: &App) {
+    let area = frame.area();
+    let colors = &app.theme.colors;
+    let centered = ui::layout::centered_rect(60, 70, area);
+
+    let block = Block::bordered()
+        .title(" Select Dictionary Language ")
+        .border_style(Style::default().fg(colors.accent()))
+        .style(Style::default().bg(colors.bg()));
+    let inner = block.inner(centered);
+    block.render(centered, frame.buffer_mut());
+
+    let options = language_packs();
+    let footer_hints = [
+        "[Up/Down/PgUp/PgDn] Navigate",
+        "[Enter] Confirm",
+        "[ESC] Back",
+    ];
+    let support_notice =
+        "  Selecting a language resets keyboard layout to that language's default.";
+    let width = inner.width as usize;
+    let hint_lines_vec = pack_hint_lines(&footer_hints, width);
+    let hint_lines = hint_lines_vec.len();
+    let notice_lines = wrapped_line_count(support_notice, width);
+    let total_height = inner.height as usize;
+    let show_notice = total_height >= hint_lines + notice_lines + 3;
+    let desired_footer_height = hint_lines + if show_notice { notice_lines } else { 0 };
+    let footer_height = desired_footer_height.min(total_height.saturating_sub(1)) as u16;
+    let (list_area, footer_area) = if footer_height > 0 {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(footer_height)])
+            .split(inner);
+        (chunks[0], Some(chunks[1]))
+    } else {
+        (inner, None)
+    };
+
+    let viewport_height = (list_area.height as usize).saturating_sub(2).max(1);
+    let scroll = app.dictionary_language_scroll;
+    let visible_end = (scroll + viewport_height).min(options.len());
+
+    let mut lines: Vec<Line> = Vec::new();
+    if scroll > 0 {
+        lines.push(Line::from(Span::styled(
+            format!("   ... {} more above ...", scroll),
+            Style::default().fg(colors.text_pending()),
+        )));
+    } else {
+        lines.push(Line::from(""));
+    }
+
+    for i in scroll..visible_end {
+        let pack = options[i];
+        let is_selected = i == app.dictionary_language_selected;
+        let is_current = pack.language_key == app.config.dictionary_language;
+        let indicator = if is_selected { " > " } else { "   " };
+        let current_marker = if is_current { " (current)" } else { "" };
+        let is_disabled = is_dictionary_language_disabled(app, pack.language_key);
+        let default_layout =
+            default_keyboard_layout_for_language(pack.language_key).unwrap_or("unknown");
+        let availability = if is_disabled {
+            " (disabled)".to_string()
+        } else {
+            format!(" (enabled, default: {default_layout})")
+        };
+
+        let name_style = if is_disabled {
+            Style::default().fg(colors.text_pending())
+        } else if is_selected {
+            Style::default()
+                .fg(colors.accent())
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(colors.fg())
+        };
+        let status_style = Style::default()
+            .fg(colors.text_pending())
+            .add_modifier(Modifier::DIM);
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!(
+                    "{indicator}{} ({}){current_marker}",
+                    pack.display_name, pack.language_key
+                ),
+                name_style,
+            ),
+            Span::styled(availability, status_style),
+        ]));
+    }
+
+    if visible_end < options.len() {
+        lines.push(Line::from(Span::styled(
+            format!("   ... {} more below ...", options.len() - visible_end),
+            Style::default().fg(colors.text_pending()),
+        )));
+    } else {
+        lines.push(Line::from(""));
+    }
+
+    Paragraph::new(lines).render(list_area, frame.buffer_mut());
+
+    if let Some(footer) = footer_area {
+        let mut footer_lines: Vec<Line> = hint_lines_vec
+            .iter()
+            .map(|line| {
+                Line::from(Span::styled(
+                    line.clone(),
+                    Style::default().fg(colors.text_pending()),
+                ))
+            })
+            .collect();
+        if show_notice {
+            footer_lines.push(Line::from(Span::styled(
+                support_notice,
+                Style::default().fg(colors.text_pending()),
+            )));
+        }
+        Paragraph::new(footer_lines)
+            .wrap(Wrap { trim: false })
+            .render(footer, frame.buffer_mut());
+    }
+}
+
+fn render_keyboard_layout_select(frame: &mut ratatui::Frame, app: &App) {
+    let area = frame.area();
+    let colors = &app.theme.colors;
+    let centered = ui::layout::centered_rect(60, 70, area);
+
+    let block = Block::bordered()
+        .title(" Select Keyboard Layout ")
+        .border_style(Style::default().fg(colors.accent()))
+        .style(Style::default().bg(colors.bg()));
+    let inner = block.inner(centered);
+    block.render(centered, frame.buffer_mut());
+
+    let options = keyboard::model::KeyboardModel::supported_layout_keys();
+    let footer_hints = [
+        "[Up/Down/PgUp/PgDn] Navigate",
+        "[Enter] Confirm",
+        "[ESC] Back",
+    ];
+    let support_notice = "  Layout changes do not change dictionary language.";
+    let width = inner.width as usize;
+    let hint_lines_vec = pack_hint_lines(&footer_hints, width);
+    let hint_lines = hint_lines_vec.len();
+    let notice_lines = wrapped_line_count(support_notice, width);
+    let total_height = inner.height as usize;
+    let show_notice = total_height >= hint_lines + notice_lines + 3;
+    let desired_footer_height = hint_lines + if show_notice { notice_lines } else { 0 };
+    let footer_height = desired_footer_height.min(total_height.saturating_sub(1)) as u16;
+    let (list_area, footer_area) = if footer_height > 0 {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(footer_height)])
+            .split(inner);
+        (chunks[0], Some(chunks[1]))
+    } else {
+        (inner, None)
+    };
+
+    let viewport_height = (list_area.height as usize).saturating_sub(2).max(1);
+    let scroll = app.keyboard_layout_scroll;
+    let visible_end = (scroll + viewport_height).min(options.len());
+
+    let mut lines: Vec<Line> = Vec::new();
+    if scroll > 0 {
+        lines.push(Line::from(Span::styled(
+            format!("   ... {} more above ...", scroll),
+            Style::default().fg(colors.text_pending()),
+        )));
+    } else {
+        lines.push(Line::from(""));
+    }
+
+    for i in scroll..visible_end {
+        let key = options[i];
+        let is_selected = i == app.keyboard_layout_selected;
+        let is_current = key == app.config.keyboard_layout;
+        let indicator = if is_selected { " > " } else { "   " };
+        let current_marker = if is_current { " (current)" } else { "" };
+        let validation = validate_language_layout_pair(&app.config.dictionary_language, key);
+
+        let (availability, is_disabled) = match validation {
+            Ok(CapabilityState::Enabled) => (" (enabled)".to_string(), false),
+            Ok(CapabilityState::Disabled) => (" (disabled)".to_string(), true),
+            Err(crate::l10n::language_pack::LanguageLayoutValidationError::UnsupportedLanguageLayoutPair { .. }) => {
+                (" (disabled)".to_string(), true)
+            }
+            Err(crate::l10n::language_pack::LanguageLayoutValidationError::LanguageBlockedBySupportLevel(_)) => {
+                (" (disabled: blocked)".to_string(), true)
+            }
+            Err(crate::l10n::language_pack::LanguageLayoutValidationError::UnknownLanguage(_))
+            | Err(crate::l10n::language_pack::LanguageLayoutValidationError::UnknownLayout(_)) => {
+                (" (disabled)".to_string(), true)
+            }
+        };
+
+        let name_style = if is_disabled {
+            Style::default().fg(colors.text_pending())
+        } else if is_selected {
+            Style::default()
+                .fg(colors.accent())
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(colors.fg())
+        };
+        let status_style = Style::default()
+            .fg(colors.text_pending())
+            .add_modifier(Modifier::DIM);
+        lines.push(Line::from(vec![
+            Span::styled(format!("{indicator}{key}{current_marker}"), name_style),
+            Span::styled(availability, status_style),
+        ]));
+    }
+
+    if visible_end < options.len() {
+        lines.push(Line::from(Span::styled(
+            format!("   ... {} more below ...", options.len() - visible_end),
+            Style::default().fg(colors.text_pending()),
+        )));
+    } else {
+        lines.push(Line::from(""));
+    }
+
+    Paragraph::new(lines).render(list_area, frame.buffer_mut());
+
+    if let Some(footer) = footer_area {
+        let mut footer_lines: Vec<Line> = hint_lines_vec
+            .iter()
+            .map(|line| {
+                Line::from(Span::styled(
+                    line.clone(),
+                    Style::default().fg(colors.text_pending()),
+                ))
+            })
+            .collect();
+        if show_notice {
+            footer_lines.push(Line::from(Span::styled(
+                support_notice,
+                Style::default().fg(colors.text_pending()),
+            )));
+        }
+        Paragraph::new(footer_lines)
+            .wrap(Wrap { trim: false })
+            .render(footer, frame.buffer_mut());
     }
 }
 
@@ -6204,30 +6983,8 @@ fn render_keyboard_detail_panel(frame: &mut ratatui::Frame, app: &App, area: Rec
     frame.render_widget(block, area);
 
     let finger = app.keyboard_model.finger_for_char(selected);
-    let is_shifted = selected.is_uppercase()
-        || matches!(
-            selected,
-            '!' | '@'
-                | '#'
-                | '$'
-                | '%'
-                | '^'
-                | '&'
-                | '*'
-                | '('
-                | ')'
-                | '_'
-                | '+'
-                | '{'
-                | '}'
-                | '|'
-                | ':'
-                | '"'
-                | '<'
-                | '>'
-                | '?'
-                | '~'
-        );
+    let is_shifted =
+        selected.is_uppercase() || app.keyboard_model.shifted_to_base(selected).is_some();
     let shift_guidance = if is_shifted {
         if finger.hand == Hand::Left {
             "Hold Right Shift (right pinky)".to_string()

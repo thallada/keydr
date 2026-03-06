@@ -743,7 +743,7 @@ impl StatsDashboard<'_> {
         };
         let show_shifted = inner.height >= 10; // 4 base + 4 shifted + 1 mod row + 1 spare
         let all_rows = &self.keyboard_model.rows;
-        let offsets: &[u16] = &[0, 2, 3, 4];
+        let offsets = self.keyboard_model.geometry_hints.row_offsets;
         let kbd_width = all_rows
             .iter()
             .enumerate()
@@ -898,7 +898,7 @@ impl StatsDashboard<'_> {
         };
         let show_shifted = inner.height >= 10; // 4 base + 4 shifted + 1 mod row + 1 spare
         let all_rows = &self.keyboard_model.rows;
-        let offsets: &[u16] = &[0, 2, 3, 4];
+        let offsets = self.keyboard_model.geometry_hints.row_offsets;
         let kbd_width = all_rows
             .iter()
             .enumerate()

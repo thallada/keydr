@@ -1226,6 +1226,7 @@ dependencies = [
  "criterion",
  "crossterm 0.28.1",
  "dirs",
+ "icu_normalizer",
  "rand",
  "ratatui",
  "reqwest",

@@ -5,9 +5,19 @@ This repository includes AGPL-licensed upstream material and is licensed as
 
 ## What is included in-repo
 
-- `assets/words-en.json` is imported from keybr.com and tracked in
+- `assets/dictionaries/words-*.json` are imported from keybr.com and tracked in
   `THIRD_PARTY_NOTICES.md`.
-- `assets/words-en.json.license` records source and license for the imported file.
+- `assets/dictionaries/words-<lang>.json.license` records source and license for
+  each imported dictionary file.
+- `assets/dictionaries/manifest.tsv` maps language keys to imported files/sources.
+- `assets/dictionaries/SHA256SUMS` stores dictionary checksums for integrity verification.
+- `scripts/validate_dictionary_manifest.sh` validates manifest entries, sidecars,
+  and checksums.
+- `scripts/derive_primary_letter_sequences.py` derives per-language primary-letter
+  sequence seed data from dictionary frequency.
+- `assets/dictionaries/primary-letter-sequences.tsv` stores the current derived output.
+- `docs/unicode-normalization-policy.md` documents NFC normalization policy and
+  equivalence expectations.
 
 ## What is research-only
 

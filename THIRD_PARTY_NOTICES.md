@@ -8,10 +8,15 @@
 - Upstream license: GNU Affero General Public License v3.0
 - Local upstream license copy (for local research clone): `clones/keybr.com/LICENSE`
 
-1. `assets/words-en.json`
-   - Source: `clones/keybr.com/packages/keybr-content-words/lib/data/words-en.json`
-   - Status: included in this repository and used at runtime by `src/generator/dictionary.rs`
+1. `assets/dictionaries/words-*.json` (seeded Latin-script set)
+   - Sources: `clones/keybr.com/packages/keybr-content-words/lib/data/words-<lang>.json`
+   - Included language keys: `en, de, es, fr, it, pt, nl, sv, da, nb, fi, pl, cs, ro, hr, hu, lt, lv, sl, et, tr`
+   - Status: included in this repository and available to `src/generator/dictionary.rs`
    - Modifications: none (byte-identical at the time of import)
+   - Integrity metadata:
+     - `assets/dictionaries/manifest.tsv` (language/file/source mapping)
+     - `assets/dictionaries/SHA256SUMS` (checksum manifest)
+     - `assets/dictionaries/words-<lang>.json.license` (per-file provenance/license sidecar)
 
 ## Local research clones (not committed to this repository)
 
@@ -55,7 +60,7 @@ architecture/algorithm ideas:
 - keybr-code
 
 For these references, no direct code/data inclusion is claimed in this repository
-except the explicitly documented `assets/words-en.json` import from keybr.com.
+except the explicitly documented `assets/dictionaries/words-*.json` imports from keybr.com.
 
 ## Notes
 

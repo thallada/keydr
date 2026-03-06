@@ -16,7 +16,7 @@ use crate::engine::ngram_stats::{
     self, BigramStatsStore, TrigramStatsStore, extract_ngram_events, select_focus,
 };
 use crate::engine::scoring;
-use crate::engine::skill_tree::{BranchId, BranchStatus, DrillScope, SkillTree};
+use crate::engine::skill_tree::{BranchId, BranchStatus, DrillScope, SkillTree, SkillTreeProgress};
 use crate::generator::TextGenerator;
 use crate::generator::capitalize;
 use crate::generator::code_patterns;
@@ -36,13 +36,18 @@ use crate::generator::punctuate;
 use crate::generator::transition_table::TransitionTable;
 use crate::keyboard::display::BACKSPACE;
 use crate::keyboard::model::KeyboardModel;
+use crate::l10n::language_pack::{
+    CapabilityState, DEFAULT_LATIN_PRIMARY_SEQUENCE, LanguageLayoutValidationError,
+    default_keyboard_layout_for_language, find_language_pack, normalized_primary_letter_sequence,
+    ranked_adaptive_readiness, validate_language_layout_pair,
+};
 
 use crate::session::drill::DrillState;
 use crate::session::input::{self, KeystrokeEvent};
 use crate::session::result::{DrillResult, KeyTime};
 use crate::store::json_store::JsonStore;
 use crate::store::schema::{
-    DrillHistoryData, EXPORT_VERSION, ExportData, KeyStatsData, ProfileData,
+    DrillHistoryData, EXPORT_VERSION, ExportData, KeyStatsData, ProfileData, SCHEMA_VERSION,
 };
 use crate::ui::components::menu::Menu;
 use crate::ui::line_input::{LineInput, PathField};
@@ -55,6 +60,8 @@ pub enum AppScreen {
     DrillResult,
     StatsDashboard,
     Settings,
+    DictionaryLanguageSelect,
+    KeyboardLayoutSelect,
     SkillTree,
     CodeLanguageSelect,
     PassageBookSelect,
@@ -70,6 +77,84 @@ pub enum DrillMode {
     Adaptive,
     Code,
     Passage,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SettingItem {
+    TargetWpm,
+    Theme,
+    WordCount,
+    DictionaryLanguage,
+    KeyboardLayout,
+    CodeLanguage,
+    CodeDownloads,
+    CodeDownloadDir,
+    SnippetsPerRepo,
+    DownloadCodeNow,
+    PassageDownloads,
+    PassageDownloadDir,
+    ParagraphsPerBook,
+    DownloadPassagesNow,
+    ExportPath,
+    ExportData,
+    ImportPath,
+    ImportData,
+}
+
+impl SettingItem {
+    pub const ALL: [Self; 18] = [
+        Self::TargetWpm,
+        Self::Theme,
+        Self::WordCount,
+        Self::DictionaryLanguage,
+        Self::KeyboardLayout,
+        Self::CodeLanguage,
+        Self::CodeDownloads,
+        Self::CodeDownloadDir,
+        Self::SnippetsPerRepo,
+        Self::DownloadCodeNow,
+        Self::PassageDownloads,
+        Self::PassageDownloadDir,
+        Self::ParagraphsPerBook,
+        Self::DownloadPassagesNow,
+        Self::ExportPath,
+        Self::ExportData,
+        Self::ImportPath,
+        Self::ImportData,
+    ];
+
+    pub fn from_index(index: usize) -> Self {
+        debug_assert!(
+            index < Self::ALL.len(),
+            "settings index out of range: {index}"
+        );
+        Self::ALL.get(index).copied().unwrap_or(Self::TargetWpm)
+    }
+
+    pub fn index(self) -> usize {
+        Self::ALL
+            .iter()
+            .position(|item| *item == self)
+            .expect("setting item should be in ALL")
+    }
+
+    pub fn is_path_field(self) -> bool {
+        matches!(
+            self,
+            Self::CodeDownloadDir | Self::PassageDownloadDir | Self::ExportPath | Self::ImportPath
+        )
+    }
+
+    pub fn is_action_button(self) -> bool {
+        matches!(
+            self,
+            Self::DownloadCodeNow | Self::DownloadPassagesNow | Self::ExportData | Self::ImportData
+        )
+    }
+
+    pub fn supports_left_right_cycle(self) -> bool {
+        !self.is_path_field() && !self.is_action_button()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -234,6 +319,10 @@ pub struct App {
     pub skill_tree_detail_scroll: usize,
     pub skill_tree_confirm_unlock: Option<BranchId>,
     pub drill_source_info: Option<String>,
+    pub dictionary_language_selected: usize,
+    pub dictionary_language_scroll: usize,
+    pub keyboard_layout_selected: usize,
+    pub keyboard_layout_scroll: usize,
     pub code_language_selected: usize,
     pub code_language_scroll: usize,
     pub passage_book_selected: usize,
@@ -290,19 +379,45 @@ pub struct App {
     adaptive_word_history: VecDeque<HashSet<String>>,
     rng: SmallRng,
     transition_table: TransitionTable,
-    #[allow(dead_code)]
     dictionary: Dictionary,
     passage_download_job: Option<DownloadJob>,
     code_download_job: Option<DownloadJob>,
 }
 
 impl App {
+    fn build_skill_tree_for_language(
+        progress: SkillTreeProgress,
+        language_key: &str,
+        layout_key: &str,
+    ) -> SkillTree {
+        let sequence = find_language_pack(language_key)
+            .map(|pack| pack.primary_letter_sequence)
+            .unwrap_or(DEFAULT_LATIN_PRIMARY_SEQUENCE);
+
+        // Keep lowercase progression aligned with what the active keyboard can type.
+        let filtered_sequence = if let Some(model) = KeyboardModel::from_key(layout_key) {
+            let filtered: String = normalized_primary_letter_sequence(sequence)
+                .into_iter()
+                .filter(|&ch| model.physical_key_for(ch).is_some())
+                .collect();
+            if filtered.is_empty() {
+                sequence.to_string()
+            } else {
+                filtered
+            }
+        } else {
+            sequence.to_string()
+        };
+
+        SkillTree::new_with_primary_sequence(progress, &filtered_sequence)
+    }
+
     pub fn new() -> Self {
         let mut config = Config::load().unwrap_or_default();
 
         // Normalize code_language: reset to default if not a valid option
         let valid_keys: Vec<&str> = code_language_options().iter().map(|(k, _)| *k).collect();
-        config.normalize_code_language(&valid_keys);
+        config.validate(&valid_keys);
         let loaded_theme = Theme::load(&config.theme).unwrap_or_default();
         let theme: &'static Theme = Box::leak(Box::new(loaded_theme));
         let menu = Menu::new(theme);
@@ -319,11 +434,33 @@ impl App {
                         let ksd = s.load_key_stats();
                         let rksd = s.load_ranked_key_stats();
                         let lhd = s.load_drill_history();
-                        let st = SkillTree::new(pd.skill_tree.clone());
-                        (ksd.stats, rksd.stats, st, pd, lhd.drills)
+                        // Clean-break policy: any schema mismatch in any persisted store
+                        // file resets all stores together to avoid partial mixed-version state.
+                        if ksd.schema_version != SCHEMA_VERSION
+                            || rksd.schema_version != SCHEMA_VERSION
+                            || lhd.schema_version != SCHEMA_VERSION
+                        {
+                            s.archive_legacy_data_files();
+                            (
+                                KeyStatsStore::default(),
+                                KeyStatsStore::default(),
+                                SkillTree::default(),
+                                ProfileData::default(),
+                                Vec::new(),
+                            )
+                        } else {
+                            let st = Self::build_skill_tree_for_language(
+                                pd.skill_tree_for_language(&config.dictionary_language),
+                                &config.dictionary_language,
+                                &config.keyboard_layout,
+                            );
+                            (ksd.stats, rksd.stats, st, pd, lhd.drills)
+                        }
                     }
                     _ => {
-                        // Schema mismatch or parse failure: full reset of all stores
+                        // Schema mismatch or parse failure: clean-break reset.
+                        // Archive stale files so partial legacy state cannot be reloaded.
+                        s.archive_legacy_data_files();
                         (
                             KeyStatsStore::default(),
                             KeyStatsStore::default(),
@@ -348,9 +485,10 @@ impl App {
         let mut ranked_key_stats_with_target = ranked_key_stats;
         ranked_key_stats_with_target.target_cpm = config.target_cpm();
 
-        let dictionary = Dictionary::load();
-        let transition_table = TransitionTable::build_from_words(&dictionary.words_list());
-        let keyboard_model = KeyboardModel::from_name(&config.keyboard_layout);
+        let dictionary = Dictionary::load_for_language(&config.dictionary_language);
+        let transition_table = TransitionTable::build_from_words(dictionary.words_list());
+        let keyboard_model = KeyboardModel::from_key(&config.keyboard_layout)
+            .expect("config validation must ensure a known keyboard layout");
         let intro_downloads_enabled = config.passage_downloads_enabled;
         let intro_download_dir = config.passage_download_dir.clone();
         let intro_paragraph_limit = config.passage_paragraphs_per_book;
@@ -387,6 +525,10 @@ impl App {
             skill_tree_detail_scroll: 0,
             skill_tree_confirm_unlock: None,
             drill_source_info: None,
+            dictionary_language_selected: 0,
+            dictionary_language_scroll: 0,
+            keyboard_layout_selected: 0,
+            keyboard_layout_scroll: 0,
             code_language_selected: 0,
             code_language_scroll: 0,
             passage_book_selected: 0,
@@ -480,10 +622,10 @@ impl App {
         self.settings_editing_path
             .as_ref()
             .map(|(field, _)| match field {
-                PathField::CodeDownloadDir => index == 5,
-                PathField::PassageDownloadDir => index == 9,
-                PathField::ExportPath => index == 12,
-                PathField::ImportPath => index == 14,
+                PathField::CodeDownloadDir => index == SettingItem::CodeDownloadDir.index(),
+                PathField::PassageDownloadDir => index == SettingItem::PassageDownloadDir.index(),
+                PathField::ExportPath => index == SettingItem::ExportPath.index(),
+                PathField::ImportPath => index == SettingItem::ImportPath.index(),
             })
             .unwrap_or(false)
     }
@@ -603,7 +745,7 @@ impl App {
             }
         };
 
-        let export: ExportData = match serde_json::from_str(&content) {
+        let mut export: ExportData = match serde_json::from_str(&content) {
             Ok(d) => d,
             Err(e) => {
                 self.settings_status_message = Some(StatusMessage {
@@ -625,6 +767,12 @@ impl App {
             });
             return;
         }
+
+        // Normalize imported payload schema versions before writing to disk.
+        export.profile.schema_version = SCHEMA_VERSION;
+        export.key_stats.schema_version = SCHEMA_VERSION;
+        export.ranked_key_stats.schema_version = SCHEMA_VERSION;
+        export.drill_history.schema_version = SCHEMA_VERSION;
 
         // Write data files transactionally
         let Some(ref store) = self.store else {
@@ -656,13 +804,26 @@ impl App {
 
         // Reload in-memory state from imported data
         self.profile = export.profile;
+        // Ensure imported legacy (v2) profiles seed scoped progress for current language.
+        let scoped_progress = self
+            .profile
+            .skill_tree_for_language(&self.config.dictionary_language);
+        self.profile
+            .set_skill_tree_for_language(&self.config.dictionary_language, scoped_progress);
         self.key_stats = export.key_stats.stats;
         self.key_stats.target_cpm = self.config.target_cpm();
         self.ranked_key_stats = export.ranked_key_stats.stats;
         self.ranked_key_stats.target_cpm = self.config.target_cpm();
         self.drill_history = export.drill_history.drills;
-        self.skill_tree = SkillTree::new(self.profile.skill_tree.clone());
-        self.keyboard_model = KeyboardModel::from_name(&self.config.keyboard_layout);
+        self.skill_tree = Self::build_skill_tree_for_language(
+            self.profile
+                .skill_tree_for_language(&self.config.dictionary_language),
+            &self.config.dictionary_language,
+            &self.config.keyboard_layout,
+        );
+        self.keyboard_model = KeyboardModel::from_key(&self.config.keyboard_layout)
+            .expect("config validation must ensure a known keyboard layout");
+        self.rebuild_language_assets();
 
         // Rebuild n-gram stats from imported drill history
         self.rebuild_ngram_stats();
@@ -728,14 +889,14 @@ impl App {
                 let lowercase_keys: Vec<char> = all_keys
                     .iter()
                     .copied()
-                    .filter(|ch| ch.is_ascii_lowercase() || *ch == ' ')
+                    .filter(|ch| ch.is_lowercase() || *ch == ' ')
                     .collect();
                 let filter = CharFilter::new(lowercase_keys);
                 // Feed uppercase focus as lowercase so capitals drills bias base word content
                 // the same way other focused key types bias their generators.
                 let lowercase_focused = lowercase_generation_focus(focused_char);
                 let table = self.transition_table.clone();
-                let dict = Dictionary::load();
+                let dict = self.dictionary.clone();
                 let rng = SmallRng::from_rng(&mut self.rng).unwrap();
                 let cross_drill_history: HashSet<String> = self
                     .adaptive_word_history
@@ -759,7 +920,7 @@ impl App {
                 let cap_keys: Vec<char> = all_keys
                     .iter()
                     .copied()
-                    .filter(|ch| ch.is_ascii_uppercase())
+                    .filter(|ch| ch.is_uppercase())
                     .collect();
                 if !cap_keys.is_empty() {
                     let mut rng = SmallRng::from_rng(&mut self.rng).unwrap();
@@ -787,6 +948,8 @@ impl App {
                 let digit_keys: Vec<char> = all_keys
                     .iter()
                     .copied()
+                    // Digits remain ASCII-scoped by design in Phase 2 because the
+                    // progression branch and keyboard profiles currently model 0-9.
                     .filter(|ch| ch.is_ascii_digit())
                     .collect();
                 if !digit_keys.is_empty() {
@@ -886,7 +1049,7 @@ impl App {
                 (text, None)
             }
             DrillMode::Code => {
-                let filter = CharFilter::new(('a'..='z').collect());
+                let filter = CharFilter::new(self.skill_tree.unlocked_keys(DrillScope::Global));
                 let lang = self
                     .code_drill_language_override
                     .clone()
@@ -900,7 +1063,7 @@ impl App {
                 (text, Some(generator.last_source().to_string()))
             }
             DrillMode::Passage => {
-                let filter = CharFilter::new(('a'..='z').collect());
+                let filter = CharFilter::new(self.skill_tree.unlocked_keys(DrillScope::Global));
                 let rng = SmallRng::from_rng(&mut self.rng).unwrap();
                 let selection = self
                     .passage_drill_selection_override
@@ -1151,7 +1314,10 @@ impl App {
             let score = scoring::compute_score(&result, complexity);
             self.profile.total_score += score;
             self.profile.total_drills += 1;
-            self.profile.skill_tree = self.skill_tree.progress.clone();
+            self.profile.set_skill_tree_for_language(
+                &self.config.dictionary_language,
+                self.skill_tree.progress.clone(),
+            );
 
             let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
             if self.profile.last_practice_date.as_deref() != Some(&today) {
@@ -1278,15 +1444,15 @@ impl App {
         if let Some(ref store) = self.store {
             let _ = store.save_profile(&self.profile);
             let _ = store.save_key_stats(&KeyStatsData {
-                schema_version: 2,
+                schema_version: SCHEMA_VERSION,
                 stats: self.key_stats.clone(),
             });
             let _ = store.save_ranked_key_stats(&KeyStatsData {
-                schema_version: 2,
+                schema_version: SCHEMA_VERSION,
                 stats: self.ranked_key_stats.clone(),
             });
             let _ = store.save_drill_history(&DrillHistoryData {
-                schema_version: 2,
+                schema_version: SCHEMA_VERSION,
                 drills: self.drill_history.clone(),
             });
         }
@@ -1543,7 +1709,9 @@ impl App {
     }
 
     pub fn rebuild_from_history(&mut self) {
-        let previous_progress = self.profile.skill_tree.clone();
+        let previous_progress = self
+            .profile
+            .skill_tree_for_language(&self.config.dictionary_language);
 
         // Reset all derived state
         self.key_stats = KeyStatsStore::default();
@@ -1610,7 +1778,10 @@ impl App {
         // Prevent destructive regressions when rebuilding from history:
         // preserve any previously reached branch status/level.
         merge_skill_tree_progress_non_regressive(&mut self.skill_tree, &previous_progress);
-        self.profile.skill_tree = self.skill_tree.progress.clone();
+        self.profile.set_skill_tree_for_language(
+            &self.config.dictionary_language,
+            self.skill_tree.progress.clone(),
+        );
 
         // Rebuild n-gram stats from the replayed history
         self.rebuild_ngram_stats();
@@ -1623,15 +1794,24 @@ impl App {
         self.screen = AppScreen::SkillTree;
     }
 
-    pub fn unlock_branch(&mut self, branch_id: BranchId) {
+    pub fn unlock_branch(&mut self, branch_id: BranchId) -> bool {
+        if !self.ensure_ranked_adaptive_readiness() {
+            return false;
+        }
         // Start the branch if it's Available.
         self.skill_tree.start_branch(branch_id);
-        self.profile.skill_tree = self.skill_tree.progress.clone();
+        self.profile.set_skill_tree_for_language(
+            &self.config.dictionary_language,
+            self.skill_tree.progress.clone(),
+        );
         self.save_data();
+        true
     }
 
     pub fn start_branch_drill(&mut self, branch_id: BranchId) {
-        self.unlock_branch(branch_id);
+        if !self.unlock_branch(branch_id) {
+            return;
+        }
 
         // Use adaptive mode with branch-specific scope
         let old_mode = self.drill_mode;
@@ -1696,10 +1876,128 @@ impl App {
         self.screen = AppScreen::CodeLanguageSelect;
     }
 
+    /// Rebuild language-derived generation assets after dictionary language changes.
+    ///
+    /// Contract:
+    /// - rebuild `dictionary` and `transition_table`
+    /// - clear adaptive cross-drill word history (language-specific cache)
+    /// - do not mutate current in-progress drill text
+    /// - do not swap the active skill-tree scope (caller handles language scope changes)
+    pub fn rebuild_language_assets(&mut self) {
+        self.dictionary = Dictionary::load_for_language(&self.config.dictionary_language);
+        self.transition_table = TransitionTable::build_from_words(self.dictionary.words_list());
+        self.adaptive_word_history.clear();
+    }
+
+    fn switch_dictionary_language(&mut self, next_language_key: &str) {
+        let previous_language_key = self.config.dictionary_language.clone();
+        self.profile
+            .set_skill_tree_for_language(&previous_language_key, self.skill_tree.progress.clone());
+        self.config.dictionary_language = next_language_key.to_string();
+        self.rebuild_language_assets();
+        self.skill_tree = Self::build_skill_tree_for_language(
+            self.profile
+                .skill_tree_for_language(&self.config.dictionary_language),
+            &self.config.dictionary_language,
+            &self.config.keyboard_layout,
+        );
+    }
+
+    fn ensure_ranked_adaptive_readiness(&mut self) -> bool {
+        match ranked_adaptive_readiness(
+            &self.config.dictionary_language,
+            &self.config.keyboard_layout,
+        ) {
+            Ok(()) => true,
+            Err(err) => {
+                self.settings_status_message = Some(StatusMessage {
+                    kind: StatusKind::Error,
+                    text: format!("Adaptive ranked mode unavailable: {err}"),
+                });
+                self.go_to_settings();
+                self.settings_selected = SettingItem::DictionaryLanguage.index();
+                false
+            }
+        }
+    }
+
+    pub fn start_global_adaptive_drill(&mut self) -> bool {
+        if !self.ensure_ranked_adaptive_readiness() {
+            return false;
+        }
+        let old_mode = self.drill_mode;
+        let old_scope = self.drill_scope;
+        self.drill_mode = DrillMode::Adaptive;
+        self.drill_scope = DrillScope::Global;
+        if old_mode != DrillMode::Adaptive || old_scope != self.drill_scope {
+            self.adaptive_word_history.clear();
+        }
+        self.start_drill();
+        true
+    }
+
     pub fn go_to_settings(&mut self) {
-        self.settings_selected = 0;
+        self.settings_selected = SettingItem::TargetWpm.index();
         self.settings_editing_path = None;
         self.screen = AppScreen::Settings;
+    }
+
+    pub fn go_to_dictionary_language_select(&mut self) {
+        let options = crate::l10n::language_pack::language_packs();
+        self.dictionary_language_selected = options
+            .iter()
+            .position(|pack| pack.language_key == self.config.dictionary_language)
+            .unwrap_or(0);
+        self.dictionary_language_scroll = self.dictionary_language_selected.saturating_sub(7);
+        self.screen = AppScreen::DictionaryLanguageSelect;
+    }
+
+    pub fn go_to_keyboard_layout_select(&mut self) {
+        let options = KeyboardModel::supported_layout_keys();
+        self.keyboard_layout_selected = options
+            .iter()
+            .position(|&k| k == self.config.keyboard_layout)
+            .unwrap_or(0);
+        self.keyboard_layout_scroll = self.keyboard_layout_selected.saturating_sub(7);
+        self.screen = AppScreen::KeyboardLayoutSelect;
+    }
+
+    pub fn set_dictionary_language(
+        &mut self,
+        language_key: &str,
+    ) -> Result<CapabilityState, LanguageLayoutValidationError> {
+        let default_layout =
+            default_keyboard_layout_for_language(language_key).ok_or_else(|| {
+                LanguageLayoutValidationError::UnknownLanguage(language_key.to_string())
+            })?;
+        let capability = validate_language_layout_pair(language_key, default_layout)?;
+        if !Dictionary::supports_language(language_key) {
+            return Err(LanguageLayoutValidationError::UnknownLanguage(
+                language_key.to_string(),
+            ));
+        }
+        self.config.keyboard_layout = default_layout.to_string();
+        self.keyboard_model = KeyboardModel::from_key(default_layout)
+            .expect("language default layout must map to a keyboard model");
+        self.switch_dictionary_language(language_key);
+        Ok(capability)
+    }
+
+    pub fn set_keyboard_layout(
+        &mut self,
+        layout_key: &str,
+    ) -> Result<CapabilityState, LanguageLayoutValidationError> {
+        if !KeyboardModel::supported_layout_keys().contains(&layout_key) {
+            return Err(LanguageLayoutValidationError::UnknownLayout(
+                layout_key.to_string(),
+            ));
+        }
+        let capability =
+            validate_language_layout_pair(&self.config.dictionary_language, layout_key)?;
+        self.config.keyboard_layout = layout_key.to_string();
+        self.keyboard_model = KeyboardModel::from_key(layout_key)
+            .expect("validated layout key must map to a keyboard model");
+        Ok(capability)
     }
 
     pub fn go_to_passage_book_select(&mut self) {
@@ -2029,6 +2327,72 @@ impl App {
         }
     }
 
+    fn apply_dictionary_language_by_offset(&mut self, step: isize) {
+        let keys: Vec<&'static str> = crate::l10n::language_pack::language_packs()
+            .iter()
+            .map(|pack| pack.language_key)
+            .collect();
+        if keys.is_empty() {
+            self.settings_status_message = Some(StatusMessage {
+                kind: StatusKind::Error,
+                text: "No supported dictionary languages are registered".to_string(),
+            });
+            return;
+        }
+
+        let len = keys.len();
+        let current = keys
+            .iter()
+            .position(|&l| l == self.config.dictionary_language.as_str())
+            .unwrap_or(0);
+        let next = if step >= 0 {
+            (current + step as usize) % len
+        } else {
+            (current + len - ((-step) as usize % len)) % len
+        };
+        let selected = keys[next];
+        match self.set_dictionary_language(selected) {
+            Ok(_capability) => {}
+            Err(err) => {
+                self.settings_status_message = Some(StatusMessage {
+                    kind: StatusKind::Error,
+                    text: err.to_string(),
+                });
+            }
+        }
+    }
+
+    fn apply_keyboard_layout_by_offset(&mut self, step: isize) {
+        let keys = KeyboardModel::supported_layout_keys();
+        if keys.is_empty() {
+            self.settings_status_message = Some(StatusMessage {
+                kind: StatusKind::Error,
+                text: "No keyboard layouts are registered".to_string(),
+            });
+            return;
+        }
+        let len = keys.len();
+        let current = keys
+            .iter()
+            .position(|&k| k == self.config.keyboard_layout)
+            .unwrap_or(0);
+        let next = if step >= 0 {
+            (current + step as usize) % len
+        } else {
+            (current + len - ((-step) as usize % len)) % len
+        };
+        let selected = keys[next];
+        match self.set_keyboard_layout(selected) {
+            Ok(CapabilityState::Enabled | CapabilityState::Disabled) => {}
+            Err(err) => {
+                self.settings_status_message = Some(StatusMessage {
+                    kind: StatusKind::Error,
+                    text: err.to_string(),
+                });
+            }
+        }
+    }
+
     pub fn process_passage_download_tick(&mut self) {
         if !self.passage_intro_downloading {
             return;
@@ -2132,13 +2496,13 @@ impl App {
     }
 
     pub fn settings_cycle_forward(&mut self) {
-        match self.settings_selected {
-            0 => {
+        match SettingItem::from_index(self.settings_selected) {
+            SettingItem::TargetWpm => {
                 self.config.target_wpm = (self.config.target_wpm + 5).min(200);
                 self.key_stats.target_cpm = self.config.target_cpm();
                 self.ranked_key_stats.target_cpm = self.config.target_cpm();
             }
-            1 => {
+            SettingItem::Theme => {
                 let themes = Theme::available_themes();
                 if let Some(idx) = themes.iter().position(|t| *t == self.config.theme) {
                     let next = (idx + 1) % themes.len();
@@ -2152,10 +2516,16 @@ impl App {
                     self.menu.theme = theme;
                 }
             }
-            2 => {
+            SettingItem::WordCount => {
                 self.config.word_count = (self.config.word_count + 5).min(100);
             }
-            3 => {
+            SettingItem::DictionaryLanguage => {
+                self.apply_dictionary_language_by_offset(1);
+            }
+            SettingItem::KeyboardLayout => {
+                self.apply_keyboard_layout_by_offset(1);
+            }
+            SettingItem::CodeLanguage => {
                 let options = code_language_options();
                 let keys: Vec<&str> = options.iter().map(|(k, _)| *k).collect();
                 let idx = keys
@@ -2165,27 +2535,26 @@ impl App {
                 let next = (idx + 1) % keys.len();
                 self.config.code_language = keys[next].to_string();
             }
-            4 => {
+            SettingItem::CodeDownloads => {
                 self.config.code_downloads_enabled = !self.config.code_downloads_enabled;
             }
-            5 => {
+            SettingItem::CodeDownloadDir => {
                 // Editable text field handled directly in key handler.
             }
-            6 => {
+            SettingItem::SnippetsPerRepo => {
                 self.config.code_snippets_per_repo = match self.config.code_snippets_per_repo {
                     0 => 1,
                     n if n >= 200 => 0,
                     n => n + 10,
                 };
             }
-            // 7 = Download Code Now (action button)
-            8 => {
+            SettingItem::PassageDownloads => {
                 self.config.passage_downloads_enabled = !self.config.passage_downloads_enabled;
             }
-            9 => {
+            SettingItem::PassageDownloadDir => {
                 // Passage download dir - editable text field handled directly in key handler.
             }
-            10 => {
+            SettingItem::ParagraphsPerBook => {
                 self.config.passage_paragraphs_per_book =
                     match self.config.passage_paragraphs_per_book {
                         0 => 1,
@@ -2193,18 +2562,23 @@ impl App {
                         n => n + 25,
                     };
             }
-            _ => {}
+            SettingItem::DownloadCodeNow
+            | SettingItem::DownloadPassagesNow
+            | SettingItem::ExportPath
+            | SettingItem::ExportData
+            | SettingItem::ImportPath
+            | SettingItem::ImportData => {}
         }
     }
 
     pub fn settings_cycle_backward(&mut self) {
-        match self.settings_selected {
-            0 => {
+        match SettingItem::from_index(self.settings_selected) {
+            SettingItem::TargetWpm => {
                 self.config.target_wpm = self.config.target_wpm.saturating_sub(5).max(10);
                 self.key_stats.target_cpm = self.config.target_cpm();
                 self.ranked_key_stats.target_cpm = self.config.target_cpm();
             }
-            1 => {
+            SettingItem::Theme => {
                 let themes = Theme::available_themes();
                 if let Some(idx) = themes.iter().position(|t| *t == self.config.theme) {
                     let next = if idx == 0 { themes.len() - 1 } else { idx - 1 };
@@ -2218,10 +2592,16 @@ impl App {
                     self.menu.theme = theme;
                 }
             }
-            2 => {
+            SettingItem::WordCount => {
                 self.config.word_count = self.config.word_count.saturating_sub(5).max(5);
             }
-            3 => {
+            SettingItem::DictionaryLanguage => {
+                self.apply_dictionary_language_by_offset(-1);
+            }
+            SettingItem::KeyboardLayout => {
+                self.apply_keyboard_layout_by_offset(-1);
+            }
+            SettingItem::CodeLanguage => {
                 let options = code_language_options();
                 let keys: Vec<&str> = options.iter().map(|(k, _)| *k).collect();
                 let idx = keys
@@ -2231,27 +2611,26 @@ impl App {
                 let next = if idx == 0 { keys.len() - 1 } else { idx - 1 };
                 self.config.code_language = keys[next].to_string();
             }
-            4 => {
+            SettingItem::CodeDownloads => {
                 self.config.code_downloads_enabled = !self.config.code_downloads_enabled;
             }
-            5 => {
+            SettingItem::CodeDownloadDir => {
                 // Editable text field handled directly in key handler.
             }
-            6 => {
+            SettingItem::SnippetsPerRepo => {
                 self.config.code_snippets_per_repo = match self.config.code_snippets_per_repo {
                     0 => 200,
                     1 => 0,
                     n => n.saturating_sub(10).max(1),
                 };
             }
-            // 7 = Download Code Now (action button)
-            8 => {
+            SettingItem::PassageDownloads => {
                 self.config.passage_downloads_enabled = !self.config.passage_downloads_enabled;
             }
-            9 => {
+            SettingItem::PassageDownloadDir => {
                 // Passage download dir - editable text field handled directly in key handler.
             }
-            10 => {
+            SettingItem::ParagraphsPerBook => {
                 self.config.passage_paragraphs_per_book =
                     match self.config.passage_paragraphs_per_book {
                         0 => 500,
@@ -2259,7 +2638,12 @@ impl App {
                         n => n.saturating_sub(25).max(1),
                     };
             }
-            _ => {}
+            SettingItem::DownloadCodeNow
+            | SettingItem::DownloadPassagesNow
+            | SettingItem::ExportPath
+            | SettingItem::ExportData
+            | SettingItem::ImportPath
+            | SettingItem::ImportData => {}
         }
     }
 }
@@ -2321,10 +2705,10 @@ fn insert_line_breaks(text: &str) -> String {
 
 fn lowercase_generation_focus(focused: Option<char>) -> Option<char> {
     focused.and_then(|ch| {
-        if ch.is_ascii_lowercase() {
+        if ch.is_lowercase() {
             Some(ch)
-        } else if ch.is_ascii_uppercase() {
-            Some(ch.to_ascii_lowercase())
+        } else if ch.is_uppercase() {
+            ch.to_lowercase().next()
         } else {
             None
         }
@@ -2336,7 +2720,7 @@ fn count_matching_chars(text: &str, keys: &[char]) -> usize {
 }
 
 fn first_alpha_index(chars: &[char]) -> Option<usize> {
-    chars.iter().position(|ch| ch.is_ascii_alphabetic())
+    chars.iter().position(|ch| ch.is_alphabetic())
 }
 
 fn top_up_capitals(
@@ -2364,10 +2748,10 @@ fn top_up_capitals(
         let Some(pos) = first_alpha_index(&chars) else {
             continue;
         };
-        if chars[pos].is_ascii_uppercase() {
+        if chars[pos].is_uppercase() {
             continue;
         }
-        let replacement = if let Some(ch) = focused.filter(|ch| ch.is_ascii_uppercase()) {
+        let replacement = if let Some(ch) = focused.filter(|ch| ch.is_uppercase()) {
             ch
         } else {
             cap_keys[rng.gen_range(0..cap_keys.len())]
@@ -2562,6 +2946,7 @@ fn rebalance_branch_injections(
     }
 
     if !digit_keys.is_empty() {
+        // Digits are intentionally ASCII-only for current keyboard/profile scope.
         let current = text.chars().filter(|ch| ch.is_ascii_digit()).count();
         let target = if focused.is_some_and(|ch| ch.is_ascii_digit()) {
             target_per_branch + bonus
@@ -2587,8 +2972,8 @@ fn rebalance_branch_injections(
 
     // Run capitals late so replacement passes (e.g. numbers) don't erase them.
     if !cap_keys.is_empty() {
-        let current = text.chars().filter(|ch| ch.is_ascii_uppercase()).count();
-        let target = if focused.is_some_and(|ch| ch.is_ascii_uppercase()) {
+        let current = text.chars().filter(|ch| ch.is_uppercase()).count();
+        let target = if focused.is_some_and(|ch| ch.is_uppercase()) {
             target_per_branch + bonus
         } else {
             target_per_branch
@@ -2620,9 +3005,10 @@ impl App {
         let config = Config::default();
         let theme: &'static Theme = Box::leak(Box::new(Theme::default()));
         let menu = Menu::new(theme);
-        let dictionary = Dictionary::load();
-        let transition_table = TransitionTable::build_from_words(&dictionary.words_list());
-        let keyboard_model = KeyboardModel::from_name(&config.keyboard_layout);
+        let dictionary = Dictionary::load_for_language(&config.dictionary_language);
+        let transition_table = TransitionTable::build_from_words(dictionary.words_list());
+        let keyboard_model = KeyboardModel::from_key(&config.keyboard_layout)
+            .expect("config validation must ensure a known keyboard layout");
 
         let mut app = Self {
             screen: AppScreen::Menu,
@@ -2653,6 +3039,10 @@ impl App {
             skill_tree_detail_scroll: 0,
             skill_tree_confirm_unlock: None,
             drill_source_info: None,
+            dictionary_language_selected: 0,
+            dictionary_language_scroll: 0,
+            keyboard_layout_selected: 0,
+            keyboard_layout_scroll: 0,
             code_language_selected: 0,
             code_language_scroll: 0,
             passage_book_selected: 0,
@@ -2722,7 +3112,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::skill_tree::BranchId;
+    use crate::engine::skill_tree::{BranchId, get_branch_definition};
 
     #[test]
     fn adaptive_word_history_clears_on_code_mode_switch() {
@@ -2854,6 +3244,206 @@ mod tests {
     }
 
     #[test]
+    fn rebuild_language_assets_clears_adaptive_history_without_mutating_drill() {
+        let mut app = App::new_test();
+        let drill_before = app
+            .drill
+            .as_ref()
+            .map(|d| d.target.clone())
+            .expect("drill should be present");
+        assert!(
+            !app.adaptive_word_history.is_empty(),
+            "History should be populated after initial adaptive drill"
+        );
+
+        app.rebuild_language_assets();
+
+        let drill_after = app
+            .drill
+            .as_ref()
+            .map(|d| d.target.clone())
+            .expect("drill should still be present");
+        assert_eq!(drill_before, drill_after);
+        assert!(app.adaptive_word_history.is_empty());
+    }
+
+    #[test]
+    fn dictionary_language_cycle_changes_language_without_preview_status() {
+        let mut app = App::new_test();
+        app.config.keyboard_layout = "qwerty".to_string();
+        app.config.dictionary_language = "en".to_string();
+        app.settings_selected = SettingItem::DictionaryLanguage.index();
+        app.settings_status_message = None;
+
+        app.settings_cycle_forward();
+
+        assert_eq!(app.config.dictionary_language, "de");
+        assert_eq!(app.config.keyboard_layout, "de_qwertz");
+        assert!(
+            app.settings_status_message.is_none(),
+            "no preview status should be shown for supported pairs"
+        );
+    }
+
+    #[test]
+    fn dictionary_language_cycle_swaps_skill_tree_scope() {
+        let mut app = App::new_test();
+        app.config.keyboard_layout = "qwerty".to_string();
+        app.config.dictionary_language = "en".to_string();
+        app.settings_selected = SettingItem::DictionaryLanguage.index();
+
+        let mut en_progress = app.profile.skill_tree_for_language("en");
+        en_progress
+            .branches
+            .get_mut("lowercase")
+            .expect("lowercase branch should exist")
+            .current_level = 2;
+        app.profile
+            .set_skill_tree_for_language("en", en_progress.clone());
+
+        let mut de_progress = app.profile.skill_tree_for_language("de");
+        de_progress
+            .branches
+            .get_mut("lowercase")
+            .expect("lowercase branch should exist")
+            .current_level = 5;
+        app.profile
+            .set_skill_tree_for_language("de", de_progress.clone());
+
+        app.skill_tree = App::build_skill_tree_for_language(en_progress, "en", "qwerty");
+        app.skill_tree
+            .progress
+            .branches
+            .get_mut("lowercase")
+            .expect("lowercase branch should exist")
+            .current_level = 7;
+
+        app.settings_cycle_forward();
+
+        assert_eq!(app.config.dictionary_language, "de");
+        let active_level = app
+            .skill_tree
+            .progress
+            .branches
+            .get("lowercase")
+            .expect("lowercase branch should exist")
+            .current_level;
+        assert_eq!(active_level, 5);
+
+        let persisted_en_level = app
+            .profile
+            .skill_tree_for_language("en")
+            .branches
+            .get("lowercase")
+            .expect("lowercase branch should exist")
+            .current_level;
+        assert_eq!(persisted_en_level, 7);
+    }
+
+    #[test]
+    fn dictionary_language_cycle_recovers_from_unknown_layout_by_resetting_default() {
+        let mut app = App::new_test();
+        app.config.keyboard_layout = "unknown_layout".to_string();
+        app.config.dictionary_language = "en".to_string();
+        app.settings_selected = SettingItem::DictionaryLanguage.index();
+        app.settings_status_message = None;
+
+        app.settings_cycle_forward();
+
+        assert_eq!(app.config.dictionary_language, "de");
+        assert_eq!(app.config.keyboard_layout, "de_qwertz");
+        assert!(app.settings_status_message.is_none());
+    }
+
+    #[test]
+    fn set_keyboard_layout_routes_through_validation_and_keeps_language() {
+        let mut app = App::new_test();
+        app.config.dictionary_language = "en".to_string();
+
+        let capability = app
+            .set_keyboard_layout("fr_azerty")
+            .expect("fr_azerty should be supported");
+
+        assert_eq!(capability, CapabilityState::Enabled);
+        assert_eq!(app.config.keyboard_layout, "fr_azerty");
+        assert_eq!(app.config.dictionary_language, "en");
+        assert_eq!(app.keyboard_model.shifted_to_base('2'), Some('é'));
+        assert_eq!(app.keyboard_model.shifted_to_base('0'), Some('à'));
+    }
+
+    #[test]
+    fn german_primary_sequence_includes_umlauts_on_de_layout() {
+        let tree =
+            App::build_skill_tree_for_language(SkillTreeProgress::default(), "de", "de_qwertz");
+        let letters = tree.primary_letters();
+        assert!(letters.contains(&'ä'));
+        assert!(letters.contains(&'ö'));
+        assert!(letters.contains(&'ü'));
+        assert!(letters.contains(&'ß'));
+    }
+
+    #[test]
+    fn german_primary_sequence_filters_umlauts_on_us_qwerty() {
+        let tree = App::build_skill_tree_for_language(SkillTreeProgress::default(), "de", "qwerty");
+        let letters = tree.primary_letters();
+        assert!(!letters.contains(&'ä'));
+        assert!(!letters.contains(&'ö'));
+        assert!(!letters.contains(&'ü'));
+        assert!(!letters.contains(&'ß'));
+    }
+
+    #[test]
+    fn primary_sequence_keys_are_typeable_for_all_supported_language_layout_pairs() {
+        for pack in crate::l10n::language_pack::language_packs() {
+            for &layout_key in pack.supported_keyboard_layout_keys {
+                let tree = App::build_skill_tree_for_language(
+                    SkillTreeProgress::default(),
+                    pack.language_key,
+                    layout_key,
+                );
+                let model = KeyboardModel::from_key(layout_key)
+                    .expect("supported layout key should have a keyboard model");
+                assert!(
+                    !tree.primary_letters().is_empty(),
+                    "primary letters should not be empty for {} + {}",
+                    pack.language_key,
+                    layout_key
+                );
+                for &ch in tree.primary_letters() {
+                    assert!(
+                        model.physical_key_for(ch).is_some(),
+                        "primary letter '{}' should be typeable for {} + {}",
+                        ch,
+                        pack.language_key,
+                        layout_key
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn start_global_adaptive_drill_allows_cross_layout_language_pair() {
+        let mut app = App::new_test();
+        app.config.dictionary_language = "en".to_string();
+        app.config.keyboard_layout = "de_qwertz".to_string();
+        app.settings_status_message = None;
+        app.screen = AppScreen::Menu;
+
+        let started = app.start_global_adaptive_drill();
+
+        assert!(started, "cross-language/layout pairs should be allowed");
+        assert!(app.settings_status_message.is_none());
+        assert_eq!(app.screen, AppScreen::Drill);
+    }
+
+    #[test]
+    #[should_panic(expected = "settings index out of range")]
+    fn setting_item_from_index_out_of_range_panics_in_debug_builds() {
+        let _ = SettingItem::from_index(SettingItem::ALL.len() + 10);
+    }
+
+    #[test]
     fn auto_indent_disabled_for_adaptive_enabled_for_code_and_passage() {
         let mut app = App::new_test();
         assert_eq!(app.drill_mode, DrillMode::Adaptive);
@@ -2959,7 +3549,12 @@ mod tests {
             bp.status = BranchStatus::InProgress;
             bp.current_level = 1;
         }
-        app.skill_tree = SkillTree::new(app.profile.skill_tree.clone());
+        app.skill_tree = App::build_skill_tree_for_language(
+            app.profile
+                .skill_tree_for_language(&app.config.dictionary_language),
+            &app.config.dictionary_language,
+            &app.config.keyboard_layout,
+        );
 
         // No additional ranked drills to advance tree during replay.
         app.drill_history.clear();
@@ -2995,7 +3590,7 @@ mod tests {
             &mut rng,
         );
 
-        let cap_count = out.chars().filter(|ch| ch.is_ascii_uppercase()).count();
+        let cap_count = out.chars().filter(|ch| ch.is_uppercase()).count();
         let punct_count = count_matching_chars(&out, &['.']);
         let digit_count = out.chars().filter(|ch| ch.is_ascii_digit()).count();
         let symbol_count = count_matching_chars(&out, &['=']);
@@ -3086,19 +3681,19 @@ mod tests {
         }
     }
 
-    /// Helper: seed a tree where lowercase is nearly complete.
-    /// All 26 lowercase keys are unlocked and at full confidence except 'z'.
+    /// Helper: seed a tree where primary-letter progression is nearly complete.
+    /// All but the final primary letter are mastered.
     fn seed_near_complete_lowercase(app: &mut App) {
-        use crate::engine::skill_tree::get_branch_definition;
-
-        let all_lowercase = get_branch_definition(BranchId::Lowercase).levels[0].keys;
-        let almost_all = &all_lowercase[..25]; // everything except 'z'
+        let all_primary = app.skill_tree.primary_letters().to_vec();
+        let almost_all = &all_primary[..all_primary.len().saturating_sub(1)];
 
         for &ch in almost_all {
             make_key_mastered(app, ch);
         }
-        // Make 'z' near-mastery so one drill hit completes it
-        make_key_near_mastery(app, 'z');
+        if let Some(&last) = all_primary.last() {
+            // Make final primary letter near-mastery so one drill hit completes it.
+            make_key_near_mastery(app, last);
+        }
 
         // Advance the skill tree through progressive unlock
         for _ in 0..30 {
@@ -3251,13 +3846,11 @@ mod tests {
 
     #[test]
     fn finish_drill_all_keys_unlocked_queues_once() {
-        use crate::engine::skill_tree::get_branch_definition;
-
         let mut app = App::new_test();
 
-        // Complete lowercase
-        let all_lowercase = get_branch_definition(BranchId::Lowercase).levels[0].keys;
-        for &ch in all_lowercase {
+        // Complete primary-letter branch
+        let all_primary = app.skill_tree.primary_letters().to_vec();
+        for &ch in &all_primary {
             make_key_mastered(&mut app, ch);
         }
         for _ in 0..30 {

@@ -15,7 +15,7 @@ use keydr::store::schema::{
     DrillHistoryData, EXPORT_VERSION, ExportData, KeyStatsData, ProfileData,
 };
 
-const SCHEMA_VERSION: u32 = 2;
+const SCHEMA_VERSION: u32 = 3;
 const TARGET_CPM: f64 = 175.0;
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -271,6 +271,28 @@ fn last_practice_date_from_drills(drills: &[DrillResult]) -> Option<String> {
         .map(|d| d.timestamp.format("%Y-%m-%d").to_string())
 }
 
+fn make_profile_data(
+    skill_tree: SkillTreeProgress,
+    total_score: f64,
+    total_drills: u32,
+    streak_days: u32,
+    best_streak: u32,
+    last_practice_date: Option<String>,
+) -> ProfileData {
+    let mut skill_tree_by_language = HashMap::new();
+    skill_tree_by_language.insert("en".to_string(), skill_tree.clone());
+    ProfileData {
+        schema_version: SCHEMA_VERSION,
+        skill_tree,
+        skill_tree_by_language,
+        total_score,
+        total_drills,
+        streak_days,
+        best_streak,
+        last_practice_date,
+    }
+}
+
 // ── Profile Builders ─────────────────────────────────────────────────────
 
 fn build_profile_01() -> ExportData {
@@ -278,15 +300,7 @@ fn build_profile_01() -> ExportData {
         make_skill_tree_progress(vec![(BranchId::Lowercase, BranchStatus::InProgress, 0)]);
 
     make_export(
-        ProfileData {
-            schema_version: SCHEMA_VERSION,
-            skill_tree,
-            total_score: 0.0,
-            total_drills: 0,
-            streak_days: 0,
-            best_streak: 0,
-            last_practice_date: None,
-        },
+        make_profile_data(skill_tree, 0.0, 0, 0, 0, None),
         KeyStatsStore::default(),
         KeyStatsStore::default(),
         Vec::new(),
@@ -340,15 +354,14 @@ fn build_profile_02() -> ExportData {
 
     // total_score: level_from_score(x) = (x/100).sqrt() => for level 2: score ~400
     make_export(
-        ProfileData {
-            schema_version: SCHEMA_VERSION,
+        make_profile_data(
             skill_tree,
-            total_score: 350.0,
-            total_drills: 15,
-            streak_days: 3,
-            best_streak: 3,
-            last_practice_date: last_practice_date_from_drills(&drills),
-        },
+            350.0,
+            15,
+            3,
+            3,
+            last_practice_date_from_drills(&drills),
+        ),
         stats,
         ranked_stats,
         drills,
@@ -402,15 +415,14 @@ fn build_profile_03() -> ExportData {
 
     // level ~3: score ~900
     make_export(
-        ProfileData {
-            schema_version: SCHEMA_VERSION,
+        make_profile_data(
             skill_tree,
-            total_score: 900.0,
-            total_drills: 50,
-            streak_days: 7,
-            best_streak: 7,
-            last_practice_date: last_practice_date_from_drills(&drills),
-        },
+            900.0,
+            50,
+            7,
+            7,
+            last_practice_date_from_drills(&drills),
+        ),
         stats,
         ranked_stats,
         drills,
@@ -461,15 +473,14 @@ fn build_profile_03_near_lowercase_complete() -> ExportData {
     );
 
     make_export(
-        ProfileData {
-            schema_version: SCHEMA_VERSION,
+        make_profile_data(
             skill_tree,
-            total_score: 1800.0,
-            total_drills: 90,
-            streak_days: 10,
-            best_streak: 12,
-            last_practice_date: last_practice_date_from_drills(&drills),
-        },
+            1800.0,
+            90,
+            10,
+            12,
+            last_practice_date_from_drills(&drills),
+        ),
         stats,
         ranked_stats,
         drills,
@@ -516,15 +527,14 @@ fn build_profile_04() -> ExportData {
 
     // level ~5: score ~2500
     make_export(
-        ProfileData {
-            schema_version: SCHEMA_VERSION,
+        make_profile_data(
             skill_tree,
-            total_score: 2500.0,
-            total_drills: 100,
-            streak_days: 14,
-            best_streak: 14,
-            last_practice_date: last_practice_date_from_drills(&drills),
-        },
+            2500.0,
+            100,
+            14,
+            14,
+            last_practice_date_from_drills(&drills),
+        ),
         stats,
         ranked_stats,
         drills,
@@ -601,15 +611,14 @@ fn build_profile_05() -> ExportData {
 
     // level ~7: score ~5000
     make_export(
-        ProfileData {
-            schema_version: SCHEMA_VERSION,
+        make_profile_data(
             skill_tree,
-            total_score: 5000.0,
-            total_drills: 200,
-            streak_days: 21,
-            best_streak: 21,
-            last_practice_date: last_practice_date_from_drills(&drills),
-        },
+            5000.0,
+            200,
+            21,
+            21,
+            last_practice_date_from_drills(&drills),
+        ),
         stats,
         ranked_stats,
         drills,
@@ -695,15 +704,14 @@ fn build_profile_06() -> ExportData {
 
     // level ~12: score ~15000
     make_export(
-        ProfileData {
-            schema_version: SCHEMA_VERSION,
+        make_profile_data(
             skill_tree,
-            total_score: 15000.0,
-            total_drills: 500,
-            streak_days: 45,
-            best_streak: 60,
-            last_practice_date: last_practice_date_from_drills(&drills),
-        },
+            15000.0,
+            500,
+            45,
+            60,
+            last_practice_date_from_drills(&drills),
+        ),
         stats,
         ranked_stats,
         drills,
@@ -776,15 +784,14 @@ fn build_profile_07() -> ExportData {
 
     // level ~18: score ~35000
     make_export(
-        ProfileData {
-            schema_version: SCHEMA_VERSION,
+        make_profile_data(
             skill_tree,
-            total_score: 35000.0,
-            total_drills: 800,
-            streak_days: 90,
-            best_streak: 90,
-            last_practice_date: last_practice_date_from_drills(&drills),
-        },
+            35000.0,
+            800,
+            90,
+            90,
+            last_practice_date_from_drills(&drills),
+        ),
         stats,
         ranked_stats,
         drills,

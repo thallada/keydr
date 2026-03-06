@@ -49,10 +49,7 @@ impl TransitionTable {
         let prefix_len = 3; // order - 1
 
         for (rank, word) in words.iter().enumerate() {
-            if word.len() < 3 {
-                continue;
-            }
-            if !word.chars().all(|c| c.is_ascii_lowercase()) {
+            if word.chars().count() < 3 {
                 continue;
             }
 
@@ -236,5 +233,50 @@ impl TransitionTable {
 impl Default for TransitionTable {
     fn default() -> Self {
         Self::new(4)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TransitionTable;
+
+    #[test]
+    fn build_from_words_supports_multibyte_utf8_words() {
+        let words = vec![
+            "árvore".to_string(),
+            "über".to_string(),
+            "mañana".to_string(),
+            "český".to_string(),
+        ];
+
+        let table = TransitionTable::build_from_words(&words);
+        let start_prefix = vec![' ', ' ', ' '];
+        let segment = table
+            .segment(&start_prefix)
+            .expect("expected start transitions");
+
+        assert!(
+            segment
+                .iter()
+                .any(|(ch, _)| ['á', 'ü', 'm', 'č'].contains(ch)),
+            "expected UTF-8 word starts in transition table"
+        );
+    }
+
+    #[test]
+    fn segment_backoff_works_with_unicode_prefixes() {
+        let mut table = TransitionTable::new(4);
+        table.add(&['ü'], 'b', 1.0);
+
+        // Prefix length is intentionally longer than order-1; `segment` should back off.
+        let query_prefix = vec!['x', 'x', 'ü'];
+        let segment = table
+            .segment(&query_prefix)
+            .expect("expected backoff match for unicode prefix");
+
+        assert!(
+            segment.iter().any(|(ch, _)| *ch == 'b'),
+            "expected continuation for 'ü' prefix"
+        );
     }
 }

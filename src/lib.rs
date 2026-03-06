@@ -8,6 +8,7 @@
 pub mod config;
 pub mod engine;
 pub mod keyboard;
+pub mod l10n;
 pub mod session;
 pub mod store;
 
