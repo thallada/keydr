@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
+use crate::i18n;
 use crate::keyboard::model::KeyboardModel;
 use crate::l10n::language_pack::{
     LanguageLayoutValidationError, dictionary_languages_for_layout, supported_dictionary_languages,
@@ -41,6 +42,8 @@ pub struct Config {
     pub code_snippets_per_repo: usize,
     #[serde(default = "default_code_onboarding_done")]
     pub code_onboarding_done: bool,
+    #[serde(default = "default_ui_language")]
+    pub ui_language: String,
 }
 
 fn default_target_wpm() -> u32 {
@@ -98,6 +101,9 @@ fn default_code_snippets_per_repo() -> usize {
 fn default_code_onboarding_done() -> bool {
     false
 }
+fn default_ui_language() -> String {
+    "en".to_string()
+}
 
 impl Default for Config {
     fn default() -> Self {
@@ -117,6 +123,7 @@ impl Default for Config {
             code_download_dir: default_code_download_dir(),
             code_snippets_per_repo: default_code_snippets_per_repo(),
             code_onboarding_done: default_code_onboarding_done(),
+            ui_language: default_ui_language(),
         }
     }
 }
@@ -163,6 +170,7 @@ impl Config {
         self.normalize_keyboard_layout();
         self.normalize_dictionary_language();
         self.normalize_language_layout_pair();
+        self.normalize_ui_language();
     }
 
     /// Validate `code_language` against known options, resetting to default if invalid.
@@ -212,6 +220,13 @@ impl Config {
                     self.dictionary_language = default_dictionary_language();
                 }
             }
+        }
+    }
+
+    /// Validate `ui_language` against supported UI locales.
+    fn normalize_ui_language(&mut self) {
+        if !i18n::SUPPORTED_UI_LOCALES.contains(&self.ui_language.as_str()) {
+            self.ui_language = default_ui_language();
         }
     }
 
@@ -329,25 +344,22 @@ code_language = "go"
     }
 
     #[test]
-    fn test_normalize_language_layout_pair_resets_invalid_pair() {
+    fn test_normalize_language_layout_pair_keeps_valid_cross_language_pair() {
         let mut config = Config::default();
         config.dictionary_language = "de".to_string();
         config.keyboard_layout = "dvorak".to_string();
         config.normalize_language_layout_pair();
-        assert_eq!(config.dictionary_language, "en");
+        // Cross-language/layout pairs are now valid
+        assert_eq!(config.dictionary_language, "de");
         assert_eq!(config.keyboard_layout, "dvorak");
     }
 
     #[test]
-    fn test_validate_language_layout_pair_returns_typed_error() {
+    fn test_validate_language_layout_pair_accepts_cross_language_pair() {
         let mut config = Config::default();
         config.dictionary_language = "de".to_string();
         config.keyboard_layout = "dvorak".to_string();
-        let err = config.validate_language_layout_pair().unwrap_err();
-        assert!(matches!(
-            err,
-            LanguageLayoutValidationError::UnsupportedLanguageLayoutPair { .. }
-        ));
+        assert!(config.validate_language_layout_pair().is_ok());
     }
 
     #[test]

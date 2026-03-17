@@ -80,20 +80,32 @@ pub enum BranchStatus {
 // --- Static Definitions ---
 
 pub struct LevelDefinition {
-    pub name: &'static str,
+    pub name_key: &'static str,
     pub keys: &'static [char],
+}
+
+impl LevelDefinition {
+    pub fn display_name(&self) -> String {
+        crate::i18n::t!(self.name_key).to_string()
+    }
 }
 
 pub struct BranchDefinition {
     pub id: BranchId,
-    pub name: &'static str,
+    pub name_key: &'static str,
     pub levels: &'static [LevelDefinition],
+}
+
+impl BranchDefinition {
+    pub fn display_name(&self) -> String {
+        crate::i18n::t!(self.name_key).to_string()
+    }
 }
 
 // Lowercase metadata remains for static branch lookup/UI labels. Runtime
 // progression and unlock counts are driven by `SkillTree::primary_letters`.
 const LOWERCASE_LEVELS: &[LevelDefinition] = &[LevelDefinition {
-    name: "Frequency Order",
+    name_key: "skill_tree.level_frequency_order",
     keys: &[
         'e', 't', 'a', 'o', 'i', 'n', 's', 'h', 'r', 'd', 'l', 'c', 'u', 'm', 'w', 'f', 'g', 'y',
         'p', 'b', 'v', 'k', 'j', 'x', 'q', 'z',
@@ -102,71 +114,71 @@ const LOWERCASE_LEVELS: &[LevelDefinition] = &[LevelDefinition {
 
 const CAPITALS_LEVELS: &[LevelDefinition] = &[
     LevelDefinition {
-        name: "Common Sentence Capitals",
+        name_key: "skill_tree.level_common_sentence_capitals",
         keys: &['T', 'I', 'A', 'S', 'W', 'H', 'B', 'M'],
     },
     LevelDefinition {
-        name: "Name Capitals",
+        name_key: "skill_tree.level_name_capitals",
         keys: &['J', 'D', 'R', 'C', 'E', 'N', 'P', 'L', 'F', 'G'],
     },
     LevelDefinition {
-        name: "Remaining Capitals",
+        name_key: "skill_tree.level_remaining_capitals",
         keys: &['O', 'U', 'K', 'V', 'Y', 'X', 'Q', 'Z'],
     },
 ];
 
 const NUMBERS_LEVELS: &[LevelDefinition] = &[
     LevelDefinition {
-        name: "Common Digits",
+        name_key: "skill_tree.level_common_digits",
         keys: &['1', '2', '3', '4', '5'],
     },
     LevelDefinition {
-        name: "All Digits",
+        name_key: "skill_tree.level_all_digits",
         keys: &['0', '6', '7', '8', '9'],
     },
 ];
 
 const PROSE_PUNCTUATION_LEVELS: &[LevelDefinition] = &[
     LevelDefinition {
-        name: "Essential",
+        name_key: "skill_tree.level_essential",
         keys: &['.', ',', '\''],
     },
     LevelDefinition {
-        name: "Common",
+        name_key: "skill_tree.level_common",
         keys: &[';', ':', '"', '-'],
     },
     LevelDefinition {
-        name: "Expressive",
+        name_key: "skill_tree.level_expressive",
         keys: &['?', '!', '(', ')'],
     },
 ];
 
 const WHITESPACE_LEVELS: &[LevelDefinition] = &[
     LevelDefinition {
-        name: "Enter/Return",
+        name_key: "skill_tree.level_enter_return",
         keys: &['\n'],
     },
     LevelDefinition {
-        name: "Tab/Indent",
+        name_key: "skill_tree.level_tab_indent",
         keys: &['\t'],
     },
 ];
 
 const CODE_SYMBOLS_LEVELS: &[LevelDefinition] = &[
     LevelDefinition {
-        name: "Arithmetic & Assignment",
+        name_key: "skill_tree.level_arithmetic_assignment",
         keys: &['=', '+', '*', '/', '-'],
     },
     LevelDefinition {
-        name: "Grouping",
+        name_key: "skill_tree.level_grouping",
         keys: &['{', '}', '[', ']', '<', '>'],
     },
     LevelDefinition {
-        name: "Logic & Reference",
+        name_key: "skill_tree.level_logic_reference",
         keys: &['&', '|', '^', '~', '!'],
     },
     LevelDefinition {
-        name: "Special",
+        name_key: "skill_tree.level_special",
         keys: &['@', '#', '$', '%', '_', '\\', '`'],
     },
 ];
@@ -174,43 +186,43 @@ const CODE_SYMBOLS_LEVELS: &[LevelDefinition] = &[
 pub const ALL_BRANCHES: &[BranchDefinition] = &[
     BranchDefinition {
         id: BranchId::Lowercase,
-        name: "Primary Letters",
+        name_key: "skill_tree.branch_primary_letters",
         levels: LOWERCASE_LEVELS,
     },
     BranchDefinition {
         id: BranchId::Capitals,
-        name: "Capital Letters",
+        name_key: "skill_tree.branch_capital_letters",
         levels: CAPITALS_LEVELS,
     },
     BranchDefinition {
         id: BranchId::Numbers,
-        name: "Numbers 0-9",
+        name_key: "skill_tree.branch_numbers",
         levels: NUMBERS_LEVELS,
     },
     BranchDefinition {
         id: BranchId::ProsePunctuation,
-        name: "Prose Punctuation",
+        name_key: "skill_tree.branch_prose_punctuation",
         levels: PROSE_PUNCTUATION_LEVELS,
     },
     BranchDefinition {
         id: BranchId::Whitespace,
-        name: "Whitespace",
+        name_key: "skill_tree.branch_whitespace",
         levels: WHITESPACE_LEVELS,
     },
     BranchDefinition {
         id: BranchId::CodeSymbols,
-        name: "Code Symbols",
+        name_key: "skill_tree.branch_code_symbols",
         levels: CODE_SYMBOLS_LEVELS,
     },
 ];
 
 /// Find which branch and level a key belongs to.
-/// Returns (branch_def, level_name, 1-based position in level).
-pub fn find_key_branch(ch: char) -> Option<(&'static BranchDefinition, &'static str, usize)> {
+/// Returns (branch_def, level_def, 1-based position in level).
+pub fn find_key_branch(ch: char) -> Option<(&'static BranchDefinition, &'static LevelDefinition, usize)> {
     for branch in ALL_BRANCHES {
         for level in branch.levels {
             if let Some(pos) = level.keys.iter().position(|&k| k == ch) {
-                return Some((branch, level.name, pos + 1));
+                return Some((branch, level, pos + 1));
             }
         }
     }
@@ -1292,9 +1304,9 @@ mod tests {
     fn test_find_key_branch_lowercase() {
         let result = find_key_branch('e');
         assert!(result.is_some());
-        let (branch, level_name, pos) = result.unwrap();
+        let (branch, level, pos) = result.unwrap();
         assert_eq!(branch.id, BranchId::Lowercase);
-        assert_eq!(level_name, "Frequency Order");
+        assert_eq!(level.name_key, "skill_tree.level_frequency_order");
         assert_eq!(pos, 1); // 'e' is first in the frequency order
     }
 
@@ -1302,9 +1314,9 @@ mod tests {
     fn test_find_key_branch_capitals() {
         let result = find_key_branch('T');
         assert!(result.is_some());
-        let (branch, level_name, pos) = result.unwrap();
+        let (branch, level, pos) = result.unwrap();
         assert_eq!(branch.id, BranchId::Capitals);
-        assert_eq!(level_name, "Common Sentence Capitals");
+        assert_eq!(level.name_key, "skill_tree.level_common_sentence_capitals");
         assert_eq!(pos, 1); // 'T' is first
     }
 

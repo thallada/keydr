@@ -4,6 +4,8 @@
 // Most code is only exercised through the binary, so suppress dead_code warnings.
 #![allow(dead_code)]
 
+rust_i18n::i18n!("locales", fallback = "en");
+
 // Public: used by benchmarks and the generate_test_profiles binary
 pub mod config;
 pub mod engine;
@@ -16,4 +18,5 @@ pub mod store;
 mod app;
 mod event;
 mod generator;
+mod i18n;
 mod ui;

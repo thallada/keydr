@@ -78,6 +78,7 @@ impl fmt::Display for RankedReadinessError {
 pub struct LanguagePack {
     pub language_key: &'static str,
     pub display_name: &'static str,
+    pub autonym: &'static str,
     pub script: Script,
     pub dictionary_asset_id: &'static str,
     pub supported_keyboard_layout_keys: &'static [&'static str],
@@ -135,6 +136,7 @@ static LANGUAGE_PACKS: &[LanguagePack] = &[
     LanguagePack {
         language_key: "en",
         display_name: "English",
+        autonym: "English",
         script: Script::Latin,
         dictionary_asset_id: "words-en",
         supported_keyboard_layout_keys: EN_LAYOUTS,
@@ -144,6 +146,7 @@ static LANGUAGE_PACKS: &[LanguagePack] = &[
     LanguagePack {
         language_key: "de",
         display_name: "German",
+        autonym: "Deutsch",
         script: Script::Latin,
         dictionary_asset_id: "words-de",
         supported_keyboard_layout_keys: DE_LAYOUTS,
@@ -153,6 +156,7 @@ static LANGUAGE_PACKS: &[LanguagePack] = &[
     LanguagePack {
         language_key: "es",
         display_name: "Spanish",
+        autonym: "Español",
         script: Script::Latin,
         dictionary_asset_id: "words-es",
         supported_keyboard_layout_keys: ES_LAYOUTS,
@@ -162,6 +166,7 @@ static LANGUAGE_PACKS: &[LanguagePack] = &[
     LanguagePack {
         language_key: "fr",
         display_name: "French",
+        autonym: "Français",
         script: Script::Latin,
         dictionary_asset_id: "words-fr",
         supported_keyboard_layout_keys: FR_LAYOUTS,
@@ -171,6 +176,7 @@ static LANGUAGE_PACKS: &[LanguagePack] = &[
     LanguagePack {
         language_key: "it",
         display_name: "Italian",
+        autonym: "Italiano",
         script: Script::Latin,
         dictionary_asset_id: "words-it",
         supported_keyboard_layout_keys: IT_LAYOUTS,
@@ -180,6 +186,7 @@ static LANGUAGE_PACKS: &[LanguagePack] = &[
     LanguagePack {
         language_key: "pt",
         display_name: "Portuguese",
+        autonym: "Português",
         script: Script::Latin,
         dictionary_asset_id: "words-pt",
         supported_keyboard_layout_keys: PT_LAYOUTS,
@@ -189,6 +196,7 @@ static LANGUAGE_PACKS: &[LanguagePack] = &[
     LanguagePack {
         language_key: "nl",
         display_name: "Dutch",
+        autonym: "Nederlands",
         script: Script::Latin,
         dictionary_asset_id: "words-nl",
         supported_keyboard_layout_keys: NL_LAYOUTS,
@@ -198,6 +206,7 @@ static LANGUAGE_PACKS: &[LanguagePack] = &[
     LanguagePack {
         language_key: "sv",
         display_name: "Swedish",
+        autonym: "Svenska",
         script: Script::Latin,
         dictionary_asset_id: "words-sv",
         supported_keyboard_layout_keys: SV_LAYOUTS,
@@ -207,6 +216,7 @@ static LANGUAGE_PACKS: &[LanguagePack] = &[
     LanguagePack {
         language_key: "da",
         display_name: "Danish",
+        autonym: "Dansk",
         script: Script::Latin,
         dictionary_asset_id: "words-da",
         supported_keyboard_layout_keys: DA_LAYOUTS,
@@ -216,6 +226,7 @@ static LANGUAGE_PACKS: &[LanguagePack] = &[
     LanguagePack {
         language_key: "nb",
         display_name: "Norwegian Bokmal",
+        autonym: "Norsk bokmål",
         script: Script::Latin,
         dictionary_asset_id: "words-nb",
         supported_keyboard_layout_keys: NB_LAYOUTS,
@@ -225,6 +236,7 @@ static LANGUAGE_PACKS: &[LanguagePack] = &[
     LanguagePack {
         language_key: "fi",
         display_name: "Finnish",
+        autonym: "Suomi",
         script: Script::Latin,
         dictionary_asset_id: "words-fi",
         supported_keyboard_layout_keys: FI_LAYOUTS,
@@ -234,6 +246,7 @@ static LANGUAGE_PACKS: &[LanguagePack] = &[
     LanguagePack {
         language_key: "pl",
         display_name: "Polish",
+        autonym: "Polski",
         script: Script::Latin,
         dictionary_asset_id: "words-pl",
         supported_keyboard_layout_keys: PL_LAYOUTS,
@@ -243,6 +256,7 @@ static LANGUAGE_PACKS: &[LanguagePack] = &[
     LanguagePack {
         language_key: "cs",
         display_name: "Czech",
+        autonym: "Čeština",
         script: Script::Latin,
         dictionary_asset_id: "words-cs",
         supported_keyboard_layout_keys: CS_LAYOUTS,
@@ -252,6 +266,7 @@ static LANGUAGE_PACKS: &[LanguagePack] = &[
     LanguagePack {
         language_key: "ro",
         display_name: "Romanian",
+        autonym: "Română",
         script: Script::Latin,
         dictionary_asset_id: "words-ro",
         supported_keyboard_layout_keys: RO_LAYOUTS,
@@ -261,6 +276,7 @@ static LANGUAGE_PACKS: &[LanguagePack] = &[
     LanguagePack {
         language_key: "hr",
         display_name: "Croatian",
+        autonym: "Hrvatski",
         script: Script::Latin,
         dictionary_asset_id: "words-hr",
         supported_keyboard_layout_keys: HR_LAYOUTS,
@@ -270,6 +286,7 @@ static LANGUAGE_PACKS: &[LanguagePack] = &[
     LanguagePack {
         language_key: "hu",
         display_name: "Hungarian",
+        autonym: "Magyar",
         script: Script::Latin,
         dictionary_asset_id: "words-hu",
         supported_keyboard_layout_keys: HU_LAYOUTS,
@@ -279,6 +296,7 @@ static LANGUAGE_PACKS: &[LanguagePack] = &[
     LanguagePack {
         language_key: "lt",
         display_name: "Lithuanian",
+        autonym: "Lietuvių",
         script: Script::Latin,
         dictionary_asset_id: "words-lt",
         supported_keyboard_layout_keys: LT_LAYOUTS,
@@ -288,6 +306,7 @@ static LANGUAGE_PACKS: &[LanguagePack] = &[
     LanguagePack {
         language_key: "lv",
         display_name: "Latvian",
+        autonym: "Latviešu",
         script: Script::Latin,
         dictionary_asset_id: "words-lv",
         supported_keyboard_layout_keys: LV_LAYOUTS,
@@ -297,6 +316,7 @@ static LANGUAGE_PACKS: &[LanguagePack] = &[
     LanguagePack {
         language_key: "sl",
         display_name: "Slovene",
+        autonym: "Slovenščina",
         script: Script::Latin,
         dictionary_asset_id: "words-sl",
         supported_keyboard_layout_keys: SL_LAYOUTS,
@@ -306,6 +326,7 @@ static LANGUAGE_PACKS: &[LanguagePack] = &[
     LanguagePack {
         language_key: "et",
         display_name: "Estonian",
+        autonym: "Eesti",
         script: Script::Latin,
         dictionary_asset_id: "words-et",
         supported_keyboard_layout_keys: ET_LAYOUTS,
@@ -315,6 +336,7 @@ static LANGUAGE_PACKS: &[LanguagePack] = &[
     LanguagePack {
         language_key: "tr",
         display_name: "Turkish",
+        autonym: "Türkçe",
         script: Script::Latin,
         dictionary_asset_id: "words-tr",
         supported_keyboard_layout_keys: TR_LAYOUTS,

@@ -4,6 +4,7 @@ use ratatui::style::Style;
 use ratatui::symbols;
 use ratatui::widgets::{Axis, Block, Chart, Dataset, GraphType, Widget};
 
+use crate::i18n::t;
 use crate::ui::theme::Theme;
 
 #[allow(dead_code)]
@@ -24,8 +25,9 @@ impl Widget for WpmChart<'_> {
         let colors = &self.theme.colors;
 
         if self.data.is_empty() {
+            let wpm_title = t!("chart.wpm_over_time");
             let block = Block::bordered()
-                .title(" WPM Over Time ")
+                .title(wpm_title.to_string())
                 .border_style(Style::default().fg(colors.border()));
             block.render(area, buf);
             return;
@@ -45,21 +47,24 @@ impl Widget for WpmChart<'_> {
             .style(Style::default().fg(colors.accent()))
             .data(self.data);
 
+        let wpm_title = t!("chart.wpm_over_time");
+        let drill_number_label = t!("chart.drill_number");
+        let wpm_label = t!("common.wpm");
         let chart = Chart::new(vec![dataset])
             .block(
                 Block::bordered()
-                    .title(" WPM Over Time ")
+                    .title(wpm_title.to_string())
                     .border_style(Style::default().fg(colors.border())),
             )
             .x_axis(
                 Axis::default()
-                    .title("Drill #")
+                    .title(drill_number_label.to_string())
                     .style(Style::default().fg(colors.text_pending()))
                     .bounds([0.0, max_x]),
             )
             .y_axis(
                 Axis::default()
-                    .title("WPM")
+                    .title(wpm_label.to_string())
                     .style(Style::default().fg(colors.text_pending()))
                     .bounds([0.0, max_y * 1.1]),
             );

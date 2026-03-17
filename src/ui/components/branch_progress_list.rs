@@ -5,6 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
 use crate::engine::skill_tree::{BranchId, DrillScope, SkillTree, get_branch_definition};
+use crate::i18n::t;
 use crate::ui::theme::Theme;
 
 pub struct BranchProgressList<'a> {
@@ -92,7 +93,7 @@ impl Widget for BranchProgressList<'_> {
             let (m_bar, u_bar, e_bar) = compact_dual_bar_parts(mastered, unlocked, total, 12);
             lines.push(Line::from(vec![
                 Span::styled(
-                    format!(" \u{25b6} {:<14}", def.name),
+                    format!(" \u{25b6} {:<14}", def.display_name()),
                     Style::default().fg(colors.accent()),
                 ),
                 Span::styled(m_bar, Style::default().fg(colors.text_correct())),
@@ -123,9 +124,12 @@ impl Widget for BranchProgressList<'_> {
                 0
             };
             let right_pad = if area.width >= 75 { 2 } else { 0 };
-            let label = format!("{}Overall Key Progress  ", " ".repeat(left_pad));
+            let overall_label = t!("progress.overall_key_progress");
+            let label = format!("{}{}  ", " ".repeat(left_pad), overall_label);
+            let unlocked_mastered = t!("progress.unlocked_mastered", unlocked = unlocked, total = total, mastered = mastered);
             let suffix = format!(
-                " {unlocked}/{total} unlocked ({mastered} mastered){}",
+                " {}{}",
+                unlocked_mastered,
                 " ".repeat(right_pad)
             );
             let reserved = label.len() + suffix.len();
@@ -185,7 +189,8 @@ fn render_branch_cell<'a>(
     let fixed = prefix.len() + name_width + 1 + count.len();
     let bar_width = cell_width.saturating_sub(fixed).max(6);
     let (m_bar, u_bar, e_bar) = compact_dual_bar_parts(mastered, unlocked, total, bar_width);
-    let name = truncate_and_pad(def.name, name_width);
+    let display = def.display_name();
+    let name = truncate_and_pad(&display, name_width);
 
     let mut spans: Vec<Span> = vec![
         Span::styled(prefix.to_string(), Style::default().fg(label_color)),

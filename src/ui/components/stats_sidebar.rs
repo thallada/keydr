@@ -6,6 +6,7 @@ use ratatui::widgets::{Block, Paragraph, Widget};
 
 use crate::session::drill::DrillState;
 use crate::session::result::DrillResult;
+use crate::i18n::t;
 use crate::ui::theme::Theme;
 
 pub struct StatsSidebar<'a> {
@@ -80,21 +81,30 @@ impl Widget for StatsSidebar<'_> {
             let incorrect_str = format!("{incorrect}");
             let elapsed_str = format!("{elapsed:.1}s");
 
+            let wpm_label = t!("sidebar.wpm");
+            let target_label = t!("sidebar.target");
+            let target_wpm_val = t!("sidebar.target_wpm", wpm = self.target_wpm);
+            let accuracy_label = t!("sidebar.accuracy");
+            let progress_label = t!("sidebar.progress");
+            let correct_label = t!("sidebar.correct");
+            let errors_label = t!("sidebar.errors");
+            let time_label = t!("sidebar.time");
+
             let lines = vec![
                 Line::from(vec![
-                    Span::styled("WPM: ", Style::default().fg(colors.fg())),
+                    Span::styled(wpm_label.as_ref(), Style::default().fg(colors.fg())),
                     Span::styled(wpm_str, Style::default().fg(colors.accent())),
                 ]),
                 Line::from(vec![
-                    Span::styled("Target: ", Style::default().fg(colors.fg())),
+                    Span::styled(target_label.as_ref(), Style::default().fg(colors.fg())),
                     Span::styled(
-                        format!("{} WPM", self.target_wpm),
+                        target_wpm_val.to_string(),
                         Style::default().fg(colors.text_pending()),
                     ),
                 ]),
                 Line::from(""),
                 Line::from(vec![
-                    Span::styled("Accuracy: ", Style::default().fg(colors.fg())),
+                    Span::styled(accuracy_label.as_ref(), Style::default().fg(colors.fg())),
                     Span::styled(
                         acc_str,
                         Style::default().fg(if accuracy >= 95.0 {
@@ -108,27 +118,28 @@ impl Widget for StatsSidebar<'_> {
                 ]),
                 Line::from(""),
                 Line::from(vec![
-                    Span::styled("Progress: ", Style::default().fg(colors.fg())),
+                    Span::styled(progress_label.as_ref(), Style::default().fg(colors.fg())),
                     Span::styled(prog_str, Style::default().fg(colors.accent())),
                 ]),
                 Line::from(""),
                 Line::from(vec![
-                    Span::styled("Correct: ", Style::default().fg(colors.fg())),
+                    Span::styled(correct_label.as_ref(), Style::default().fg(colors.fg())),
                     Span::styled(correct_str, Style::default().fg(colors.success())),
                 ]),
                 Line::from(vec![
-                    Span::styled("Errors:  ", Style::default().fg(colors.fg())),
+                    Span::styled(errors_label.as_ref(), Style::default().fg(colors.fg())),
                     Span::styled(incorrect_str, Style::default().fg(colors.error())),
                 ]),
                 Line::from(""),
                 Line::from(vec![
-                    Span::styled("Time: ", Style::default().fg(colors.fg())),
+                    Span::styled(time_label.as_ref(), Style::default().fg(colors.fg())),
                     Span::styled(elapsed_str, Style::default().fg(colors.fg())),
                 ]),
             ];
 
+            let stats_title = t!("sidebar.title");
             let block = Block::bordered()
-                .title(" Stats ")
+                .title(stats_title.to_string())
                 .border_style(Style::default().fg(colors.border()))
                 .style(Style::default().bg(colors.bg()));
 
@@ -174,14 +185,20 @@ impl Widget for StatsSidebar<'_> {
                 colors.text_pending()
             };
 
+            let wpm_label = t!("sidebar.wpm");
+            let vs_avg_label = t!("sidebar.vs_avg");
+            let accuracy_label = t!("sidebar.accuracy");
+            let errors_label = t!("sidebar.errors");
+            let time_label = t!("sidebar.time");
+
             let mut lines = vec![Line::from(vec![
-                Span::styled("WPM: ", Style::default().fg(colors.fg())),
+                Span::styled(wpm_label.as_ref(), Style::default().fg(colors.fg())),
                 Span::styled(wpm_str, Style::default().fg(colors.accent())),
             ])];
 
             if prior_count > 0 {
                 lines.push(Line::from(vec![
-                    Span::styled("  vs avg: ", Style::default().fg(colors.text_pending())),
+                    Span::styled(vs_avg_label.as_ref(), Style::default().fg(colors.text_pending())),
                     Span::styled(wpm_delta_str, Style::default().fg(wpm_delta_color)),
                 ]));
             }
@@ -189,7 +206,7 @@ impl Widget for StatsSidebar<'_> {
             lines.push(Line::from(""));
 
             lines.push(Line::from(vec![
-                Span::styled("Accuracy: ", Style::default().fg(colors.fg())),
+                Span::styled(accuracy_label.as_ref(), Style::default().fg(colors.fg())),
                 Span::styled(
                     acc_str,
                     Style::default().fg(if last.accuracy >= 95.0 {
@@ -203,25 +220,27 @@ impl Widget for StatsSidebar<'_> {
             ]));
 
             if prior_count > 0 {
+                let vs_avg_label2 = t!("sidebar.vs_avg").to_string();
                 lines.push(Line::from(vec![
-                    Span::styled("  vs avg: ", Style::default().fg(colors.text_pending())),
+                    Span::styled(vs_avg_label2, Style::default().fg(colors.text_pending())),
                     Span::styled(acc_delta_str, Style::default().fg(acc_delta_color)),
                 ]));
             }
 
             lines.push(Line::from(""));
             lines.push(Line::from(vec![
-                Span::styled("Errors:  ", Style::default().fg(colors.fg())),
+                Span::styled(errors_label.as_ref(), Style::default().fg(colors.fg())),
                 Span::styled(errors_str, Style::default().fg(colors.error())),
             ]));
             lines.push(Line::from(""));
             lines.push(Line::from(vec![
-                Span::styled("Time: ", Style::default().fg(colors.fg())),
+                Span::styled(time_label.as_ref(), Style::default().fg(colors.fg())),
                 Span::styled(time_str, Style::default().fg(colors.fg())),
             ]));
 
+            let last_drill_title = t!("sidebar.last_drill");
             let block = Block::bordered()
-                .title(" Last Drill ")
+                .title(last_drill_title.to_string())
                 .border_style(Style::default().fg(colors.border()))
                 .style(Style::default().bg(colors.bg()));
 

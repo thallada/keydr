@@ -8,6 +8,8 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
 
+use crate::i18n::t;
+
 use crate::config::Config;
 use crate::engine::FocusSelection;
 use crate::engine::filter::CharFilter;
@@ -70,6 +72,7 @@ pub enum AppScreen {
     CodeIntro,
     CodeDownloadProgress,
     Keyboard,
+    UiLanguageSelect,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,6 +87,7 @@ pub enum SettingItem {
     TargetWpm,
     Theme,
     WordCount,
+    UiLanguage,
     DictionaryLanguage,
     KeyboardLayout,
     CodeLanguage,
@@ -102,10 +106,11 @@ pub enum SettingItem {
 }
 
 impl SettingItem {
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
         Self::TargetWpm,
         Self::Theme,
         Self::WordCount,
+        Self::UiLanguage,
         Self::DictionaryLanguage,
         Self::KeyboardLayout,
         Self::CodeLanguage,
@@ -183,23 +188,29 @@ pub struct KeyMilestonePopup {
     pub kind: MilestoneKind,
     pub keys: Vec<char>,
     pub finger_info: Vec<(char, String)>,
-    pub message: &'static str,
+    pub message: String,
     pub branch_ids: Vec<BranchId>,
 }
 
-const UNLOCK_MESSAGES: &[&str] = &[
-    "Nice work! Keep building your typing skills.",
-    "Another key added to your arsenal!",
-    "Your keyboard is growing! Keep it up.",
-    "One step closer to full keyboard mastery!",
-];
+fn unlock_messages() -> Vec<String> {
+    use crate::i18n::t;
+    vec![
+        t!("milestones.unlock_msg_1").to_string(),
+        t!("milestones.unlock_msg_2").to_string(),
+        t!("milestones.unlock_msg_3").to_string(),
+        t!("milestones.unlock_msg_4").to_string(),
+    ]
+}
 
-const MASTERY_MESSAGES: &[&str] = &[
-    "This key is now at full confidence!",
-    "You've got this key down pat!",
-    "Muscle memory locked in!",
-    "One more key conquered!",
-];
+fn mastery_messages() -> Vec<String> {
+    use crate::i18n::t;
+    vec![
+        t!("milestones.mastery_msg_1").to_string(),
+        t!("milestones.mastery_msg_2").to_string(),
+        t!("milestones.mastery_msg_3").to_string(),
+        t!("milestones.mastery_msg_4").to_string(),
+    ]
+}
 
 const POST_DRILL_INPUT_LOCK_MS: u64 = 800;
 
@@ -319,6 +330,8 @@ pub struct App {
     pub skill_tree_detail_scroll: usize,
     pub skill_tree_confirm_unlock: Option<BranchId>,
     pub drill_source_info: Option<String>,
+    pub ui_language_selected: usize,
+    pub ui_language_scroll: usize,
     pub dictionary_language_selected: usize,
     pub dictionary_language_scroll: usize,
     pub keyboard_layout_selected: usize,
@@ -525,6 +538,8 @@ impl App {
             skill_tree_detail_scroll: 0,
             skill_tree_confirm_unlock: None,
             drill_source_info: None,
+            ui_language_selected: 0,
+            ui_language_scroll: 0,
             dictionary_language_selected: 0,
             dictionary_language_scroll: 0,
             keyboard_layout_selected: 0,
@@ -596,7 +611,7 @@ impl App {
         {
             app.settings_status_message = Some(StatusMessage {
                 kind: StatusKind::Error,
-                text: "Recovery files found from interrupted import. Data may be inconsistent — consider re-importing.".to_string(),
+                text: t!("status.recovery_files").to_string(),
             });
         }
 
@@ -677,7 +692,7 @@ impl App {
         {
             self.settings_status_message = Some(StatusMessage {
                 kind: StatusKind::Error,
-                text: format!("Directory does not exist: {}", parent.display()),
+                text: t!("status.dir_not_exist", path = parent.display().to_string()).to_string(),
             });
             return;
         }
@@ -685,7 +700,7 @@ impl App {
         let Some(ref store) = self.store else {
             self.settings_status_message = Some(StatusMessage {
                 kind: StatusKind::Error,
-                text: "No data store available".to_string(),
+                text: t!("status.no_data_store").to_string(),
             });
             return;
         };
@@ -696,7 +711,7 @@ impl App {
             Err(e) => {
                 self.settings_status_message = Some(StatusMessage {
                     kind: StatusKind::Error,
-                    text: format!("Serialization error: {e}"),
+                    text: t!("status.serialization_error", error = e.to_string()).to_string(),
                 });
                 return;
             }
@@ -717,14 +732,14 @@ impl App {
             Ok(()) => {
                 self.settings_status_message = Some(StatusMessage {
                     kind: StatusKind::Success,
-                    text: format!("Exported to {}", self.settings_export_path),
+                    text: t!("status.exported_to", path = &self.settings_export_path).to_string(),
                 });
             }
             Err(e) => {
                 let _ = std::fs::remove_file(&tmp_path);
                 self.settings_status_message = Some(StatusMessage {
                     kind: StatusKind::Error,
-                    text: format!("Export failed: {e}"),
+                    text: t!("status.export_failed", error = e.to_string()).to_string(),
                 });
             }
         }
@@ -739,7 +754,7 @@ impl App {
             Err(e) => {
                 self.settings_status_message = Some(StatusMessage {
                     kind: StatusKind::Error,
-                    text: format!("Could not read file: {e}"),
+                    text: t!("status.could_not_read", error = e.to_string()).to_string(),
                 });
                 return;
             }
@@ -750,7 +765,7 @@ impl App {
             Err(e) => {
                 self.settings_status_message = Some(StatusMessage {
                     kind: StatusKind::Error,
-                    text: format!("Invalid export file: {e}"),
+                    text: t!("status.invalid_export", error = e.to_string()).to_string(),
                 });
                 return;
             }
@@ -760,10 +775,7 @@ impl App {
         if export.keydr_export_version != EXPORT_VERSION {
             self.settings_status_message = Some(StatusMessage {
                 kind: StatusKind::Error,
-                text: format!(
-                    "Unsupported export version: {} (expected {})",
-                    export.keydr_export_version, EXPORT_VERSION
-                ),
+                text: t!("status.unsupported_version", got = export.keydr_export_version, expected = EXPORT_VERSION).to_string(),
             });
             return;
         }
@@ -778,14 +790,14 @@ impl App {
         let Some(ref store) = self.store else {
             self.settings_status_message = Some(StatusMessage {
                 kind: StatusKind::Error,
-                text: "No data store available".to_string(),
+                text: t!("status.no_data_store").to_string(),
             });
             return;
         };
         if let Err(e) = store.import_all(&export) {
             self.settings_status_message = Some(StatusMessage {
                 kind: StatusKind::Error,
-                text: format!("Import failed: {e}"),
+                text: t!("status.import_failed", error = e.to_string()).to_string(),
             });
             return;
         }
@@ -841,15 +853,12 @@ impl App {
             let _ = self.config.save();
             self.settings_status_message = Some(StatusMessage {
                 kind: StatusKind::Success,
-                text: format!(
-                    "Imported successfully (theme '{}' not found, using default)",
-                    theme_name
-                ),
+                text: t!("status.imported_theme_fallback", theme = &theme_name).to_string(),
             });
         } else {
             self.settings_status_message = Some(StatusMessage {
                 kind: StatusKind::Success,
-                text: "Imported successfully".to_string(),
+                text: t!("status.imported_success").to_string(),
             });
         }
     }
@@ -1227,11 +1236,12 @@ impl App {
                         .newly_unlocked
                         .iter()
                         .map(|&ch| {
-                            let desc = self.keyboard_model.finger_for_char(ch).description();
-                            (ch, desc.to_string())
+                            let desc = self.keyboard_model.finger_for_char(ch).localized_description();
+                            (ch, desc)
                         })
                         .collect();
-                    let msg = UNLOCK_MESSAGES[self.rng.gen_range(0..UNLOCK_MESSAGES.len())];
+                    let msgs = unlock_messages();
+                    let msg = msgs[self.rng.gen_range(0..msgs.len())].clone();
                     self.milestone_queue.push_back(KeyMilestonePopup {
                         kind: MilestoneKind::Unlock,
                         keys: update.newly_unlocked,
@@ -1247,11 +1257,12 @@ impl App {
                         .newly_mastered
                         .iter()
                         .map(|&ch| {
-                            let desc = self.keyboard_model.finger_for_char(ch).description();
-                            (ch, desc.to_string())
+                            let desc = self.keyboard_model.finger_for_char(ch).localized_description();
+                            (ch, desc)
                         })
                         .collect();
-                    let msg = MASTERY_MESSAGES[self.rng.gen_range(0..MASTERY_MESSAGES.len())];
+                    let msgs = mastery_messages();
+                    let msg = msgs[self.rng.gen_range(0..msgs.len())].clone();
                     self.milestone_queue.push_back(KeyMilestonePopup {
                         kind: MilestoneKind::Mastery,
                         keys: update.newly_mastered,
@@ -1267,7 +1278,7 @@ impl App {
                         kind: MilestoneKind::BranchesAvailable,
                         keys: vec![],
                         finger_info: vec![],
-                        message: "",
+                        message: String::new(),
                         branch_ids: update.branches_newly_available,
                     });
                 }
@@ -1284,7 +1295,7 @@ impl App {
                         kind: MilestoneKind::BranchComplete,
                         keys: vec![],
                         finger_info: vec![],
-                        message: "",
+                        message: String::new(),
                         branch_ids: completed_non_lowercase,
                     });
                 }
@@ -1294,7 +1305,7 @@ impl App {
                         kind: MilestoneKind::AllKeysUnlocked,
                         keys: vec![],
                         finger_info: vec![],
-                        message: "",
+                        message: String::new(),
                         branch_ids: vec![],
                     });
                 }
@@ -1304,7 +1315,7 @@ impl App {
                         kind: MilestoneKind::AllKeysMastered,
                         keys: vec![],
                         finger_info: vec![],
-                        message: "",
+                        message: String::new(),
                         branch_ids: vec![],
                     });
                 }
@@ -1912,7 +1923,7 @@ impl App {
             Err(err) => {
                 self.settings_status_message = Some(StatusMessage {
                     kind: StatusKind::Error,
-                    text: format!("Adaptive ranked mode unavailable: {err}"),
+                    text: t!("status.adaptive_unavailable", error = err.to_string()).to_string(),
                 });
                 self.go_to_settings();
                 self.settings_selected = SettingItem::DictionaryLanguage.index();
@@ -1940,6 +1951,15 @@ impl App {
         self.settings_selected = SettingItem::TargetWpm.index();
         self.settings_editing_path = None;
         self.screen = AppScreen::Settings;
+    }
+
+    pub fn go_to_ui_language_select(&mut self) {
+        self.ui_language_selected = crate::i18n::SUPPORTED_UI_LOCALES
+            .iter()
+            .position(|&k| k == self.config.ui_language)
+            .unwrap_or(0);
+        self.ui_language_scroll = 0;
+        self.screen = AppScreen::UiLanguageSelect;
     }
 
     pub fn go_to_dictionary_language_select(&mut self) {
@@ -2335,7 +2355,7 @@ impl App {
         if keys.is_empty() {
             self.settings_status_message = Some(StatusMessage {
                 kind: StatusKind::Error,
-                text: "No supported dictionary languages are registered".to_string(),
+                text: t!("errors.unknown_language", key = "none").to_string(),
             });
             return;
         }
@@ -2356,7 +2376,7 @@ impl App {
             Err(err) => {
                 self.settings_status_message = Some(StatusMessage {
                     kind: StatusKind::Error,
-                    text: err.to_string(),
+                    text: crate::i18n::localized_language_layout_error(&err),
                 });
             }
         }
@@ -2367,7 +2387,7 @@ impl App {
         if keys.is_empty() {
             self.settings_status_message = Some(StatusMessage {
                 kind: StatusKind::Error,
-                text: "No keyboard layouts are registered".to_string(),
+                text: t!("errors.unknown_layout", key = "none").to_string(),
             });
             return;
         }
@@ -2387,7 +2407,7 @@ impl App {
             Err(err) => {
                 self.settings_status_message = Some(StatusMessage {
                     kind: StatusKind::Error,
-                    text: err.to_string(),
+                    text: crate::i18n::localized_language_layout_error(&err),
                 });
             }
         }
@@ -2519,6 +2539,13 @@ impl App {
             SettingItem::WordCount => {
                 self.config.word_count = (self.config.word_count + 5).min(100);
             }
+            SettingItem::UiLanguage => {
+                let locales = crate::i18n::SUPPORTED_UI_LOCALES;
+                let idx = locales.iter().position(|&l| l == self.config.ui_language).unwrap_or(0);
+                let next = (idx + 1) % locales.len();
+                self.config.ui_language = locales[next].to_string();
+                crate::i18n::set_ui_locale(&self.config.ui_language);
+            }
             SettingItem::DictionaryLanguage => {
                 self.apply_dictionary_language_by_offset(1);
             }
@@ -2594,6 +2621,13 @@ impl App {
             }
             SettingItem::WordCount => {
                 self.config.word_count = self.config.word_count.saturating_sub(5).max(5);
+            }
+            SettingItem::UiLanguage => {
+                let locales = crate::i18n::SUPPORTED_UI_LOCALES;
+                let idx = locales.iter().position(|&l| l == self.config.ui_language).unwrap_or(0);
+                let next = if idx == 0 { locales.len() - 1 } else { idx - 1 };
+                self.config.ui_language = locales[next].to_string();
+                crate::i18n::set_ui_locale(&self.config.ui_language);
             }
             SettingItem::DictionaryLanguage => {
                 self.apply_dictionary_language_by_offset(-1);
@@ -3039,6 +3073,8 @@ impl App {
             skill_tree_detail_scroll: 0,
             skill_tree_confirm_unlock: None,
             drill_source_info: None,
+            ui_language_selected: 0,
+            ui_language_scroll: 0,
             dictionary_language_selected: 0,
             dictionary_language_scroll: 0,
             keyboard_layout_selected: 0,
@@ -3519,7 +3555,7 @@ mod tests {
             kind: MilestoneKind::Unlock,
             keys: vec!['a'],
             finger_info: vec![('a', "left pinky".to_string())],
-            message: "Test milestone",
+            message: "Test milestone".to_string(),
             branch_ids: vec![],
         });
 

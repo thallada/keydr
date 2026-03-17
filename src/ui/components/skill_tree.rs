@@ -4,6 +4,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget, Wrap};
 
+use crate::i18n::t;
 use crate::engine::key_stats::KeyStatsStore;
 use crate::engine::skill_tree::{
     BranchId, BranchStatus, DrillScope, SkillTree as SkillTreeEngine, get_branch_definition,
@@ -38,10 +39,7 @@ impl<'a> SkillTreeWidget<'a> {
 }
 
 fn locked_branch_notice(skill_tree: &SkillTreeEngine) -> String {
-    format!(
-        "Complete {} primary letters to unlock branches",
-        skill_tree.primary_letters().len()
-    )
+    t!("skill_tree.locked_notice", count = skill_tree.primary_letters().len()).to_string()
 }
 
 /// Get the list of selectable branch IDs (Lowercase first, then other branches).
@@ -131,7 +129,7 @@ impl Widget for SkillTreeWidget<'_> {
         let colors = &self.theme.colors;
 
         let block = Block::bordered()
-            .title(" Skill Tree ")
+            .title(t!("skill_tree.title").to_string())
             .border_style(Style::default().fg(colors.accent()))
             .style(Style::default().bg(colors.bg()));
         let inner = block.inner(area);
@@ -139,44 +137,49 @@ impl Widget for SkillTreeWidget<'_> {
 
         // Layout: main split (branch list + detail) and footer (adaptive height)
         let branches = selectable_branches();
+        let h_navigate = t!("skill_tree.hint_navigate").to_string();
+        let h_scroll = t!("skill_tree.hint_scroll").to_string();
+        let h_back = t!("skill_tree.hint_back").to_string();
+        let h_unlock = t!("skill_tree.hint_unlock").to_string();
+        let h_start_drill = t!("skill_tree.hint_start_drill").to_string();
         let (footer_hints, footer_notice): (Vec<&str>, Option<String>) =
             if self.selected < branches.len() {
                 let bp = self.skill_tree.branch_progress(branches[self.selected]);
                 if *self.skill_tree.branch_status(branches[self.selected]) == BranchStatus::Locked {
                     (
                         vec![
-                            "[↑↓/jk] Navigate",
-                            "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                            "[q] Back",
+                            h_navigate.as_str(),
+                            h_scroll.as_str(),
+                            h_back.as_str(),
                         ],
                         Some(locked_branch_notice(self.skill_tree)),
                     )
                 } else if bp.status == BranchStatus::Available {
                     (
                         vec![
-                            "[Enter] Unlock",
-                            "[↑↓/jk] Navigate",
-                            "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                            "[q] Back",
+                            h_unlock.as_str(),
+                            h_navigate.as_str(),
+                            h_scroll.as_str(),
+                            h_back.as_str(),
                         ],
                         None,
                     )
                 } else if bp.status == BranchStatus::InProgress {
                     (
                         vec![
-                            "[Enter] Start Drill",
-                            "[↑↓/jk] Navigate",
-                            "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                            "[q] Back",
+                            h_start_drill.as_str(),
+                            h_navigate.as_str(),
+                            h_scroll.as_str(),
+                            h_back.as_str(),
                         ],
                         None,
                     )
                 } else {
                     (
                         vec![
-                            "[↑↓/jk] Navigate",
-                            "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                            "[q] Back",
+                            h_navigate.as_str(),
+                            h_scroll.as_str(),
+                            h_back.as_str(),
                         ],
                         None,
                     )
@@ -184,9 +187,9 @@ impl Widget for SkillTreeWidget<'_> {
             } else {
                 (
                     vec![
-                        "[↑↓/jk] Navigate",
-                        "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                        "[q] Back",
+                        h_navigate.as_str(),
+                        h_scroll.as_str(),
+                        h_back.as_str(),
                     ],
                     None,
                 )
@@ -332,33 +335,35 @@ impl SkillTreeWidget<'_> {
 
             let unlocked = self.skill_tree.branch_unlocked_count(branch_id);
             let mastered_text = if confident_keys > 0 {
-                format!(" ({confident_keys} mastered)")
+                format!(" ({confident_keys} {})", t!("skill_tree.mastered"))
             } else {
                 String::new()
             };
             let status_text = match bp.status {
                 BranchStatus::Complete => {
-                    format!("{unlocked}/{total_keys} unlocked{mastered_text}")
+                    format!("{unlocked}/{total_keys} {}{mastered_text}", t!("skill_tree.unlocked"))
                 }
                 BranchStatus::InProgress => {
                     if branch_id == BranchId::Lowercase {
-                        format!("{unlocked}/{total_keys} unlocked{mastered_text}")
+                        format!("{unlocked}/{total_keys} {}{mastered_text}", t!("skill_tree.unlocked"))
                     } else {
                         format!(
-                            "Lvl {}/{}  {unlocked}/{total_keys} unlocked{mastered_text}",
+                            "{} {}/{}  {unlocked}/{total_keys} {}{mastered_text}",
+                            t!("skill_tree.lvl_prefix"),
                             bp.current_level + 1,
-                            def.levels.len()
+                            def.levels.len(),
+                            t!("skill_tree.unlocked")
                         )
                     }
                 }
-                BranchStatus::Available => format!("0/{total_keys} unlocked"),
-                BranchStatus::Locked => format!("Locked  0/{total_keys}"),
+                BranchStatus::Available => format!("0/{total_keys} {}", t!("skill_tree.unlocked")),
+                BranchStatus::Locked => format!("{}  0/{total_keys}", t!("skill_tree.locked")),
             };
 
             let sel_indicator = if is_selected { "> " } else { "  " };
 
             lines.push(Line::from(vec![
-                Span::styled(format!("{sel_indicator}{prefix}{}", def.name), style),
+                Span::styled(format!("{sel_indicator}{prefix}{}", def.display_name()), style),
                 Span::styled(
                     format!("  {status_text}"),
                     Style::default().fg(colors.text_pending()),
@@ -381,8 +386,8 @@ impl SkillTreeWidget<'_> {
                 }
                 lines.push(Line::from(Span::styled(
                     format!(
-                        "  \u{2500}\u{2500} Branches (available after {} primary letters) \u{2500}\u{2500}",
-                        self.skill_tree.primary_letters().len()
+                        "  \u{2500}\u{2500} {} \u{2500}\u{2500}",
+                        t!("skill_tree.branches_separator", count = self.skill_tree.primary_letters().len())
                     ),
                     Style::default().fg(colors.text_pending()),
                 )));
@@ -423,21 +428,21 @@ impl SkillTreeWidget<'_> {
         let level_text = if branch_id == BranchId::Lowercase {
             let unlocked = self.skill_tree.branch_unlocked_count(BranchId::Lowercase);
             let total = self.skill_tree.branch_total_keys_for(BranchId::Lowercase);
-            format!("Unlocked {unlocked}/{total} letters")
+            t!("skill_tree.unlocked_letters", unlocked = unlocked, total = total).to_string()
         } else {
             match bp.status {
                 BranchStatus::InProgress => {
-                    format!("Level {}/{}", bp.current_level + 1, def.levels.len())
+                    t!("skill_tree.level", current = bp.current_level + 1, total = def.levels.len()).to_string()
                 }
                 BranchStatus::Complete => {
-                    format!("Level {}/{}", def.levels.len(), def.levels.len())
+                    t!("skill_tree.level", current = def.levels.len(), total = def.levels.len()).to_string()
                 }
-                _ => format!("Level 0/{}", def.levels.len()),
+                _ => t!("skill_tree.level_zero", total = def.levels.len()).to_string(),
             }
         };
         lines.push(Line::from(vec![
             Span::styled(
-                format!("  {}", def.name),
+                format!("  {}", def.display_name()),
                 Style::default()
                     .fg(colors.accent())
                     .add_modifier(Modifier::BOLD),
@@ -462,18 +467,20 @@ impl SkillTreeWidget<'_> {
         };
 
         for (level_idx, level) in def.levels.iter().enumerate() {
-            let level_status =
-                if bp.status == BranchStatus::Complete || level_idx < bp.current_level {
-                    "complete"
-                } else if bp.status == BranchStatus::InProgress && level_idx == bp.current_level {
-                    "in progress"
-                } else {
-                    "locked"
-                };
+            let level_is_locked = !(bp.status == BranchStatus::Complete || level_idx < bp.current_level
+                || (bp.status == BranchStatus::InProgress && level_idx == bp.current_level));
+            let level_status_owned = if bp.status == BranchStatus::Complete || level_idx < bp.current_level {
+                t!("skill_tree.complete").to_string()
+            } else if bp.status == BranchStatus::InProgress && level_idx == bp.current_level {
+                t!("skill_tree.in_progress").to_string()
+            } else {
+                t!("skill_tree.locked_status").to_string()
+            };
+            let level_status = level_status_owned.as_str();
 
             // Level header
             lines.push(Line::from(Span::styled(
-                format!("  L{}: {} ({level_status})", level_idx + 1, level.name),
+                format!("  L{}: {} ({level_status})", level_idx + 1, level.display_name()),
                 Style::default().fg(colors.fg()),
             )));
 
@@ -492,7 +499,7 @@ impl SkillTreeWidget<'_> {
                 let is_locked = if branch_id == BranchId::Lowercase {
                     !lowercase_unlocked_keys.contains(&key)
                 } else {
-                    level_status == "locked"
+                    level_is_locked
                 };
 
                 let display = if key == '\n' {
@@ -509,7 +516,7 @@ impl SkillTreeWidget<'_> {
                             format!("    {display} "),
                             Style::default().fg(colors.text_pending()),
                         ),
-                        Span::styled("locked", Style::default().fg(colors.text_pending())),
+                        Span::styled(t!("skill_tree.locked_status").to_string(), Style::default().fg(colors.text_pending())),
                     ]));
                 } else {
                     let bar_width = 10;
@@ -517,7 +524,7 @@ impl SkillTreeWidget<'_> {
                     let empty = bar_width - filled;
                     let bar = format!("{}{}", "\u{2588}".repeat(filled), "\u{2591}".repeat(empty));
                     let pct_str = format!("{:>3.0}%", confidence * 100.0);
-                    let focus_label = if is_focused { "  in focus" } else { "" };
+                    let focus_label = if is_focused { t!("skill_tree.in_focus").to_string() } else { String::new() };
 
                     let key_style = if is_focused {
                         Style::default()

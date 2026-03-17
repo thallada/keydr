@@ -7,6 +7,7 @@ use rand::rngs::SmallRng;
 use crate::engine::filter::CharFilter;
 use crate::generator::TextGenerator;
 use crate::generator::cache::fetch_url_bytes_with_progress;
+use crate::i18n::t;
 
 const PASSAGES: &[&str] = &[
     "the quick brown fox jumps over the lazy dog and then runs across the field while the sun sets behind the distant hills",
@@ -67,11 +68,11 @@ pub const GUTENBERG_BOOKS: &[GutenbergBook] = &[
 
 pub fn passage_options() -> Vec<(&'static str, String)> {
     let mut out = vec![
-        ("all", "All (Built-in + all books)".to_string()),
-        ("builtin", "Built-in passages only".to_string()),
+        ("all", t!("select.passage_all").to_string()),
+        ("builtin", t!("select.passage_builtin").to_string()),
     ];
     for book in GUTENBERG_BOOKS {
-        out.push((book.key, format!("Book: {}", book.title)));
+        out.push((book.key, t!("select.passage_book_prefix", title = book.title).to_string()));
     }
     out
 }

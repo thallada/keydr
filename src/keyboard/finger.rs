@@ -27,6 +27,7 @@ impl FingerAssignment {
         Self { hand, finger }
     }
 
+    #[allow(dead_code)]
     pub fn description(&self) -> &'static str {
         match (self.hand, self.finger) {
             (Hand::Left, Finger::Pinky) => "left pinky",
@@ -40,6 +41,22 @@ impl FingerAssignment {
             (Hand::Right, Finger::Index) => "right index finger",
             (Hand::Right, Finger::Thumb) => "right thumb",
         }
+    }
+
+    pub fn localized_description(&self) -> String {
+        use crate::i18n::t;
+        let hand = match self.hand {
+            Hand::Left => t!("keyboard.hand_left"),
+            Hand::Right => t!("keyboard.hand_right"),
+        };
+        let finger = match self.finger {
+            Finger::Pinky => t!("keyboard.finger_pinky"),
+            Finger::Ring => t!("keyboard.finger_ring"),
+            Finger::Middle => t!("keyboard.finger_middle"),
+            Finger::Index => t!("keyboard.finger_index"),
+            Finger::Thumb => t!("keyboard.finger_thumb"),
+        };
+        format!("{hand} {finger}")
     }
 }
 

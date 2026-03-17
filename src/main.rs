@@ -1,8 +1,11 @@
+rust_i18n::i18n!("locales", fallback = "en");
+
 mod app;
 mod config;
 mod engine;
 mod event;
 mod generator;
+mod i18n;
 mod keyboard;
 mod l10n;
 mod session;
@@ -31,6 +34,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget, Wrap};
 
 use app::{App, AppScreen, DrillMode, MilestoneKind, SettingItem, StatusKind};
+use i18n::t;
 use engine::skill_tree::{BranchStatus, DrillScope, find_key_branch, get_branch_definition};
 use event::{AppEvent, EventHandler};
 use generator::code_syntax::{code_language_options, is_language_cached, language_by_key};
@@ -43,6 +47,7 @@ use l10n::language_pack::{
 };
 use ui::components::dashboard::Dashboard;
 use ui::components::keyboard_diagram::KeyboardDiagram;
+use ui::components::menu::Menu;
 use ui::components::skill_tree::{
     SkillTreeWidget, branch_list_spacing_flags, detail_line_count_with_level_spacing_for_tree,
     selectable_branches, use_expanded_level_spacing_for_tree, use_side_by_side_layout,
@@ -81,6 +86,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let mut app = App::new();
+    i18n::set_ui_locale(&app.config.ui_language);
 
     if let Some(words) = cli.words {
         app.config.word_count = words;
@@ -344,6 +350,7 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         AppScreen::CodeIntro => handle_code_intro_key(app, key),
         AppScreen::CodeDownloadProgress => handle_code_download_progress_key(app, key),
         AppScreen::Keyboard => handle_keyboard_explorer_key(app, key),
+        AppScreen::UiLanguageSelect => handle_ui_language_key(app, key),
     }
 }
 
@@ -488,9 +495,12 @@ fn milestone_footer_hint_token_at(
     let inner = Block::bordered().inner(overlay_area);
     let footer_y = inner.y + inner.height.saturating_sub(1);
     let footer_area = Rect::new(inner.x, footer_y, inner.width, 1);
+    let hint_skill_tree = t!("milestones.hint_skill_tree_continue");
+    let hint_any_key = t!("milestones.hint_any_key");
+    let hints: Vec<&str> = vec![hint_skill_tree.as_ref(), hint_any_key.as_ref()];
     hint_token_at(
         footer_area,
-        &["[t] Open Skill Tree", "[Any other key] Continue"],
+        &hints,
         x,
         y,
     )
@@ -539,6 +549,7 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
         AppScreen::CodeIntro => handle_code_intro_mouse(app, mouse),
         AppScreen::CodeDownloadProgress => handle_code_download_progress_mouse(app, mouse),
         AppScreen::Keyboard => handle_keyboard_explorer_mouse(app, mouse),
+        AppScreen::UiLanguageSelect => handle_ui_language_mouse(app, mouse),
     }
 }
 
@@ -576,13 +587,19 @@ fn handle_menu_mouse(app: &mut App, mouse: MouseEvent) {
         MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right) => {
             let is_secondary = matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right));
             let area = terminal_area();
-            let menu_hints = [
-                "[1-3] Start",
-                "[t] Skill Tree",
-                "[b] Keyboard",
-                "[s] Stats",
-                "[c] Settings",
-                "[q] Quit",
+            let mh_start = t!("menu.hint_start");
+            let mh_tree = t!("menu.hint_skill_tree");
+            let mh_kbd = t!("menu.hint_keyboard");
+            let mh_stats = t!("menu.hint_stats");
+            let mh_settings = t!("menu.hint_settings");
+            let mh_quit = t!("menu.hint_quit");
+            let menu_hints: Vec<&str> = vec![
+                mh_start.as_ref(),
+                mh_tree.as_ref(),
+                mh_kbd.as_ref(),
+                mh_stats.as_ref(),
+                mh_settings.as_ref(),
+                mh_quit.as_ref(),
             ];
             let footer_line_count = pack_hint_lines(&menu_hints, area.width as usize)
                 .len()
@@ -641,7 +658,7 @@ fn handle_menu_mouse(app: &mut App, mouse: MouseEvent) {
             let list_area = sections[2];
             if point_in_rect(mouse.column, mouse.row, list_area) {
                 let row = ((mouse.row - list_area.y) / 3) as usize;
-                if row < app.menu.items.len() {
+                if row < Menu::item_count() {
                     app.menu.selected = row;
                     activate_menu_selected(app);
                 }
@@ -660,7 +677,9 @@ fn handle_drill_mouse(app: &mut App, mouse: MouseEvent) {
     }
     let layout = AppLayout::new(terminal_area());
     if point_in_rect(mouse.column, mouse.row, layout.footer) {
-        let hints = ["[ESC] End drill", "[Backspace] Delete"];
+        let hint_end = t!("drill.hint_end");
+        let hint_bs = t!("drill.hint_backspace");
+        let hints: Vec<&str> = vec![hint_end.as_ref(), hint_bs.as_ref()];
         if let Some(token) = hint_token_at(layout.footer, &hints, mouse.column, mouse.row) {
             match token.as_str() {
                 "ESC" => {
@@ -720,12 +739,17 @@ fn handle_result_mouse(app: &mut App, mouse: MouseEvent) {
         let area = terminal_area();
         let centered = ui::layout::centered_rect(60, 70, area);
         let inner = Block::bordered().inner(centered);
-        let hints = [
-            "[c/Enter/Space] Continue",
-            "[r] Retry",
-            "[q] Menu",
-            "[s] Stats",
-            "[x] Delete",
+        let h_cont = t!("dashboard.hint_continue");
+        let h_retry = t!("dashboard.hint_retry");
+        let h_menu = t!("dashboard.hint_menu");
+        let h_stats = t!("dashboard.hint_stats");
+        let h_del = t!("dashboard.hint_delete");
+        let hints: Vec<&str> = vec![
+            h_cont.as_ref(),
+            h_retry.as_ref(),
+            h_menu.as_ref(),
+            h_stats.as_ref(),
+            h_del.as_ref(),
         ];
         let footer_line_count = pack_hint_lines(&hints, inner.width as usize).len().max(1) as u16;
         let footer_y = inner
@@ -754,19 +778,22 @@ fn handle_result_mouse(app: &mut App, mouse: MouseEvent) {
     }
 }
 
-const STATS_TAB_LABELS: [&str; 6] = [
-    "[1] Dashboard",
-    "[2] History",
-    "[3] Activity",
-    "[4] Accuracy",
-    "[5] Timing",
-    "[6] N-grams",
-];
+fn stats_tab_labels() -> [String; 6] {
+    [
+        t!("stats.tab_dashboard").to_string(),
+        t!("stats.tab_history").to_string(),
+        t!("stats.tab_activity").to_string(),
+        t!("stats.tab_accuracy").to_string(),
+        t!("stats.tab_timing").to_string(),
+        t!("stats.tab_ngrams").to_string(),
+    ]
+}
 
 fn wrapped_stats_tab_line_count(width: usize) -> usize {
+    let labels = stats_tab_labels();
     let mut lines = 1usize;
     let mut current_width = 0usize;
-    for label in STATS_TAB_LABELS {
+    for label in &labels {
         let item_width = format!(" {label} ").chars().count() + 2;
         if current_width > 0 && current_width + item_width > width {
             lines += 1;
@@ -778,11 +805,12 @@ fn wrapped_stats_tab_line_count(width: usize) -> usize {
 }
 
 fn stats_tab_at_point(tab_area: Rect, width: usize, x: u16, y: u16) -> Option<usize> {
+    let labels = stats_tab_labels();
     let mut row = tab_area.y;
     let mut col = tab_area.x;
     let max_col = tab_area.x + width as u16;
 
-    for (idx, label) in STATS_TAB_LABELS.iter().enumerate() {
+    for (idx, label) in labels.iter().enumerate() {
         let text = format!(" {label} ");
         let text_width = text.chars().count() as u16;
         let item_width = text_width + 2; // separator
@@ -824,17 +852,23 @@ fn handle_stats_mouse(app: &mut App, mouse: MouseEvent) {
     let inner = Block::bordered().inner(area);
     let width = inner.width as usize;
     let tab_line_count = wrapped_stats_tab_line_count(width) as u16;
+    let sh_back = t!("stats.hint_back");
+    let sh_next = t!("stats.hint_next_tab");
+    let sh_switch = t!("stats.hint_switch_tab");
+    let sh_nav = t!("stats.hint_navigate");
+    let sh_page = t!("stats.hint_page");
+    let sh_del = t!("stats.hint_delete");
     let footer_hints: Vec<&str> = if app.stats_tab == 1 {
         vec![
-            "[ESC] Back",
-            "[Tab] Next tab",
-            "[1-6] Switch tab",
-            "[j/k] Navigate",
-            "[PgUp/PgDn] Page",
-            "[x] Delete",
+            sh_back.as_ref(),
+            sh_next.as_ref(),
+            sh_switch.as_ref(),
+            sh_nav.as_ref(),
+            sh_page.as_ref(),
+            sh_del.as_ref(),
         ]
     } else {
-        vec!["[ESC] Back", "[Tab] Next tab", "[1-6] Switch tab"]
+        vec![sh_back.as_ref(), sh_next.as_ref(), sh_switch.as_ref()]
     };
     let footer_line_count = pack_hint_lines(&footer_hints, width).len().max(1) as u16;
     let layout = Layout::default()
@@ -954,116 +988,123 @@ fn handle_stats_mouse(app: &mut App, mouse: MouseEvent) {
 
 fn settings_fields(app: &App) -> Vec<(SettingItem, String, String)> {
     let dictionary_language_label = find_language_pack(&app.config.dictionary_language)
-        .map(|pack| pack.display_name.to_string())
+        .map(|pack| pack.autonym.to_string())
         .unwrap_or_else(|| app.config.dictionary_language.clone());
     let keyboard_layout_label = app.config.keyboard_layout.clone();
 
     vec![
         (
             SettingItem::TargetWpm,
-            "Target WPM".to_string(),
+            t!("settings.target_wpm").to_string(),
             format!("{}", app.config.target_wpm),
         ),
         (
             SettingItem::Theme,
-            "Theme".to_string(),
+            t!("settings.theme").to_string(),
             app.config.theme.clone(),
         ),
         (
             SettingItem::WordCount,
-            "Word Count".to_string(),
+            t!("settings.word_count").to_string(),
             format!("{}", app.config.word_count),
         ),
         (
+            SettingItem::UiLanguage,
+            t!("settings.ui_language").to_string(),
+            find_language_pack(&app.config.ui_language)
+                .map(|pack| pack.autonym.to_string())
+                .unwrap_or_else(|| app.config.ui_language.clone()),
+        ),
+        (
             SettingItem::DictionaryLanguage,
-            "Dictionary Language".to_string(),
+            t!("settings.dictionary_language").to_string(),
             dictionary_language_label,
         ),
         (
             SettingItem::KeyboardLayout,
-            "Keyboard Layout".to_string(),
+            t!("settings.keyboard_layout").to_string(),
             keyboard_layout_label,
         ),
         (
             SettingItem::CodeLanguage,
-            "Code Language".to_string(),
+            t!("settings.code_language").to_string(),
             app.config.code_language.clone(),
         ),
         (
             SettingItem::CodeDownloads,
-            "Code Downloads".to_string(),
+            t!("settings.code_downloads").to_string(),
             if app.config.code_downloads_enabled {
-                "On".to_string()
+                t!("settings.on").to_string()
             } else {
-                "Off".to_string()
+                t!("settings.off").to_string()
             },
         ),
         (
             SettingItem::CodeDownloadDir,
-            "Code Download Dir".to_string(),
+            t!("settings.code_download_dir").to_string(),
             app.config.code_download_dir.clone(),
         ),
         (
             SettingItem::SnippetsPerRepo,
-            "Snippets per Repo".to_string(),
+            t!("settings.snippets_per_repo").to_string(),
             if app.config.code_snippets_per_repo == 0 {
-                "Unlimited".to_string()
+                t!("settings.unlimited").to_string()
             } else {
                 format!("{}", app.config.code_snippets_per_repo)
             },
         ),
         (
             SettingItem::DownloadCodeNow,
-            "Download Code Now".to_string(),
-            "Run downloader".to_string(),
+            t!("settings.download_code_now").to_string(),
+            t!("settings.run_downloader").to_string(),
         ),
         (
             SettingItem::PassageDownloads,
-            "Passage Downloads".to_string(),
+            t!("settings.passage_downloads").to_string(),
             if app.config.passage_downloads_enabled {
-                "On".to_string()
+                t!("settings.on").to_string()
             } else {
-                "Off".to_string()
+                t!("settings.off").to_string()
             },
         ),
         (
             SettingItem::PassageDownloadDir,
-            "Passage Download Dir".to_string(),
+            t!("settings.passage_download_dir").to_string(),
             app.config.passage_download_dir.clone(),
         ),
         (
             SettingItem::ParagraphsPerBook,
-            "Paragraphs per Book".to_string(),
+            t!("settings.paragraphs_per_book").to_string(),
             if app.config.passage_paragraphs_per_book == 0 {
-                "Whole book".to_string()
+                t!("settings.whole_book").to_string()
             } else {
                 format!("{}", app.config.passage_paragraphs_per_book)
             },
         ),
         (
             SettingItem::DownloadPassagesNow,
-            "Download Passages Now".to_string(),
-            "Run downloader".to_string(),
+            t!("settings.download_passages_now").to_string(),
+            t!("settings.run_downloader").to_string(),
         ),
         (
             SettingItem::ExportPath,
-            "Export Path".to_string(),
+            t!("settings.export_path").to_string(),
             app.settings_export_path.clone(),
         ),
         (
             SettingItem::ExportData,
-            "Export Data".to_string(),
-            "Export now".to_string(),
+            t!("settings.export_data").to_string(),
+            t!("settings.export_now").to_string(),
         ),
         (
             SettingItem::ImportPath,
-            "Import Path".to_string(),
+            t!("settings.import_path").to_string(),
             app.settings_import_path.clone(),
         ),
         (
             SettingItem::ImportData,
-            "Import Data".to_string(),
-            "Import now".to_string(),
+            t!("settings.import_data").to_string(),
+            t!("settings.import_now").to_string(),
         ),
     ]
 }
@@ -1127,6 +1168,7 @@ fn handle_settings_mouse(app: &mut App, mouse: MouseEvent) {
             if mouse.column < dialog.x + dialog.width / 2 {
                 app.settings_confirm_import = false;
                 app.import_data();
+                i18n::set_ui_locale(&app.config.ui_language);
             } else {
                 app.settings_confirm_import = false;
             }
@@ -1139,10 +1181,13 @@ fn handle_settings_mouse(app: &mut App, mouse: MouseEvent) {
     let inner = Block::bordered().inner(centered);
     let fields = settings_fields(app);
     let header_height = if inner.height > 0 { 1 } else { 0 };
-    let footer_hints = vec![
-        "[ESC] Save & back",
-        "[Enter/arrows] Change value",
-        "[Enter on path] Edit",
+    let sfh_save = t!("settings.hint_save_back");
+    let sfh_change = t!("settings.hint_change_value");
+    let sfh_edit = t!("settings.hint_edit_path");
+    let footer_hints: Vec<&str> = vec![
+        sfh_save.as_ref(),
+        sfh_change.as_ref(),
+        sfh_edit.as_ref(),
     ];
     let footer_height = if inner.height > header_height {
         pack_hint_lines(&footer_hints, inner.width as usize)
@@ -1162,18 +1207,22 @@ fn handle_settings_mouse(app: &mut App, mouse: MouseEvent) {
         .split(inner);
 
     if is_click && layout[2].height > 0 {
+        let efh_move = t!("settings.hint_move");
+        let efh_tab = t!("settings.hint_tab_complete");
+        let efh_confirm = t!("settings.hint_confirm");
+        let efh_cancel = t!("settings.hint_cancel");
         let footer_hints: Vec<&str> = if app.settings_editing_path.is_some() {
             vec![
-                "[←→] Move",
-                "[Tab] Complete (at end)",
-                "[Enter] Confirm",
-                "[Esc] Cancel",
+                efh_move.as_ref(),
+                efh_tab.as_ref(),
+                efh_confirm.as_ref(),
+                efh_cancel.as_ref(),
             ]
         } else {
             vec![
-                "[ESC] Save & back",
-                "[Enter/arrows] Change value",
-                "[Enter on path] Edit",
+                sfh_save.as_ref(),
+                sfh_change.as_ref(),
+                sfh_edit.as_ref(),
             ]
         };
         if let Some(token) = hint_token_at(layout[2], &footer_hints, mouse.column, mouse.row) {
@@ -1462,6 +1511,7 @@ fn handle_stats_key(app: &mut App, key: KeyEvent) {
 
 fn activate_settings_selected(app: &mut App) {
     match SettingItem::from_index(app.settings_selected) {
+        SettingItem::UiLanguage => app.go_to_ui_language_select(),
         SettingItem::DictionaryLanguage => app.go_to_dictionary_language_select(),
         SettingItem::KeyboardLayout => app.go_to_keyboard_layout_select(),
         SettingItem::CodeDownloadDir => {
@@ -1539,6 +1589,7 @@ fn handle_settings_key(app: &mut App, key: KeyEvent) {
             KeyCode::Char('y') => {
                 app.settings_confirm_import = false;
                 app.import_data();
+                i18n::set_ui_locale(&app.config.ui_language);
             }
             KeyCode::Char('n') | KeyCode::Esc => {
                 app.settings_confirm_import = false;
@@ -1606,12 +1657,11 @@ fn is_dictionary_language_disabled(_app: &App, language_key: &str) -> bool {
 fn dictionary_language_list_area(area: Rect) -> Rect {
     let centered = ui::layout::centered_rect(60, 70, area);
     let inner = Block::bordered().inner(centered);
+    let h_nav = t!("select.hint_navigate");
+    let h_confirm = t!("select.hint_confirm");
+    let h_back = t!("select.hint_back");
     let hint_lines = pack_hint_lines(
-        &[
-            "[Up/Down/PgUp/PgDn] Navigate",
-            "[Enter] Confirm",
-            "[ESC] Back",
-        ],
+        &[h_nav.as_ref(), h_confirm.as_ref(), h_back.as_ref()],
         inner.width as usize,
     );
     let footer_height = (hint_lines.len() as u16).max(1);
@@ -1724,11 +1774,10 @@ fn handle_dictionary_language_mouse(app: &mut App, mouse: MouseEvent) {
             let area = terminal_area();
             let centered = ui::layout::centered_rect(60, 70, area);
             let inner = Block::bordered().inner(centered);
-            let hints = [
-                "[Up/Down/PgUp/PgDn] Navigate",
-                "[Enter] Confirm",
-                "[ESC] Back",
-            ];
+            let h_nav = t!("select.hint_navigate");
+            let h_confirm = t!("select.hint_confirm");
+            let h_back = t!("select.hint_back");
+            let hints: Vec<&str> = vec![h_nav.as_ref(), h_confirm.as_ref(), h_back.as_ref()];
             let footer_h = pack_hint_lines(&hints, inner.width as usize).len().max(1) as u16;
             let chunks = if inner.height > footer_h {
                 Some(
@@ -1784,6 +1833,65 @@ fn handle_dictionary_language_mouse(app: &mut App, mouse: MouseEvent) {
     }
 }
 
+// --- UI Language Select ---
+
+fn confirm_ui_language_selection(app: &mut App) {
+    let locales = i18n::SUPPORTED_UI_LOCALES;
+    if app.ui_language_selected >= locales.len() {
+        return;
+    }
+    let selected = locales[app.ui_language_selected];
+    app.config.ui_language = selected.to_string();
+    i18n::set_ui_locale(selected);
+    let _ = app.config.save();
+    app.go_to_settings();
+    app.settings_selected = SettingItem::UiLanguage.index();
+}
+
+fn handle_ui_language_key(app: &mut App, key: KeyEvent) {
+    let locales = i18n::SUPPORTED_UI_LOCALES;
+    let len = locales.len();
+    if len == 0 {
+        return;
+    }
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => {
+            app.go_to_settings();
+            app.settings_selected = SettingItem::UiLanguage.index();
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.ui_language_selected = app.ui_language_selected.saturating_sub(1);
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if app.ui_language_selected + 1 < len {
+                app.ui_language_selected += 1;
+            }
+        }
+        KeyCode::Enter => confirm_ui_language_selection(app),
+        _ => {}
+    }
+}
+
+fn handle_ui_language_mouse(app: &mut App, mouse: MouseEvent) {
+    let locales = i18n::SUPPORTED_UI_LOCALES;
+    if locales.is_empty() {
+        return;
+    }
+    match mouse.kind {
+        MouseEventKind::ScrollUp => {
+            app.ui_language_selected = app.ui_language_selected.saturating_sub(1);
+        }
+        MouseEventKind::ScrollDown => {
+            if app.ui_language_selected + 1 < locales.len() {
+                app.ui_language_selected += 1;
+            }
+        }
+        _ => {}
+    }
+}
+
+// --- Keyboard Layout ---
+
 fn is_keyboard_layout_disabled(layout_key: &str) -> bool {
     dictionary_languages_for_layout(layout_key).is_empty()
 }
@@ -1791,12 +1899,11 @@ fn is_keyboard_layout_disabled(layout_key: &str) -> bool {
 fn keyboard_layout_list_area(area: Rect) -> Rect {
     let centered = ui::layout::centered_rect(60, 70, area);
     let inner = Block::bordered().inner(centered);
+    let h_nav = t!("select.hint_navigate");
+    let h_confirm = t!("select.hint_confirm");
+    let h_back = t!("select.hint_back");
     let hint_lines = pack_hint_lines(
-        &[
-            "[Up/Down/PgUp/PgDn] Navigate",
-            "[Enter] Confirm",
-            "[ESC] Back",
-        ],
+        &[h_nav.as_ref(), h_confirm.as_ref(), h_back.as_ref()],
         inner.width as usize,
     );
     let footer_height = (hint_lines.len() as u16).max(1);
@@ -1896,11 +2003,10 @@ fn handle_keyboard_layout_mouse(app: &mut App, mouse: MouseEvent) {
             let area = terminal_area();
             let centered = ui::layout::centered_rect(60, 70, area);
             let inner = Block::bordered().inner(centered);
-            let hints = [
-                "[Up/Down/PgUp/PgDn] Navigate",
-                "[Enter] Confirm",
-                "[ESC] Back",
-            ];
+            let h_nav = t!("select.hint_navigate");
+            let h_confirm = t!("select.hint_confirm");
+            let h_back = t!("select.hint_back");
+            let hints: Vec<&str> = vec![h_nav.as_ref(), h_confirm.as_ref(), h_back.as_ref()];
             let footer_h = pack_hint_lines(&hints, inner.width as usize).len().max(1) as u16;
             let chunks = if inner.height > footer_h {
                 Some(
@@ -2012,16 +2118,15 @@ fn code_language_list_area(app: &App, area: Rect) -> Rect {
     let inner = Block::bordered().inner(centered);
     let options = code_language_options();
     let width = inner.width as usize;
+    let h_nav = t!("select.hint_navigate");
+    let h_confirm = t!("select.hint_confirm");
+    let h_back = t!("select.hint_back");
     let hint_lines = pack_hint_lines(
-        &[
-            "[Up/Down/PgUp/PgDn] Navigate",
-            "[Enter] Confirm",
-            "[ESC] Back",
-        ],
+        &[h_nav.as_ref(), h_confirm.as_ref(), h_back.as_ref()],
         width,
     );
-    let disabled_notice =
-        "  Some languages are disabled: enable network downloads in intro/settings.";
+    let disabled_notice_t = t!("select.disabled_network_notice");
+    let disabled_notice = disabled_notice_t.as_ref();
     let has_disabled = !app.config.code_downloads_enabled
         && options
             .iter()
@@ -2060,14 +2165,13 @@ fn handle_code_language_mouse(app: &mut App, mouse: MouseEvent) {
         MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right) => {
             let centered = ui::layout::centered_rect(50, 70, terminal_area());
             let inner = Block::bordered().inner(centered);
-            let hints = [
-                "[Up/Down/PgUp/PgDn] Navigate",
-                "[Enter] Confirm",
-                "[ESC] Back",
-            ];
+            let h_nav = t!("select.hint_navigate");
+            let h_confirm = t!("select.hint_confirm");
+            let h_back = t!("select.hint_back");
+            let hints: Vec<&str> = vec![h_nav.as_ref(), h_confirm.as_ref(), h_back.as_ref()];
             let hint_lines = pack_hint_lines(&hints, inner.width as usize);
-            let disabled_notice =
-                "  Some languages are disabled: enable network downloads in intro/settings.";
+            let disabled_notice_t = t!("select.disabled_network_notice");
+            let disabled_notice = disabled_notice_t.as_ref();
             let has_disabled = !app.config.code_downloads_enabled
                 && options
                     .iter()
@@ -2206,12 +2310,15 @@ fn passage_book_list_area(app: &App, area: Rect) -> Rect {
     let inner = Block::bordered().inner(centered);
     let options = passage_options();
     let width = inner.width as usize;
+    let h_nav_t = t!("select.hint_navigate");
+    let h_confirm_t = t!("select.hint_confirm");
+    let h_back_t = t!("select.hint_back");
     let hint_lines = pack_hint_lines(
-        &["[Up/Down] Navigate", "[Enter] Confirm", "[ESC] Back"],
+        &[h_nav_t.as_ref(), h_confirm_t.as_ref(), h_back_t.as_ref()],
         width,
     );
-    let disabled_notice =
-        "  Some sources are disabled: enable network downloads in intro/settings.";
+    let disabled_notice_t = t!("select.disabled_sources_notice");
+    let disabled_notice = disabled_notice_t.as_ref();
     let has_disabled = !app.config.passage_downloads_enabled
         && options
             .iter()
@@ -2249,10 +2356,13 @@ fn handle_passage_book_mouse(app: &mut App, mouse: MouseEvent) {
         MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right) => {
             let centered = ui::layout::centered_rect(60, 70, terminal_area());
             let inner = Block::bordered().inner(centered);
-            let hints = ["[Up/Down] Navigate", "[Enter] Confirm", "[ESC] Back"];
+            let h_nav = t!("select.hint_navigate");
+            let h_confirm = t!("select.hint_confirm");
+            let h_back = t!("select.hint_back");
+            let hints: Vec<&str> = vec![h_nav.as_ref(), h_confirm.as_ref(), h_back.as_ref()];
             let hint_lines = pack_hint_lines(&hints, inner.width as usize);
-            let disabled_notice =
-                "  Some sources are disabled: enable network downloads in intro/settings.";
+            let disabled_notice_t = t!("select.disabled_sources_notice");
+            let disabled_notice = disabled_notice_t.as_ref();
             let has_disabled = !app.config.passage_downloads_enabled
                 && options
                     .iter()
@@ -2433,14 +2543,13 @@ fn intro_field_at_row(base_y: u16, y: u16) -> Option<(usize, bool)> {
 fn passage_intro_content_area(area: Rect) -> Rect {
     let centered = ui::layout::centered_rect(75, 80, area);
     let inner = Block::bordered().inner(centered);
+    let ih_nav = t!("intro.hint_navigate");
+    let ih_adj = t!("intro.hint_adjust");
+    let ih_edit = t!("intro.hint_edit");
+    let ih_confirm = t!("intro.hint_confirm");
+    let ih_cancel = t!("intro.hint_cancel");
     let hint_lines = pack_hint_lines(
-        &[
-            "[Up/Down] Navigate",
-            "[Left/Right] Adjust",
-            "[Type/Backspace] Edit",
-            "[Enter] Confirm",
-            "[ESC] Cancel",
-        ],
+        &[ih_nav.as_ref(), ih_adj.as_ref(), ih_edit.as_ref(), ih_confirm.as_ref(), ih_cancel.as_ref()],
         inner.width as usize,
     );
     let footer_height = (hint_lines.len() + 1) as u16;
@@ -2469,13 +2578,12 @@ fn handle_passage_intro_mouse(app: &mut App, mouse: MouseEvent) {
         MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right) => {
             let centered = ui::layout::centered_rect(75, 80, terminal_area());
             let inner = Block::bordered().inner(centered);
-            let hints = [
-                "[Up/Down] Navigate",
-                "[Left/Right] Adjust",
-                "[Type/Backspace] Edit",
-                "[Enter] Confirm",
-                "[ESC] Cancel",
-            ];
+            let ih_nav = t!("intro.hint_navigate");
+            let ih_adj = t!("intro.hint_adjust");
+            let ih_edit = t!("intro.hint_edit");
+            let ih_confirm = t!("intro.hint_confirm");
+            let ih_cancel = t!("intro.hint_cancel");
+            let hints: Vec<&str> = vec![ih_nav.as_ref(), ih_adj.as_ref(), ih_edit.as_ref(), ih_confirm.as_ref(), ih_cancel.as_ref()];
             let hint_lines = pack_hint_lines(&hints, inner.width as usize);
             let footer_height = (hint_lines.len() + 1) as u16;
             if footer_height > 0 && footer_height < inner.height {
@@ -2650,14 +2758,13 @@ fn handle_code_intro_key(app: &mut App, key: KeyEvent) {
 fn code_intro_content_area(area: Rect) -> Rect {
     let centered = ui::layout::centered_rect(75, 80, area);
     let inner = Block::bordered().inner(centered);
+    let ih_nav = t!("intro.hint_navigate");
+    let ih_adj = t!("intro.hint_adjust");
+    let ih_edit = t!("intro.hint_edit");
+    let ih_confirm = t!("intro.hint_confirm");
+    let ih_cancel = t!("intro.hint_cancel");
     let hint_lines = pack_hint_lines(
-        &[
-            "[Up/Down] Navigate",
-            "[Left/Right] Adjust",
-            "[Type/Backspace] Edit",
-            "[Enter] Confirm",
-            "[ESC] Cancel",
-        ],
+        &[ih_nav.as_ref(), ih_adj.as_ref(), ih_edit.as_ref(), ih_confirm.as_ref(), ih_cancel.as_ref()],
         inner.width as usize,
     );
     let footer_height = (hint_lines.len() + 1) as u16;
@@ -2686,13 +2793,12 @@ fn handle_code_intro_mouse(app: &mut App, mouse: MouseEvent) {
         MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right) => {
             let centered = ui::layout::centered_rect(75, 80, terminal_area());
             let inner = Block::bordered().inner(centered);
-            let hints = [
-                "[Up/Down] Navigate",
-                "[Left/Right] Adjust",
-                "[Type/Backspace] Edit",
-                "[Enter] Confirm",
-                "[ESC] Cancel",
-            ];
+            let ih_nav = t!("intro.hint_navigate");
+            let ih_adj = t!("intro.hint_adjust");
+            let ih_edit = t!("intro.hint_edit");
+            let ih_confirm = t!("intro.hint_confirm");
+            let ih_cancel = t!("intro.hint_cancel");
+            let hints: Vec<&str> = vec![ih_nav.as_ref(), ih_adj.as_ref(), ih_edit.as_ref(), ih_confirm.as_ref(), ih_cancel.as_ref()];
             let hint_lines = pack_hint_lines(&hints, inner.width as usize);
             let footer_height = (hint_lines.len() + 1) as u16;
             if footer_height > 0 && footer_height < inner.height {
@@ -2859,10 +2965,7 @@ struct SkillTreeMouseLayout {
 }
 
 fn locked_branch_notice(app: &App) -> String {
-    format!(
-        "Complete {} primary letters to unlock branches",
-        app.skill_tree.primary_letters().len()
-    )
+    t!("skill_tree.locked_notice", count = app.skill_tree.primary_letters().len()).to_string()
 }
 
 fn skill_tree_interactive_areas(app: &App, area: Rect) -> SkillTreeMouseLayout {
@@ -2875,39 +2978,44 @@ fn skill_tree_interactive_areas(app: &App, area: Rect) -> SkillTreeMouseLayout {
     let bp = branches
         .get(selected)
         .map(|id| app.skill_tree.branch_progress(*id));
+    let st_nav = t!("skill_tree.hint_navigate");
+    let st_scroll = t!("skill_tree.hint_scroll");
+    let st_back = t!("skill_tree.hint_back");
+    let st_unlock = t!("skill_tree.hint_unlock");
+    let st_drill = t!("skill_tree.hint_start_drill");
     let (footer_hints, footer_notice): (Vec<&str>, Option<String>) =
         match bp.map(|b| b.status.clone()) {
             Some(BranchStatus::Locked) => (
                 vec![
-                    "[↑↓/jk] Navigate",
-                    "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                    "[q] Back",
+                    st_nav.as_ref(),
+                    st_scroll.as_ref(),
+                    st_back.as_ref(),
                 ],
                 Some(locked_branch_notice(app)),
             ),
             Some(BranchStatus::Available) => (
                 vec![
-                    "[Enter] Unlock",
-                    "[↑↓/jk] Navigate",
-                    "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                    "[q] Back",
+                    st_unlock.as_ref(),
+                    st_nav.as_ref(),
+                    st_scroll.as_ref(),
+                    st_back.as_ref(),
                 ],
                 None,
             ),
             Some(BranchStatus::InProgress) => (
                 vec![
-                    "[Enter] Start Drill",
-                    "[↑↓/jk] Navigate",
-                    "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                    "[q] Back",
+                    st_drill.as_ref(),
+                    st_nav.as_ref(),
+                    st_scroll.as_ref(),
+                    st_back.as_ref(),
                 ],
                 None,
             ),
             _ => (
                 vec![
-                    "[↑↓/jk] Navigate",
-                    "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                    "[q] Back",
+                    st_nav.as_ref(),
+                    st_scroll.as_ref(),
+                    st_back.as_ref(),
                 ],
                 None,
             ),
@@ -3061,44 +3169,49 @@ fn handle_skill_tree_mouse(app: &mut App, mouse: MouseEvent) {
                 .skill_tree_selected
                 .min(branches.len().saturating_sub(1));
             let bp = app.skill_tree.branch_progress(branches[selected]);
+            let st_nav = t!("skill_tree.hint_navigate");
+            let st_scroll = t!("skill_tree.hint_scroll");
+            let st_back = t!("skill_tree.hint_back");
+            let st_unlock = t!("skill_tree.hint_unlock");
+            let st_drill = t!("skill_tree.hint_start_drill");
             let (footer_hints, footer_notice): (Vec<&str>, Option<String>) =
                 if *app.skill_tree.branch_status(branches[selected])
                     == engine::skill_tree::BranchStatus::Locked
                 {
                     (
                         vec![
-                            "[↑↓/jk] Navigate",
-                            "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                            "[q] Back",
+                            st_nav.as_ref(),
+                            st_scroll.as_ref(),
+                            st_back.as_ref(),
                         ],
                         Some(locked_branch_notice(app)),
                     )
                 } else if bp.status == engine::skill_tree::BranchStatus::Available {
                     (
                         vec![
-                            "[Enter] Unlock",
-                            "[↑↓/jk] Navigate",
-                            "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                            "[q] Back",
+                            st_unlock.as_ref(),
+                            st_nav.as_ref(),
+                            st_scroll.as_ref(),
+                            st_back.as_ref(),
                         ],
                         None,
                     )
                 } else if bp.status == engine::skill_tree::BranchStatus::InProgress {
                     (
                         vec![
-                            "[Enter] Start Drill",
-                            "[↑↓/jk] Navigate",
-                            "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                            "[q] Back",
+                            st_drill.as_ref(),
+                            st_nav.as_ref(),
+                            st_scroll.as_ref(),
+                            st_back.as_ref(),
                         ],
                         None,
                     )
                 } else {
                     (
                         vec![
-                            "[↑↓/jk] Navigate",
-                            "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                            "[q] Back",
+                            st_nav.as_ref(),
+                            st_scroll.as_ref(),
+                            st_back.as_ref(),
                         ],
                         None,
                     )
@@ -3216,44 +3329,49 @@ fn skill_tree_detail_max_scroll(app: &App) -> usize {
         .skill_tree_selected
         .min(branches.len().saturating_sub(1));
     let bp = app.skill_tree.branch_progress(branches[selected]);
+    let st_nav = t!("skill_tree.hint_navigate");
+    let st_scroll = t!("skill_tree.hint_scroll");
+    let st_back = t!("skill_tree.hint_back");
+    let st_unlock = t!("skill_tree.hint_unlock");
+    let st_drill = t!("skill_tree.hint_start_drill");
     let (footer_hints, footer_notice): (Vec<&str>, Option<String>) =
         if *app.skill_tree.branch_status(branches[selected])
             == engine::skill_tree::BranchStatus::Locked
         {
             (
                 vec![
-                    "[↑↓/jk] Navigate",
-                    "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                    "[q] Back",
+                    st_nav.as_ref(),
+                    st_scroll.as_ref(),
+                    st_back.as_ref(),
                 ],
                 Some(locked_branch_notice(app)),
             )
         } else if bp.status == engine::skill_tree::BranchStatus::Available {
             (
                 vec![
-                    "[Enter] Unlock",
-                    "[↑↓/jk] Navigate",
-                    "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                    "[q] Back",
+                    st_unlock.as_ref(),
+                    st_nav.as_ref(),
+                    st_scroll.as_ref(),
+                    st_back.as_ref(),
                 ],
                 None,
             )
         } else if bp.status == engine::skill_tree::BranchStatus::InProgress {
             (
                 vec![
-                    "[Enter] Start Drill",
-                    "[↑↓/jk] Navigate",
-                    "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                    "[q] Back",
+                    st_drill.as_ref(),
+                    st_nav.as_ref(),
+                    st_scroll.as_ref(),
+                    st_back.as_ref(),
                 ],
                 None,
             )
         } else {
             (
                 vec![
-                    "[↑↓/jk] Navigate",
-                    "[PgUp/PgDn or Ctrl+U/Ctrl+D] Scroll",
-                    "[q] Back",
+                    st_nav.as_ref(),
+                    st_scroll.as_ref(),
+                    st_back.as_ref(),
                 ],
                 None,
             )
@@ -3337,6 +3455,7 @@ fn render(frame: &mut ratatui::Frame, app: &App) {
         AppScreen::CodeIntro => render_code_intro(frame, app),
         AppScreen::CodeDownloadProgress => render_code_download_progress(frame, app),
         AppScreen::Keyboard => render_keyboard_explorer(frame, app),
+        AppScreen::UiLanguageSelect => render_ui_language_select(frame, app),
     }
 }
 
@@ -3344,13 +3463,19 @@ fn render_menu(frame: &mut ratatui::Frame, app: &App) {
     let area = frame.area();
     let colors = &app.theme.colors;
 
-    let menu_hints = [
-        "[1-3] Start",
-        "[t] Skill Tree",
-        "[b] Keyboard",
-        "[s] Stats",
-        "[c] Settings",
-        "[q] Quit",
+    let mh_start = t!("menu.hint_start");
+    let mh_tree = t!("menu.hint_skill_tree");
+    let mh_kbd = t!("menu.hint_keyboard");
+    let mh_stats = t!("menu.hint_stats");
+    let mh_settings = t!("menu.hint_settings");
+    let mh_quit = t!("menu.hint_quit");
+    let menu_hints: Vec<&str> = vec![
+        mh_start.as_ref(),
+        mh_tree.as_ref(),
+        mh_kbd.as_ref(),
+        mh_stats.as_ref(),
+        mh_settings.as_ref(),
+        mh_quit.as_ref(),
     ];
     let footer_lines_vec = pack_hint_lines(&menu_hints, area.width as usize);
     let footer_line_count = footer_lines_vec.len().max(1) as u16;
@@ -3365,16 +3490,20 @@ fn render_menu(frame: &mut ratatui::Frame, app: &App) {
         .split(area);
 
     let streak_text = if app.profile.streak_days > 0 {
-        format!(" | {} day streak", app.profile.streak_days)
+        t!("menu.day_streak", days = app.profile.streak_days).to_string()
     } else {
         String::new()
     };
     let total_keys = app.skill_tree.total_unique_keys;
     let unlocked = app.skill_tree.total_unlocked_count();
     let mastered = app.skill_tree.total_confident_keys(&app.ranked_key_stats);
-    let header_info = format!(
-        " Key Progress {unlocked}/{total_keys} ({mastered} mastered) | Target {} WPM{}",
-        app.config.target_wpm, streak_text,
+    let header_info = t!(
+        "menu.key_progress",
+        unlocked = unlocked,
+        total = total_keys,
+        mastered = mastered,
+        target = app.config.target_wpm,
+        streak = streak_text,
     );
     let header = Paragraph::new(Line::from(vec![
         Span::styled(
@@ -3385,7 +3514,7 @@ fn render_menu(frame: &mut ratatui::Frame, app: &App) {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            &*header_info,
+            header_info.as_ref(),
             Style::default()
                 .fg(colors.text_pending())
                 .bg(colors.header_bg()),
@@ -3418,21 +3547,24 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
         let app_layout = AppLayout::new(area);
         let tier = app_layout.tier;
 
-        let mode_name = match app.drill_mode {
-            DrillMode::Adaptive => "Adaptive",
-            DrillMode::Code => "Code (Unranked)",
-            DrillMode::Passage => "Passage (Unranked)",
+        let mode_name_t = match app.drill_mode {
+            DrillMode::Adaptive => t!("drill.mode_adaptive"),
+            DrillMode::Code => t!("drill.mode_code"),
+            DrillMode::Passage => t!("drill.mode_passage"),
         };
+        let mode_name = mode_name_t.as_ref();
 
         // Compute focus text from stored selection (what generated this drill's text)
         let focus_text = if let Some(ref focus) = app.current_focus {
             match (&focus.char_focus, &focus.bigram_focus) {
                 (Some(ch), Some((key, _, _))) => {
-                    format!(" | Focus: '{ch}' + \"{}{}\"", key.0[0], key.0[1])
+                    let bigram = format!("{}{}", key.0[0], key.0[1]);
+                    format!(" | {}", t!("drill.focus_both", ch = ch, bigram = bigram))
                 }
-                (Some(ch), None) => format!(" | Focus: '{ch}'"),
+                (Some(ch), None) => format!(" | {}", t!("drill.focus_char", ch = ch)),
                 (None, Some((key, _, _))) => {
-                    format!(" | Focus: \"{}{}\"", key.0[0], key.0[1])
+                    let bigram = format!("{}{}", key.0[0], key.0[1]);
+                    format!(" | {}", t!("drill.focus_bigram", bigram = bigram))
                 }
                 (None, None) => String::new(),
             }
@@ -3445,8 +3577,11 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
             let wpm = drill.wpm();
             let accuracy = drill.accuracy();
             let errors = drill.typo_count();
+            let wpm_label = t!("drill.header_wpm");
+            let acc_label = t!("drill.header_acc");
+            let err_label = t!("drill.header_err");
             let header_text = format!(
-                " {mode_name} | WPM: {wpm:.0} | Acc: {accuracy:.1}% | Err: {errors}{focus_text}"
+                " {mode_name} | {wpm_label}: {wpm:.0} | {acc_label}: {accuracy:.1}% | {err_label}: {errors}{focus_text}"
             );
             let header = Paragraph::new(Line::from(Span::styled(
                 &*header_text,
@@ -3458,7 +3593,7 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
             .style(Style::default().bg(colors.header_bg()));
             frame.render_widget(header, app_layout.header);
         } else {
-            let header_title = format!(" {mode_name} Drill ");
+            let header_title = format!(" {mode_name}{}", t!("drill.title"));
             let header = Paragraph::new(Line::from(vec![
                 Span::styled(
                     &*header_title,
@@ -3565,11 +3700,12 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
                 frame.render_widget(progress_widget, main_layout[idx]);
             } else {
                 let source = app.drill_source_info.as_deref().unwrap_or("unknown source");
-                let label = if app.drill_mode == DrillMode::Code {
-                    " Code source "
+                let label_t = if app.drill_mode == DrillMode::Code {
+                    t!("drill.code_source")
                 } else {
-                    " Passage source "
+                    t!("drill.passage_source")
                 };
+                let label = label_t.as_ref();
                 let source_info = Paragraph::new(Line::from(vec![
                     Span::styled(
                         label,
@@ -3611,15 +3747,16 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
             frame.render_widget(sidebar, sidebar_area);
         }
 
+        let drill_footer_text = t!("drill.footer");
         let footer = Paragraph::new(Line::from(Span::styled(
-            " [ESC] End drill  [Backspace] Delete ",
+            format!(" {} ", drill_footer_text),
             Style::default().fg(colors.text_pending()),
         )));
         frame.render_widget(footer, app_layout.footer);
 
         // Show a brief countdown overlay while the post-drill input lock is active.
         if let Some(ms) = app.post_drill_input_lock_remaining_ms() {
-            let msg = format!("Keys re-enabled in {}ms", ms);
+            let msg = t!("drill.keys_reenabled", ms = ms).to_string();
             let width = msg.len() as u16 + 4; // border + padding
             let height = 3;
             let x = area.x + area.width.saturating_sub(width) / 2;
@@ -3680,17 +3817,17 @@ fn render_milestone_overlay(
     // Clear the area behind the overlay
     frame.render_widget(ratatui::widgets::Clear, overlay_area);
 
-    let title = match milestone.kind {
-        MilestoneKind::Unlock => " Key Unlocked! ",
-        MilestoneKind::Mastery => " Key Mastered! ",
-        MilestoneKind::BranchesAvailable => " New Skill Branches Available! ",
-        MilestoneKind::BranchComplete => " Branch Complete! ",
-        MilestoneKind::AllKeysUnlocked => " Every Key Unlocked! ",
-        MilestoneKind::AllKeysMastered => " Full Keyboard Mastery! ",
+    let title_t = match milestone.kind {
+        MilestoneKind::Unlock => t!("milestones.unlock_title"),
+        MilestoneKind::Mastery => t!("milestones.mastery_title"),
+        MilestoneKind::BranchesAvailable => t!("milestones.branches_title"),
+        MilestoneKind::BranchComplete => t!("milestones.branch_complete_title"),
+        MilestoneKind::AllKeysUnlocked => t!("milestones.all_unlocked_title"),
+        MilestoneKind::AllKeysMastered => t!("milestones.all_mastered_title"),
     };
 
     let block = Block::bordered()
-        .title(title)
+        .title(title_t.as_ref())
         .border_style(Style::default().fg(colors.accent()))
         .style(Style::default().bg(colors.bg()));
     let inner = block.inner(overlay_area);
@@ -3700,10 +3837,11 @@ fn render_milestone_overlay(
 
     match milestone.kind {
         MilestoneKind::Unlock | MilestoneKind::Mastery => {
-            let key_action = match milestone.kind {
-                MilestoneKind::Unlock => "unlocked",
-                _ => "mastered",
+            let key_action_t = match milestone.kind {
+                MilestoneKind::Unlock => t!("milestones.unlocked"),
+                _ => t!("milestones.mastered"),
             };
+            let key_action = key_action_t.as_ref();
 
             let key_names: Vec<String> = milestone
                 .keys
@@ -3738,8 +3876,9 @@ fn render_milestone_overlay(
                             name.to_string()
                         }
                     };
+                    let use_finger_msg = t!("milestones.use_finger", finger = finger_desc.as_str());
                     lines.push(Line::from(Span::styled(
-                        format!("  {key_label}: Use your {finger_desc}"),
+                        format!("  {key_label}: {use_finger_msg}"),
                         Style::default().fg(colors.fg()),
                     )));
 
@@ -3753,9 +3892,9 @@ fn render_milestone_overlay(
                             && *ch != ' ')
                     {
                         let shift_hint = if fa.hand == keyboard::finger::Hand::Left {
-                            "Hold Right Shift (right pinky)"
+                            t!("milestones.hold_right_shift")
                         } else {
-                            "Hold Left Shift (left pinky)"
+                            t!("milestones.hold_left_shift")
                         };
                         lines.push(Line::from(Span::styled(
                             format!("  {shift_hint}"),
@@ -3776,124 +3915,137 @@ fn render_milestone_overlay(
         MilestoneKind::BranchesAvailable => {
             lines.push(Line::from(""));
             let primary_count = app.skill_tree.primary_letters().len();
+            let congrats_msg = t!("milestones.congratulations_all_letters", count = primary_count);
             lines.push(Line::from(Span::styled(
-                format!("  Congratulations! You've mastered all {primary_count} primary letters"),
+                format!("  {congrats_msg}"),
                 Style::default()
                     .fg(colors.accent())
                     .add_modifier(Modifier::BOLD),
             )));
             lines.push(Line::from(""));
+            let new_branches = t!("milestones.new_branches_available");
             lines.push(Line::from(Span::styled(
-                "  New skill branches are now available:",
+                format!("  {new_branches}"),
                 Style::default().fg(colors.fg()),
             )));
             for &branch_id in &milestone.branch_ids {
-                let name = get_branch_definition(branch_id).name;
+                let name = get_branch_definition(branch_id).display_name();
                 lines.push(Line::from(Span::styled(
                     format!("    \u{2022} {name}"),
                     Style::default().fg(colors.focused_key()),
                 )));
             }
             lines.push(Line::from(""));
+            let visit_msg = t!("milestones.visit_skill_tree");
             lines.push(Line::from(Span::styled(
-                "  Visit the Skill Tree to unlock a new branch",
+                format!("  {visit_msg}"),
                 Style::default().fg(colors.fg()),
             )));
+            let and_start = t!("milestones.and_start_training");
             lines.push(Line::from(Span::styled(
-                "  and start training!",
+                format!("  {and_start}"),
                 Style::default().fg(colors.fg()),
             )));
             lines.push(Line::from(""));
+            let open_tree = t!("milestones.open_skill_tree");
             lines.push(Line::from(Span::styled(
-                "  Press [t] to open the Skill Tree now",
+                format!("  {open_tree}"),
                 Style::default().fg(colors.text_pending()),
             )));
         }
 
         MilestoneKind::BranchComplete => {
             lines.push(Line::from(""));
-            let branch_names: Vec<&str> = milestone
+            let branch_names: Vec<String> = milestone
                 .branch_ids
                 .iter()
-                .map(|&id| get_branch_definition(id).name)
+                .map(|&id| get_branch_definition(id).display_name())
                 .collect();
-            let branches_text = if branch_names.len() == 1 {
-                format!("  You've fully mastered the {} branch!", branch_names[0])
+            let branch_text = if branch_names.len() == 1 {
+                branch_names[0].to_string()
             } else {
                 let all_but_last = &branch_names[..branch_names.len() - 1];
-                let last = branch_names[branch_names.len() - 1];
-                format!(
-                    "  You've fully mastered the {} and {} branches!",
-                    all_but_last.join(", "),
-                    last
-                )
+                let last = &branch_names[branch_names.len() - 1];
+                format!("{} and {}", all_but_last.join(", "), last)
             };
+            let complete_msg = t!("milestones.branch_complete_msg", branch = branch_text);
             lines.push(Line::from(Span::styled(
-                branches_text,
+                format!("  {complete_msg}"),
                 Style::default()
                     .fg(colors.accent())
                     .add_modifier(Modifier::BOLD),
             )));
             lines.push(Line::from(""));
+            let visit_msg = t!("milestones.visit_skill_tree");
             lines.push(Line::from(Span::styled(
-                "  Other branches are waiting to be unlocked in the",
+                format!("  {visit_msg}"),
                 Style::default().fg(colors.fg()),
             )));
+            let and_start = t!("milestones.and_start_training");
             lines.push(Line::from(Span::styled(
-                "  Skill Tree. Keep going!",
+                format!("  {and_start}"),
                 Style::default().fg(colors.fg()),
             )));
             lines.push(Line::from(""));
+            let open_tree = t!("milestones.open_skill_tree");
             lines.push(Line::from(Span::styled(
-                "  Press [t] to open the Skill Tree now",
+                format!("  {open_tree}"),
                 Style::default().fg(colors.text_pending()),
             )));
         }
 
         MilestoneKind::AllKeysUnlocked => {
             lines.push(Line::from(""));
+            let unlocked_msg = t!("milestones.all_unlocked_msg");
             lines.push(Line::from(Span::styled(
-                "  You've unlocked every key on the keyboard!",
+                format!("  {unlocked_msg}"),
                 Style::default()
                     .fg(colors.accent())
                     .add_modifier(Modifier::BOLD),
             )));
             lines.push(Line::from(""));
+            let desc = t!("milestones.all_unlocked_desc");
             lines.push(Line::from(Span::styled(
-                "  All keys are now part of your practice drills.",
+                format!("  {desc}"),
                 Style::default().fg(colors.fg()),
             )));
+            let keep_practicing = t!("milestones.keep_practicing_mastery");
             lines.push(Line::from(Span::styled(
-                "  Keep training to build full confidence with each",
+                format!("  {keep_practicing}"),
                 Style::default().fg(colors.fg()),
             )));
+            let confidence = t!("milestones.confidence_complete");
             lines.push(Line::from(Span::styled(
-                "  key!",
+                format!("  {confidence}"),
                 Style::default().fg(colors.fg()),
             )));
         }
 
         MilestoneKind::AllKeysMastered => {
             lines.push(Line::from(""));
+            let mastered_msg = t!("milestones.all_mastered_msg");
             lines.push(Line::from(Span::styled(
-                "  Incredible! You've reached full confidence with",
+                format!("  {mastered_msg}"),
                 Style::default()
                     .fg(colors.accent())
                     .add_modifier(Modifier::BOLD),
             )));
+            let mastered_desc = t!("milestones.all_mastered_desc");
             lines.push(Line::from(Span::styled(
-                "  every single key on the keyboard!",
+                format!("  {mastered_desc}"),
                 Style::default()
                     .fg(colors.accent())
                     .add_modifier(Modifier::BOLD),
             )));
             lines.push(Line::from(""));
+            let takes_practice = t!("milestones.mastery_takes_practice");
             lines.push(Line::from(Span::styled(
-                "  You've completed everything keydr has to teach.",
+                format!("  {takes_practice}"),
                 Style::default().fg(colors.fg()),
             )));
+            let keep_drilling = t!("milestones.keep_drilling");
             lines.push(Line::from(Span::styled(
-                "  Keep practicing to maintain your skills!",
+                format!("  {keep_drilling}"),
                 Style::default().fg(colors.fg()),
             )));
         }
@@ -3941,11 +4093,11 @@ fn render_milestone_overlay(
     if footer_y < inner.y + inner.height {
         let footer_area = Rect::new(inner.x, footer_y, inner.width, 1);
         let footer_text = if let Some(ms) = app.post_drill_input_lock_remaining_ms() {
-            format!("  Input temporarily blocked ({ms}ms remaining)")
+            format!("  {}", t!("milestones.input_blocked", ms = ms))
         } else if milestone_supports_skill_tree_shortcut(milestone) {
-            "  [t] Open Skill Tree  [Any other key] Continue".to_string()
+            format!("  {}", t!("milestones.hint_skill_tree_continue"))
         } else {
-            "  Press any key to continue".to_string()
+            format!("  {}", t!("milestones.hint_any_key"))
         };
         let footer = Paragraph::new(Line::from(Span::styled(
             footer_text,
@@ -4019,7 +4171,7 @@ mod review_tests {
                 kind: crate::app::MilestoneKind::Unlock,
                 keys: vec!['a'],
                 finger_info: vec![('a', "left pinky".to_string())],
-                message: "msg",
+                message: "msg".to_string(),
                 branch_ids: vec![],
             });
 
@@ -4043,7 +4195,7 @@ mod review_tests {
                 kind: crate::app::MilestoneKind::Unlock,
                 keys: vec!['a'],
                 finger_info: vec![('a', "left pinky".to_string())],
-                message: "msg1",
+                message: "msg1".to_string(),
                 branch_ids: vec![],
             });
         app.milestone_queue
@@ -4051,7 +4203,7 @@ mod review_tests {
                 kind: crate::app::MilestoneKind::Mastery,
                 keys: vec!['a'],
                 finger_info: vec![('a', "left pinky".to_string())],
-                message: "msg2",
+                message: "msg2".to_string(),
                 branch_ids: vec![],
             });
 
@@ -4102,7 +4254,7 @@ mod review_tests {
                 kind: crate::app::MilestoneKind::Unlock,
                 keys: vec!['a'],
                 finger_info: vec![('a', "left pinky".to_string())],
-                message: "msg",
+                message: "msg".to_string(),
                 branch_ids: vec![],
             });
         app.post_drill_input_lock_until =
@@ -4125,7 +4277,7 @@ mod review_tests {
                 kind: crate::app::MilestoneKind::BranchesAvailable,
                 keys: vec![],
                 finger_info: vec![],
-                message: "msg",
+                message: "msg".to_string(),
                 branch_ids: vec![engine::skill_tree::BranchId::Capitals],
             });
 
@@ -5268,7 +5420,7 @@ mod review_tests {
                 kind: crate::app::MilestoneKind::BranchesAvailable,
                 keys: vec![],
                 finger_info: vec![],
-                message: "msg",
+                message: "msg".to_string(),
                 branch_ids: vec![engine::skill_tree::BranchId::Capitals],
             });
 
@@ -5351,20 +5503,21 @@ fn render_result(frame: &mut ratatui::Frame, app: &App) {
             let dialog_area = Rect::new(dialog_x, dialog_y, dialog_width, dialog_height);
 
             let idx = app.drill_history.len().saturating_sub(app.history_selected);
-            let dialog_text = format!("Delete session #{idx}? (y/n)");
+            let dialog_text = t!("stats.delete_confirm", idx = idx);
 
             frame.render_widget(ratatui::widgets::Clear, dialog_area);
+            let confirm_title = t!("stats.confirm_title");
             let dialog = Paragraph::new(vec![
                 Line::from(""),
                 Line::from(Span::styled(
-                    format!("  {dialog_text}  "),
+                    format!("  {}  ", dialog_text),
                     Style::default().fg(colors.fg()),
                 )),
             ])
             .style(Style::default().bg(colors.bg()))
             .block(
                 Block::bordered()
-                    .title(" Confirm ")
+                    .title(confirm_title.as_ref())
                     .border_style(Style::default().fg(colors.error()))
                     .style(Style::default().bg(colors.bg())),
             );
@@ -5488,8 +5641,9 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
 
     let centered = ui::layout::centered_rect(60, 80, area);
 
+    let settings_title = t!("settings.title");
     let block = Block::bordered()
-        .title(" Settings ")
+        .title(settings_title.as_ref())
         .border_style(Style::default().fg(colors.accent()))
         .style(Style::default().bg(colors.bg()));
     let inner = block.inner(centered);
@@ -5505,12 +5659,19 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
         .as_ref()
         .map(|(_, input)| input.completion_error)
         .unwrap_or(false);
+    let fh_move = t!("settings.hint_move");
+    let fh_tab = t!("settings.hint_tab_complete");
+    let fh_confirm = t!("settings.hint_confirm");
+    let fh_cancel = t!("settings.hint_cancel");
+    let fh_save = t!("settings.hint_save_back");
+    let fh_change = t!("settings.hint_change_value");
+    let fh_edit = t!("settings.hint_edit_path");
     let footer_hints: Vec<&str> = if app.is_editing_path() {
         let mut hints = vec![
-            "[←→] Move",
-            "[Tab] Complete (at end)",
-            "[Enter] Confirm",
-            "[Esc] Cancel",
+            fh_move.as_ref(),
+            fh_tab.as_ref(),
+            fh_confirm.as_ref(),
+            fh_cancel.as_ref(),
         ];
         if completion_error {
             hints.push("(cannot read directory)");
@@ -5518,9 +5679,9 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
         hints
     } else {
         vec![
-            "[ESC] Save & back",
-            "[Enter/arrows] Change value",
-            "[Enter on path] Edit",
+            fh_save.as_ref(),
+            fh_change.as_ref(),
+            fh_edit.as_ref(),
         ]
     };
     let footer_packed = pack_hint_lines(&footer_hints, inner.width as usize);
@@ -5541,8 +5702,9 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
         ])
         .split(inner);
 
+    let subtitle = t!("settings.subtitle");
     let header = Paragraph::new(Line::from(Span::styled(
-        "  Use arrows to navigate, Enter/Right to change, ESC to save & exit",
+        format!("  {subtitle}"),
         Style::default().fg(colors.text_pending()),
     )));
     header.render(layout[0], frame.buffer_mut());
@@ -5659,10 +5821,11 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
             StatusKind::Success => colors.accent(),
             StatusKind::Error => colors.error(),
         };
-        let title = match msg.kind {
-            StatusKind::Success => " Success ",
-            StatusKind::Error => " Error ",
+        let title_t = match msg.kind {
+            StatusKind::Success => t!("settings.success_title"),
+            StatusKind::Error => t!("settings.error_title"),
         };
+        let title = title_t.as_ref();
         let dialog_width = 56u16.min(area.width.saturating_sub(4));
         let dialog_height = 6u16;
         let dialog_x = area.x + area.width.saturating_sub(dialog_width) / 2;
@@ -5678,7 +5841,7 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
             )),
             Line::from(""),
             Line::from(Span::styled(
-                "  Press any key",
+                format!("  {}", t!("settings.press_any_key")),
                 Style::default().fg(colors.text_pending()),
             )),
         ])
@@ -5699,25 +5862,28 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
         let dialog_area = Rect::new(dialog_x, dialog_y, dialog_width, dialog_height);
 
         frame.render_widget(ratatui::widgets::Clear, dialog_area);
+        let file_exists_msg = t!("settings.file_exists");
+        let overwrite_rename = t!("settings.overwrite_rename");
         let dialog = Paragraph::new(vec![
             Line::from(""),
             Line::from(Span::styled(
-                "  A file already exists at this path.",
+                format!("  {file_exists_msg}"),
                 Style::default().fg(colors.fg()),
             )),
             Line::from(""),
             Line::from(Span::styled(
-                "  [d] Overwrite  [r] Rename  [Esc] Cancel",
+                format!("  {overwrite_rename}"),
                 Style::default().fg(colors.text_pending()),
             )),
         ])
         .style(Style::default().bg(colors.bg()))
-        .block(
+        .block({
+            let fe_title = t!("settings.file_exists_title");
             Block::bordered()
-                .title(" File Exists ")
+                .title(fe_title.to_string())
                 .border_style(Style::default().fg(colors.error()))
-                .style(Style::default().bg(colors.bg())),
-        );
+                .style(Style::default().bg(colors.bg()))
+        });
         frame.render_widget(dialog, dialog_area);
     } else if app.settings_confirm_import {
         let dialog_width = 52u16.min(area.width.saturating_sub(4));
@@ -5727,29 +5893,33 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
         let dialog_area = Rect::new(dialog_x, dialog_y, dialog_width, dialog_height);
 
         frame.render_widget(ratatui::widgets::Clear, dialog_area);
+        let erase_warning = t!("settings.erase_warning");
+        let export_first = t!("settings.export_first");
+        let proceed_yn = t!("settings.proceed_yn");
         let dialog = Paragraph::new(vec![
             Line::from(""),
             Line::from(Span::styled(
-                "  This will erase your current data.",
+                format!("  {erase_warning}"),
                 Style::default().fg(colors.fg()),
             )),
             Line::from(Span::styled(
-                "  Export first if you want to keep it.",
+                format!("  {export_first}"),
                 Style::default().fg(colors.text_pending()),
             )),
             Line::from(""),
             Line::from(Span::styled(
-                "  Proceed? (y/n)",
+                format!("  {proceed_yn}"),
                 Style::default().fg(colors.fg()),
             )),
         ])
         .style(Style::default().bg(colors.bg()))
-        .block(
+        .block({
+            let ci_title = t!("settings.confirm_import_title");
             Block::bordered()
-                .title(" Confirm Import ")
+                .title(ci_title.to_string())
                 .border_style(Style::default().fg(colors.error()))
-                .style(Style::default().bg(colors.bg())),
-        );
+                .style(Style::default().bg(colors.bg()))
+        });
         frame.render_widget(dialog, dialog_area);
     }
 }
@@ -5759,21 +5929,21 @@ fn render_dictionary_language_select(frame: &mut ratatui::Frame, app: &App) {
     let colors = &app.theme.colors;
     let centered = ui::layout::centered_rect(60, 70, area);
 
+    let sel_title = t!("select.dictionary_language_title");
     let block = Block::bordered()
-        .title(" Select Dictionary Language ")
+        .title(sel_title.as_ref())
         .border_style(Style::default().fg(colors.accent()))
         .style(Style::default().bg(colors.bg()));
     let inner = block.inner(centered);
     block.render(centered, frame.buffer_mut());
 
     let options = language_packs();
-    let footer_hints = [
-        "[Up/Down/PgUp/PgDn] Navigate",
-        "[Enter] Confirm",
-        "[ESC] Back",
-    ];
-    let support_notice =
-        "  Selecting a language resets keyboard layout to that language's default.";
+    let h_nav = t!("select.hint_navigate");
+    let h_confirm = t!("select.hint_confirm");
+    let h_back = t!("select.hint_back");
+    let footer_hints: Vec<&str> = vec![h_nav.as_ref(), h_confirm.as_ref(), h_back.as_ref()];
+    let support_notice_t = t!("select.language_resets_layout");
+    let support_notice = support_notice_t.as_ref();
     let width = inner.width as usize;
     let hint_lines_vec = pack_hint_lines(&footer_hints, width);
     let hint_lines = hint_lines_vec.len();
@@ -5798,8 +5968,9 @@ fn render_dictionary_language_select(frame: &mut ratatui::Frame, app: &App) {
 
     let mut lines: Vec<Line> = Vec::new();
     if scroll > 0 {
+        let more_above = t!("select.more_above", count = scroll);
         lines.push(Line::from(Span::styled(
-            format!("   ... {} more above ...", scroll),
+            format!("   {more_above}"),
             Style::default().fg(colors.text_pending()),
         )));
     } else {
@@ -5811,14 +5982,15 @@ fn render_dictionary_language_select(frame: &mut ratatui::Frame, app: &App) {
         let is_selected = i == app.dictionary_language_selected;
         let is_current = pack.language_key == app.config.dictionary_language;
         let indicator = if is_selected { " > " } else { "   " };
-        let current_marker = if is_current { " (current)" } else { "" };
+        let current_marker_t = if is_current { t!("select.current") } else { std::borrow::Cow::Borrowed("") };
+        let current_marker = current_marker_t.as_ref();
         let is_disabled = is_dictionary_language_disabled(app, pack.language_key);
         let default_layout =
             default_keyboard_layout_for_language(pack.language_key).unwrap_or("unknown");
         let availability = if is_disabled {
-            " (disabled)".to_string()
+            t!("select.disabled").to_string()
         } else {
-            format!(" (enabled, default: {default_layout})")
+            t!("select.enabled_default", layout = default_layout).to_string()
         };
 
         let name_style = if is_disabled {
@@ -5846,8 +6018,9 @@ fn render_dictionary_language_select(frame: &mut ratatui::Frame, app: &App) {
     }
 
     if visible_end < options.len() {
+        let more_below = t!("select.more_below", count = options.len() - visible_end);
         lines.push(Line::from(Span::styled(
-            format!("   ... {} more below ...", options.len() - visible_end),
+            format!("   {more_below}"),
             Style::default().fg(colors.text_pending()),
         )));
     } else {
@@ -5878,25 +6051,86 @@ fn render_dictionary_language_select(frame: &mut ratatui::Frame, app: &App) {
     }
 }
 
+fn render_ui_language_select(frame: &mut ratatui::Frame, app: &App) {
+    use crate::i18n::t;
+    let area = frame.area();
+    let colors = &app.theme.colors;
+    let centered = ui::layout::centered_rect(50, 50, area);
+
+    let title = t!("select.ui_language_title");
+    let block = Block::bordered()
+        .title(title.as_ref())
+        .border_style(Style::default().fg(colors.accent()))
+        .style(Style::default().bg(colors.bg()));
+    let inner = block.inner(centered);
+    block.render(centered, frame.buffer_mut());
+
+    let locales = i18n::SUPPORTED_UI_LOCALES;
+    let hint_back = t!("select.hint_back");
+    let hint_confirm = t!("select.hint_confirm");
+    let footer_hints = [hint_back.as_ref(), hint_confirm.as_ref()];
+    let footer_lines = pack_hint_lines(&footer_hints, inner.width as usize);
+    let footer_h = footer_lines.len().max(1) as u16;
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(footer_h)])
+        .split(inner);
+
+    let mut lines: Vec<Line> = Vec::new();
+    for (i, &locale) in locales.iter().enumerate() {
+        let is_selected = i == app.ui_language_selected;
+        let is_current = locale == app.config.ui_language;
+        let autonym = find_language_pack(locale)
+            .map(|p| p.autonym)
+            .unwrap_or(locale);
+        let suffix = if is_current {
+            t!("select.current").to_string()
+        } else {
+            String::new()
+        };
+        let indicator = if is_selected { "> " } else { "  " };
+        let label = format!("{indicator}{autonym}{suffix}");
+        let style = if is_selected {
+            Style::default()
+                .fg(colors.accent())
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(colors.fg())
+        };
+        lines.push(Line::from(Span::styled(label, style)));
+    }
+
+    let list = Paragraph::new(lines);
+    list.render(chunks[0], frame.buffer_mut());
+
+    let footer: Vec<Line> = footer_lines
+        .into_iter()
+        .map(|l| Line::from(Span::styled(l, Style::default().fg(colors.text_pending()))))
+        .collect();
+    Paragraph::new(footer).render(chunks[1], frame.buffer_mut());
+}
+
 fn render_keyboard_layout_select(frame: &mut ratatui::Frame, app: &App) {
     let area = frame.area();
     let colors = &app.theme.colors;
     let centered = ui::layout::centered_rect(60, 70, area);
 
+    let sel_title = t!("select.keyboard_layout_title");
     let block = Block::bordered()
-        .title(" Select Keyboard Layout ")
+        .title(sel_title.as_ref())
         .border_style(Style::default().fg(colors.accent()))
         .style(Style::default().bg(colors.bg()));
     let inner = block.inner(centered);
     block.render(centered, frame.buffer_mut());
 
     let options = keyboard::model::KeyboardModel::supported_layout_keys();
-    let footer_hints = [
-        "[Up/Down/PgUp/PgDn] Navigate",
-        "[Enter] Confirm",
-        "[ESC] Back",
-    ];
-    let support_notice = "  Layout changes do not change dictionary language.";
+    let h_nav = t!("select.hint_navigate");
+    let h_confirm = t!("select.hint_confirm");
+    let h_back = t!("select.hint_back");
+    let footer_hints: Vec<&str> = vec![h_nav.as_ref(), h_confirm.as_ref(), h_back.as_ref()];
+    let support_notice_t = t!("select.layout_no_language_change");
+    let support_notice = support_notice_t.as_ref();
     let width = inner.width as usize;
     let hint_lines_vec = pack_hint_lines(&footer_hints, width);
     let hint_lines = hint_lines_vec.len();
@@ -5921,8 +6155,9 @@ fn render_keyboard_layout_select(frame: &mut ratatui::Frame, app: &App) {
 
     let mut lines: Vec<Line> = Vec::new();
     if scroll > 0 {
+        let more_above = t!("select.more_above", count = scroll);
         lines.push(Line::from(Span::styled(
-            format!("   ... {} more above ...", scroll),
+            format!("   {more_above}"),
             Style::default().fg(colors.text_pending()),
         )));
     } else {
@@ -5934,21 +6169,22 @@ fn render_keyboard_layout_select(frame: &mut ratatui::Frame, app: &App) {
         let is_selected = i == app.keyboard_layout_selected;
         let is_current = key == app.config.keyboard_layout;
         let indicator = if is_selected { " > " } else { "   " };
-        let current_marker = if is_current { " (current)" } else { "" };
+        let current_marker_t = if is_current { t!("select.current") } else { std::borrow::Cow::Borrowed("") };
+        let current_marker = current_marker_t.as_ref();
         let validation = validate_language_layout_pair(&app.config.dictionary_language, key);
 
         let (availability, is_disabled) = match validation {
-            Ok(CapabilityState::Enabled) => (" (enabled)".to_string(), false),
-            Ok(CapabilityState::Disabled) => (" (disabled)".to_string(), true),
+            Ok(CapabilityState::Enabled) => (t!("select.enabled").to_string(), false),
+            Ok(CapabilityState::Disabled) => (t!("select.disabled").to_string(), true),
             Err(crate::l10n::language_pack::LanguageLayoutValidationError::UnsupportedLanguageLayoutPair { .. }) => {
-                (" (disabled)".to_string(), true)
+                (t!("select.disabled").to_string(), true)
             }
             Err(crate::l10n::language_pack::LanguageLayoutValidationError::LanguageBlockedBySupportLevel(_)) => {
-                (" (disabled: blocked)".to_string(), true)
+                (t!("select.disabled_blocked").to_string(), true)
             }
             Err(crate::l10n::language_pack::LanguageLayoutValidationError::UnknownLanguage(_))
             | Err(crate::l10n::language_pack::LanguageLayoutValidationError::UnknownLayout(_)) => {
-                (" (disabled)".to_string(), true)
+                (t!("select.disabled").to_string(), true)
             }
         };
 
@@ -5971,8 +6207,9 @@ fn render_keyboard_layout_select(frame: &mut ratatui::Frame, app: &App) {
     }
 
     if visible_end < options.len() {
+        let more_below = t!("select.more_below", count = options.len() - visible_end);
         lines.push(Line::from(Span::styled(
-            format!("   ... {} more below ...", options.len() - visible_end),
+            format!("   {more_below}"),
             Style::default().fg(colors.text_pending()),
         )));
     } else {
@@ -6008,8 +6245,9 @@ fn render_code_language_select(frame: &mut ratatui::Frame, app: &App) {
     let colors = &app.theme.colors;
     let centered = ui::layout::centered_rect(50, 70, area);
 
+    let sel_title = t!("select.code_language_title");
     let block = Block::bordered()
-        .title(" Select Code Language ")
+        .title(sel_title.as_ref())
         .border_style(Style::default().fg(colors.accent()))
         .style(Style::default().bg(colors.bg()));
     let inner = block.inner(centered);
@@ -6017,13 +6255,12 @@ fn render_code_language_select(frame: &mut ratatui::Frame, app: &App) {
 
     let options = code_language_options();
     let cache_dir = &app.config.code_download_dir;
-    let footer_hints = [
-        "[Up/Down/PgUp/PgDn] Navigate",
-        "[Enter] Confirm",
-        "[ESC] Back",
-    ];
-    let disabled_notice =
-        "  Some languages are disabled: enable network downloads in intro/settings.";
+    let h_nav = t!("select.hint_navigate");
+    let h_confirm = t!("select.hint_confirm");
+    let h_back = t!("select.hint_back");
+    let footer_hints: Vec<&str> = vec![h_nav.as_ref(), h_confirm.as_ref(), h_back.as_ref()];
+    let disabled_notice_t = t!("select.disabled_sources_notice");
+    let disabled_notice = disabled_notice_t.as_ref();
     let has_disabled = !app.config.code_downloads_enabled
         && options
             .iter()
@@ -6053,8 +6290,9 @@ fn render_code_language_select(frame: &mut ratatui::Frame, app: &App) {
 
     // Show scroll indicator at top if scrolled down
     if scroll > 0 {
+        let more_above = t!("select.more_above", count = scroll);
         lines.push(Line::from(Span::styled(
-            format!("   ... {} more above ...", scroll),
+            format!("   {more_above}"),
             Style::default().fg(colors.text_pending()),
         )));
     } else {
@@ -6070,20 +6308,21 @@ fn render_code_language_select(frame: &mut ratatui::Frame, app: &App) {
         let is_disabled = is_code_language_disabled(app, key);
 
         let indicator = if is_selected { " > " } else { "   " };
-        let current_marker = if is_current { " (current)" } else { "" };
+        let current_marker_t = if is_current { t!("select.current") } else { std::borrow::Cow::Borrowed("") };
+        let current_marker = current_marker_t.as_ref();
 
         // Determine availability label
         let availability = if *key == "all" {
             String::new()
         } else if let Some(lang) = language_by_key(key) {
             if lang.has_builtin {
-                " (built-in)".to_string()
+                t!("select.built_in").to_string()
             } else if is_language_cached(cache_dir, key) {
-                " (cached)".to_string()
+                t!("select.cached").to_string()
             } else if is_disabled {
-                " (disabled: download required)".to_string()
+                t!("select.disabled_download").to_string()
             } else {
-                " (download required)".to_string()
+                t!("select.download_required").to_string()
             }
         } else {
             String::new()
@@ -6114,8 +6353,9 @@ fn render_code_language_select(frame: &mut ratatui::Frame, app: &App) {
 
     // Show scroll indicator at bottom if more items below
     if visible_end < options.len() {
+        let more_below = t!("select.more_below", count = options.len() - visible_end);
         lines.push(Line::from(Span::styled(
-            format!("   ... {} more below ...", options.len() - visible_end),
+            format!("   {more_below}"),
             Style::default().fg(colors.text_pending()),
         )));
     } else {
@@ -6151,17 +6391,21 @@ fn render_passage_book_select(frame: &mut ratatui::Frame, app: &App) {
     let colors = &app.theme.colors;
     let centered = ui::layout::centered_rect(60, 70, area);
 
+    let sel_title = t!("select.passage_source_title");
     let block = Block::bordered()
-        .title(" Select Passage Source ")
+        .title(sel_title.as_ref())
         .border_style(Style::default().fg(colors.accent()))
         .style(Style::default().bg(colors.bg()));
     let inner = block.inner(centered);
     block.render(centered, frame.buffer_mut());
 
     let options = passage_options();
-    let footer_hints = ["[Up/Down] Navigate", "[Enter] Confirm", "[ESC] Back"];
-    let disabled_notice =
-        "  Some sources are disabled: enable network downloads in intro/settings.";
+    let h_nav = t!("intro.hint_navigate");
+    let h_confirm = t!("select.hint_confirm");
+    let h_back = t!("select.hint_back");
+    let footer_hints: Vec<&str> = vec![h_nav.as_ref(), h_confirm.as_ref(), h_back.as_ref()];
+    let disabled_notice_t = t!("select.disabled_sources_notice");
+    let disabled_notice = disabled_notice_t.as_ref();
     let has_disabled = !app.config.passage_downloads_enabled
         && options
             .iter()
@@ -6197,13 +6441,13 @@ fn render_passage_book_select(frame: &mut ratatui::Frame, app: &App) {
         let availability = if *key == "all" {
             String::new()
         } else if *key == "builtin" {
-            " (built-in)".to_string()
+            t!("select.built_in").to_string()
         } else if is_book_cached(&app.config.passage_download_dir, key) {
-            " (cached)".to_string()
+            t!("select.cached").to_string()
         } else if is_disabled {
-            " (disabled: download required)".to_string()
+            t!("select.disabled_download").to_string()
         } else {
-            " (download required)".to_string()
+            t!("select.download_required").to_string()
         };
         let name_style = if is_disabled {
             Style::default().fg(colors.text_pending())
@@ -6256,46 +6500,55 @@ fn render_passage_intro(frame: &mut ratatui::Frame, app: &App) {
     let colors = &app.theme.colors;
     let centered = ui::layout::centered_rect(75, 80, area);
 
+    let intro_title = t!("intro.passage_title");
     let block = Block::bordered()
-        .title(" Passage Downloads Setup ")
+        .title(intro_title.as_ref())
         .border_style(Style::default().fg(colors.accent()))
         .style(Style::default().bg(colors.bg()));
     let inner = block.inner(centered);
     block.render(centered, frame.buffer_mut());
 
     let paragraphs_value = if app.passage_intro_paragraph_limit == 0 {
-        "whole book".to_string()
+        t!("intro.whole_book").to_string()
     } else {
         app.passage_intro_paragraph_limit.to_string()
     };
 
+    let enable_label = t!("intro.enable_downloads");
+    let dir_label = t!("intro.download_dir");
+    let para_label = t!("intro.paragraphs_per_book");
+    let start_label = t!("intro.start_passage_drill");
+    let confirm_label = t!("intro.confirm");
     let fields = vec![
         (
-            "Enable network downloads",
+            enable_label.as_ref(),
             if app.passage_intro_downloads_enabled {
-                "On".to_string()
+                t!("settings.on").to_string()
             } else {
-                "Off".to_string()
+                t!("settings.off").to_string()
             },
         ),
-        ("Download directory", app.passage_intro_download_dir.clone()),
-        ("Paragraphs per book (0 = whole)", paragraphs_value),
-        ("Start passage drill", "Confirm".to_string()),
+        (dir_label.as_ref(), app.passage_intro_download_dir.clone()),
+        (para_label.as_ref(), paragraphs_value),
+        (start_label.as_ref(), confirm_label.to_string()),
     ];
 
+    let instr1 = t!("intro.passage_instructions_1");
+    let instr2 = t!("intro.passage_instructions_2");
+    let instr3 = t!("intro.passage_instructions_3");
     let mut lines = vec![
         Line::from(Span::styled(
-            "Configure passage source settings before your first passage drill.",
+            instr1.as_ref(),
             Style::default()
                 .fg(colors.fg())
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(Span::styled(
-            "Downloads are lazy: books are fetched only when first needed.",
+            instr2.as_ref(),
             Style::default().fg(colors.text_pending()),
         )),
         Line::from(Span::styled(
-            "If you exit without confirming, this dialog will appear again next time.",
+            instr3.as_ref(),
             Style::default().fg(colors.text_pending()),
         )),
         Line::from(""),
@@ -6356,9 +6609,9 @@ fn render_passage_intro(frame: &mut ratatui::Frame, app: &App) {
             " ".repeat(width.saturating_sub(fill))
         );
         let progress_text = if total_bytes > 0 {
-            format!(" Downloading current book: [{bar}] {done_bytes}/{total_bytes} bytes")
+            format!(" {}", t!("intro.downloading_book_progress", bar = bar, downloaded = done_bytes, total = total_bytes))
         } else {
-            format!(" Downloading current book: {done_bytes} bytes")
+            format!(" {}", t!("intro.downloading_book_bytes", bytes = done_bytes))
         };
         lines.push(Line::from(Span::styled(
             progress_text,
@@ -6367,13 +6620,13 @@ fn render_passage_intro(frame: &mut ratatui::Frame, app: &App) {
                 .add_modifier(Modifier::BOLD),
         )));
         if !app.passage_intro_current_book.is_empty() {
+            let current_text = t!("intro.current_book",
+                name = app.passage_intro_current_book.as_str(),
+                done = done_books.saturating_add(1).min(total_books),
+                total = total_books
+            );
             lines.push(Line::from(Span::styled(
-                format!(
-                    " Current: {}  (book {}/{})",
-                    app.passage_intro_current_book,
-                    done_books.saturating_add(1).min(total_books),
-                    total_books
-                ),
+                format!(" {current_text}"),
                 Style::default().fg(colors.text_pending()),
             )));
         }
@@ -6381,14 +6634,14 @@ fn render_passage_intro(frame: &mut ratatui::Frame, app: &App) {
     let hint_lines = if app.passage_intro_downloading {
         Vec::new()
     } else {
+        let ih_nav = t!("intro.hint_navigate");
+        let ih_adj = t!("intro.hint_adjust");
+        let ih_edit = t!("intro.hint_edit");
+        let ih_confirm = t!("intro.hint_confirm");
+        let ih_cancel = t!("intro.hint_cancel");
+        let hints: Vec<&str> = vec![ih_nav.as_ref(), ih_adj.as_ref(), ih_edit.as_ref(), ih_confirm.as_ref(), ih_cancel.as_ref()];
         pack_hint_lines(
-            &[
-                "[Up/Down] Navigate",
-                "[Left/Right] Adjust",
-                "[Type/Backspace] Edit",
-                "[Enter] Confirm",
-                "[ESC] Cancel",
-            ],
+            &hints,
             inner.width as usize,
         )
     };
@@ -6426,8 +6679,9 @@ fn render_passage_download_progress(frame: &mut ratatui::Frame, app: &App) {
     let colors = &app.theme.colors;
     let centered = ui::layout::centered_rect(60, 35, area);
 
+    let dl_title = t!("intro.download_passage_title");
     let block = Block::bordered()
-        .title(" Downloading Passage Source ")
+        .title(dl_title.as_ref())
         .border_style(Style::default().fg(colors.accent()))
         .style(Style::default().bg(colors.bg()));
     let inner = block.inner(centered);
@@ -6450,14 +6704,15 @@ fn render_passage_download_progress(frame: &mut ratatui::Frame, app: &App) {
     );
 
     let book_name = if app.passage_intro_current_book.is_empty() {
-        "Preparing download...".to_string()
+        t!("intro.preparing_download").to_string()
     } else {
         app.passage_intro_current_book.clone()
     };
 
+    let book_label = t!("intro.book_label", name = book_name);
     let lines = vec![
         Line::from(Span::styled(
-            format!(" Book: {book_name}"),
+            book_label.as_ref(),
             Style::default()
                 .fg(colors.fg())
                 .add_modifier(Modifier::BOLD),
@@ -6465,9 +6720,9 @@ fn render_passage_download_progress(frame: &mut ratatui::Frame, app: &App) {
         Line::from(""),
         Line::from(Span::styled(
             if total_bytes > 0 {
-                format!(" [{bar}] {done_bytes}/{total_bytes} bytes")
+                t!("intro.progress_bytes", name = bar, downloaded = done_bytes, total = total_bytes).to_string()
             } else {
-                format!(" Downloaded: {done_bytes} bytes")
+                t!("intro.downloaded_bytes", bytes = done_bytes).to_string()
             },
             Style::default().fg(colors.accent()),
         )),
@@ -6481,46 +6736,55 @@ fn render_code_intro(frame: &mut ratatui::Frame, app: &App) {
     let colors = &app.theme.colors;
     let centered = ui::layout::centered_rect(75, 80, area);
 
+    let intro_title = t!("intro.code_title");
     let block = Block::bordered()
-        .title(" Code Downloads Setup ")
+        .title(intro_title.as_ref())
         .border_style(Style::default().fg(colors.accent()))
         .style(Style::default().bg(colors.bg()));
     let inner = block.inner(centered);
     block.render(centered, frame.buffer_mut());
 
     let snippets_value = if app.code_intro_snippets_per_repo == 0 {
-        "unlimited".to_string()
+        t!("intro.unlimited").to_string()
     } else {
         app.code_intro_snippets_per_repo.to_string()
     };
 
+    let enable_label = t!("intro.enable_downloads");
+    let dir_label = t!("intro.download_dir");
+    let snippets_label = t!("intro.snippets_per_repo");
+    let start_label = t!("intro.start_code_drill");
+    let confirm_label = t!("intro.confirm");
     let fields = vec![
         (
-            "Enable network downloads",
+            enable_label.as_ref(),
             if app.code_intro_downloads_enabled {
-                "On".to_string()
+                t!("settings.on").to_string()
             } else {
-                "Off".to_string()
+                t!("settings.off").to_string()
             },
         ),
-        ("Download directory", app.code_intro_download_dir.clone()),
-        ("Snippets per repo (0 = unlimited)", snippets_value),
-        ("Start code drill", "Confirm".to_string()),
+        (dir_label.as_ref(), app.code_intro_download_dir.clone()),
+        (snippets_label.as_ref(), snippets_value),
+        (start_label.as_ref(), confirm_label.to_string()),
     ];
 
+    let instr1 = t!("intro.code_instructions_1");
+    let instr2 = t!("intro.code_instructions_2");
+    let instr3 = t!("intro.code_instructions_3");
     let mut lines = vec![
         Line::from(Span::styled(
-            "Configure code source settings before your first code drill.",
+            instr1.as_ref(),
             Style::default()
                 .fg(colors.fg())
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(Span::styled(
-            "Downloads are lazy: code is fetched only when first needed.",
+            instr2.as_ref(),
             Style::default().fg(colors.text_pending()),
         )),
         Line::from(Span::styled(
-            "If you exit without confirming, this dialog will appear again next time.",
+            instr3.as_ref(),
             Style::default().fg(colors.text_pending()),
         )),
         Line::from(""),
@@ -6581,9 +6845,9 @@ fn render_code_intro(frame: &mut ratatui::Frame, app: &App) {
             " ".repeat(width.saturating_sub(fill))
         );
         let progress_text = if total_bytes > 0 {
-            format!(" Downloading: [{bar}] {done_bytes}/{total_bytes} bytes")
+            format!(" {}", t!("intro.downloading_code_progress", bar = bar, downloaded = done_bytes, total = total_bytes))
         } else {
-            format!(" Downloading: {done_bytes} bytes")
+            format!(" {}", t!("intro.downloading_code_bytes", bytes = done_bytes))
         };
         lines.push(Line::from(Span::styled(
             progress_text,
@@ -6592,13 +6856,13 @@ fn render_code_intro(frame: &mut ratatui::Frame, app: &App) {
                 .add_modifier(Modifier::BOLD),
         )));
         if !app.code_intro_current_repo.is_empty() {
+            let current_text = t!("intro.current_repo",
+                name = app.code_intro_current_repo.as_str(),
+                done = done_repos.saturating_add(1).min(total_repos),
+                total = total_repos
+            );
             lines.push(Line::from(Span::styled(
-                format!(
-                    " Current: {}  (repo {}/{})",
-                    app.code_intro_current_repo,
-                    done_repos.saturating_add(1).min(total_repos),
-                    total_repos
-                ),
+                format!(" {current_text}"),
                 Style::default().fg(colors.text_pending()),
             )));
         }
@@ -6606,14 +6870,14 @@ fn render_code_intro(frame: &mut ratatui::Frame, app: &App) {
     let hint_lines = if app.code_intro_downloading {
         Vec::new()
     } else {
+        let ih_nav = t!("intro.hint_navigate");
+        let ih_adj = t!("intro.hint_adjust");
+        let ih_edit = t!("intro.hint_edit");
+        let ih_confirm = t!("intro.hint_confirm");
+        let ih_cancel = t!("intro.hint_cancel");
+        let hints: Vec<&str> = vec![ih_nav.as_ref(), ih_adj.as_ref(), ih_edit.as_ref(), ih_confirm.as_ref(), ih_cancel.as_ref()];
         pack_hint_lines(
-            &[
-                "[Up/Down] Navigate",
-                "[Left/Right] Adjust",
-                "[Type/Backspace] Edit",
-                "[Enter] Confirm",
-                "[ESC] Cancel",
-            ],
+            &hints,
             inner.width as usize,
         )
     };
@@ -6651,8 +6915,9 @@ fn render_code_download_progress(frame: &mut ratatui::Frame, app: &App) {
     let colors = &app.theme.colors;
     let centered = ui::layout::centered_rect(60, 35, area);
 
+    let dl_title = t!("intro.download_code_title");
     let block = Block::bordered()
-        .title(" Downloading Code Source ")
+        .title(dl_title.as_ref())
         .border_style(Style::default().fg(colors.accent()))
         .style(Style::default().bg(colors.bg()));
     let inner = block.inner(centered);
@@ -6675,14 +6940,16 @@ fn render_code_download_progress(frame: &mut ratatui::Frame, app: &App) {
     );
 
     let repo_name = if app.code_intro_current_repo.is_empty() {
-        "Preparing download...".to_string()
+        t!("intro.preparing_download").to_string()
     } else {
         app.code_intro_current_repo.clone()
     };
 
+    let repo_label = t!("intro.repo_label", name = repo_name);
+    let cancel_hint = t!("intro.hint_cancel");
     let lines = vec![
         Line::from(Span::styled(
-            format!(" Repo: {repo_name}"),
+            repo_label.as_ref(),
             Style::default()
                 .fg(colors.fg())
                 .add_modifier(Modifier::BOLD),
@@ -6690,15 +6957,15 @@ fn render_code_download_progress(frame: &mut ratatui::Frame, app: &App) {
         Line::from(""),
         Line::from(Span::styled(
             if total_bytes > 0 {
-                format!(" [{bar}] {done_bytes}/{total_bytes} bytes")
+                t!("intro.progress_bytes", name = bar, downloaded = done_bytes, total = total_bytes).to_string()
             } else {
-                format!(" Downloaded: {done_bytes} bytes")
+                t!("intro.downloaded_bytes", bytes = done_bytes).to_string()
             },
             Style::default().fg(colors.accent()),
         )),
         Line::from(""),
         Line::from(Span::styled(
-            " [ESC] Cancel",
+            format!(" {}", cancel_hint.as_ref()),
             Style::default().fg(colors.text_pending()),
         )),
     ];
@@ -6720,9 +6987,11 @@ fn render_skill_tree(frame: &mut ratatui::Frame, app: &App) {
     frame.render_widget(widget, centered);
 
     if let Some(branch_id) = app.skill_tree_confirm_unlock {
-        let sentence_one = "Once unlocked, the default adaptive drill will mix in keys in this branch that are unlocked.";
-        let sentence_two = "If you want to focus only on this branch, launch a drill directly from this branch in the Skill Tree.";
-        let branch_name = engine::skill_tree::get_branch_definition(branch_id).name;
+        let sentence_one_t = t!("skill_tree.unlock_msg_1");
+        let sentence_one = sentence_one_t.as_ref();
+        let sentence_two_t = t!("skill_tree.unlock_msg_2");
+        let sentence_two = sentence_two_t.as_ref();
+        let branch_name = engine::skill_tree::get_branch_definition(branch_id).display_name();
         let dialog_width = 72u16.min(area.width.saturating_sub(4));
         let content_width = dialog_width.saturating_sub(6).max(1) as usize; // border + side margins
         let body_required = 4 // blank + title + blank + blank-between-sentences
@@ -6741,8 +7010,9 @@ fn render_skill_tree(frame: &mut ratatui::Frame, app: &App) {
         let dialog_area = Rect::new(dialog_x, dialog_y, dialog_width, dialog_height);
 
         frame.render_widget(ratatui::widgets::Clear, dialog_area);
+        let confirm_title = t!("stats.confirm_title");
         let block = Block::bordered()
-            .title(" Confirm Unlock ")
+            .title(confirm_title.as_ref())
             .border_style(Style::default().fg(colors.error()))
             .style(Style::default().bg(colors.bg()));
         let inner = block.inner(dialog_area);
@@ -6764,10 +7034,11 @@ fn render_skill_tree(frame: &mut ratatui::Frame, app: &App) {
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(1), Constraint::Length(prompt_block_height)])
             .split(content);
+        let unlock_prompt = t!("skill_tree.confirm_unlock", branch = branch_name);
         let body = Paragraph::new(vec![
             Line::from(""),
             Line::from(Span::styled(
-                format!("Unlock {branch_name}?"),
+                unlock_prompt.to_string(),
                 Style::default().fg(colors.fg()),
             )),
             Line::from(""),
@@ -6784,17 +7055,18 @@ fn render_skill_tree(frame: &mut ratatui::Frame, app: &App) {
         .wrap(Wrap { trim: false })
         .style(Style::default().bg(colors.bg()));
         frame.render_widget(body, content_layout[0]);
+        let confirm_yn = t!("skill_tree.confirm_yn");
         let confirm_lines = if prompt_block_height > 1 {
             vec![
                 Line::from(""),
                 Line::from(Span::styled(
-                    "Proceed? (y/n)",
+                    confirm_yn.as_ref(),
                     Style::default().fg(colors.fg()),
                 )),
             ]
         } else {
             vec![Line::from(Span::styled(
-                "Proceed? (y/n)",
+                confirm_yn.as_ref(),
                 Style::default().fg(colors.fg()),
             ))]
         };
@@ -6849,7 +7121,8 @@ fn handle_keyboard_explorer_mouse(app: &mut App, mouse: MouseEvent) {
             Constraint::Length(1),
         ])
         .split(area);
-    let footer_hints = ["[ESC] Back"];
+    let h_back = t!("keyboard.hint_back");
+    let footer_hints: Vec<&str> = vec![h_back.as_ref()];
     if hint_token_at(layout[3], &footer_hints, mouse.column, mouse.row).is_some()
         || point_in_rect(mouse.column, mouse.row, layout[3])
     {
@@ -6901,16 +7174,18 @@ fn render_keyboard_explorer(frame: &mut ratatui::Frame, app: &App) {
         .split(area);
 
     // Header
+    let kbd_title = t!("keyboard.title");
+    let kbd_hint_nav = t!("keyboard.subtitle");
     let header_lines = vec![
         Line::from(""),
         Line::from(Span::styled(
-            " Keyboard Explorer ",
+            kbd_title.as_ref(),
             Style::default()
                 .fg(colors.accent())
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(Span::styled(
-            "Press any key or click a key",
+            kbd_hint_nav.as_ref(),
             Style::default().fg(colors.text_pending()),
         )),
     ];
@@ -6935,8 +7210,9 @@ fn render_keyboard_explorer(frame: &mut ratatui::Frame, app: &App) {
     render_keyboard_detail_panel(frame, app, layout[2]);
 
     // Footer
+    let kbd_back = t!("keyboard.hint_back");
     let footer = Paragraph::new(Line::from(vec![Span::styled(
-        " [ESC] Back ",
+        format!(" {} ", kbd_back.as_ref()),
         Style::default().fg(colors.text_pending()),
     )]));
     frame.render_widget(footer, layout[3]);
@@ -6948,15 +7224,17 @@ fn render_keyboard_detail_panel(frame: &mut ratatui::Frame, app: &App, area: Rec
     let selected = match app.keyboard_explorer_selected {
         Some(ch) => ch,
         None => {
+            let press_hint = t!("keyboard.press_key_hint");
+            let key_details_title = t!("keyboard.key_details");
             let hint = Paragraph::new(Line::from(Span::styled(
-                "Press a key to see its details",
+                press_hint.as_ref(),
                 Style::default().fg(colors.text_pending()),
             )))
             .alignment(ratatui::layout::Alignment::Center)
             .block(
                 Block::bordered()
                     .border_style(Style::default().fg(colors.border()))
-                    .title(" Key Details "),
+                    .title(key_details_title.to_string()),
             );
             frame.render_widget(hint, area);
             return;
@@ -6966,9 +7244,9 @@ fn render_keyboard_detail_panel(frame: &mut ratatui::Frame, app: &App, area: Rec
     // Build display name for title
     let display_name = key_display_name(selected);
     let title = if display_name.is_empty() {
-        format!(" Key Details: '{}' ", selected)
+        t!("keyboard.key_details_char", ch = selected).to_string()
     } else {
-        format!(" Key Details: {} ", display_name)
+        t!("keyboard.key_details_name", name = display_name).to_string()
     };
 
     let block = Block::bordered()
@@ -6987,12 +7265,12 @@ fn render_keyboard_detail_panel(frame: &mut ratatui::Frame, app: &App, area: Rec
         selected.is_uppercase() || app.keyboard_model.shifted_to_base(selected).is_some();
     let shift_guidance = if is_shifted {
         if finger.hand == Hand::Left {
-            "Hold Right Shift (right pinky)".to_string()
+            t!("milestones.hold_right_shift").to_string()
         } else {
-            "Hold Left Shift (left pinky)".to_string()
+            t!("milestones.hold_left_shift").to_string()
         }
     } else {
-        "No".to_string()
+        t!("keyboard.shift_no").to_string()
     };
 
     let unlocked_keys = app.skill_tree.unlocked_keys(DrillScope::Global);
@@ -7017,7 +7295,7 @@ fn render_keyboard_detail_panel(frame: &mut ratatui::Frame, app: &App, area: Rec
                 return format!("{:.0}ms", stat.filtered_time_ms);
             }
         }
-        "No data".to_string()
+        t!("keyboard.no_data_short").to_string()
     };
     let fmt_best_time = |stat: Option<&crate::engine::key_stats::KeyStat>| -> String {
         if let Some(stat) = stat {
@@ -7030,7 +7308,7 @@ fn render_keyboard_detail_panel(frame: &mut ratatui::Frame, app: &App, area: Rec
                 return format!("{best:.0}ms");
             }
         }
-        "No data".to_string()
+        t!("keyboard.no_data_short").to_string()
     };
     let fmt_samples = |stat: Option<&crate::engine::key_stats::KeyStat>| -> String {
         stat.map(|s| s.sample_count.to_string())
@@ -7043,11 +7321,11 @@ fn render_keyboard_detail_panel(frame: &mut ratatui::Frame, app: &App, area: Rec
                 return format!("{:.1}% ({}/{})", pct, correct, total);
             }
         }
-        "No data".to_string()
+        t!("keyboard.no_data_short").to_string()
     };
 
     let branch_info = find_key_branch(selected)
-        .map(|(branch, level, pos)| (branch.name.to_string(), format!("{level} (key #{pos})")));
+        .map(|(branch, level, pos)| (branch.display_name(), format!("{} (key #{pos})", level.display_name())));
 
     // Ranked-only mastery display (same semantics as skill tree per-key progress)
     let ranked_conf = app.ranked_key_stats.get_confidence(selected).min(1.0);
@@ -7061,44 +7339,50 @@ fn render_keyboard_detail_panel(frame: &mut ratatui::Frame, app: &App, area: Rec
     let mastery_text = format!("{mastery_bar} {:>3.0}%", ranked_conf * 100.0);
 
     let mut left_col: Vec<String> = vec![
-        format!("Finger: {}", finger.description()),
-        format!("Shift: {shift_guidance}"),
-        format!("Overall Avg Time: {}", fmt_avg_time(overall_stat)),
-        format!("Overall Best Time: {}", fmt_best_time(overall_stat)),
-        format!("Overall Samples: {}", fmt_samples(overall_stat)),
-        format!("Overall Accuracy: {}", fmt_acc(overall_acc)),
+        format!("{}{}", t!("keyboard.finger_label"), finger.localized_description()),
+        format!("{}{shift_guidance}", t!("keyboard.shift_label")),
+        format!("{}{}", t!("keyboard.overall_avg_time"), fmt_avg_time(overall_stat)),
+        format!("{}{}", t!("keyboard.overall_best_time"), fmt_best_time(overall_stat)),
+        format!("{}{}", t!("keyboard.overall_samples"), fmt_samples(overall_stat)),
+        format!("{}{}", t!("keyboard.overall_accuracy_label"), fmt_acc(overall_acc)),
     ];
 
     let mut right_col: Vec<String> = Vec::new();
     if let Some((branch_name, level_name)) = branch_info {
-        right_col.push(format!("Branch: {branch_name}"));
-        right_col.push(format!("Level: {level_name}"));
+        right_col.push(format!("{}{branch_name}", t!("keyboard.branch_label")));
+        right_col.push(format!("{}{level_name}", t!("keyboard.level_label")));
     } else {
-        right_col.push("Built-in Key".to_string());
+        right_col.push(t!("keyboard.built_in_key").to_string());
     }
+    let yes_t = t!("keyboard.yes");
+    let no_t = t!("keyboard.no");
     right_col.push(format!(
-        "Unlocked: {}",
-        if is_unlocked { "Yes" } else { "No" }
+        "{}{}",
+        t!("keyboard.unlocked_label"),
+        if is_unlocked { yes_t.as_ref() } else { no_t.as_ref() }
     ));
+    let yes_t2 = t!("keyboard.yes");
+    let no_t2 = t!("keyboard.no");
     right_col.push(format!(
-        "In Focus?: {}",
-        if in_focus { "Yes" } else { "No" }
+        "{}{}",
+        t!("keyboard.in_focus_label"),
+        if in_focus { yes_t2.as_ref() } else { no_t2.as_ref() }
     ));
     if is_unlocked {
-        right_col.push(format!("Mastery: {mastery_text}"));
+        right_col.push(format!("{}{mastery_text}", t!("keyboard.mastery_label")));
     } else {
-        right_col.push("Mastery: Locked".to_string());
+        right_col.push(format!("{}{}", t!("keyboard.mastery_label"), t!("keyboard.mastery_locked")));
     }
-    right_col.push(format!("Ranked Avg Time: {}", fmt_avg_time(ranked_stat)));
-    right_col.push(format!("Ranked Best Time: {}", fmt_best_time(ranked_stat)));
-    right_col.push(format!("Ranked Samples: {}", fmt_samples(ranked_stat)));
-    right_col.push(format!("Ranked Accuracy: {}", fmt_acc(ranked_acc)));
+    right_col.push(format!("{}{}", t!("keyboard.ranked_avg_time"), fmt_avg_time(ranked_stat)));
+    right_col.push(format!("{}{}", t!("keyboard.ranked_best_time"), fmt_best_time(ranked_stat)));
+    right_col.push(format!("{}{}", t!("keyboard.ranked_samples"), fmt_samples(ranked_stat)));
+    right_col.push(format!("{}{}", t!("keyboard.ranked_accuracy_label"), fmt_acc(ranked_acc)));
 
     if left_col.is_empty() {
-        left_col.push("No data yet".to_string());
+        left_col.push(t!("keyboard.no_data").to_string());
     }
     if right_col.is_empty() {
-        right_col.push("No data yet".to_string());
+        right_col.push(t!("keyboard.no_data").to_string());
     }
 
     let mut lines: Vec<Line> = Vec::new();

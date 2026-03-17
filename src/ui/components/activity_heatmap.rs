@@ -7,6 +7,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Widget};
 
+use crate::i18n::t;
 use crate::session::result::DrillResult;
 use crate::ui::theme::Theme;
 
@@ -27,7 +28,7 @@ impl Widget for ActivityHeatmap<'_> {
 
         let block = Block::bordered()
             .title(Line::from(Span::styled(
-                " Daily Activity (Sessions per Day) ",
+                t!("heatmap.title"),
                 Style::default()
                     .fg(colors.accent())
                     .add_modifier(Modifier::BOLD),
@@ -87,27 +88,27 @@ impl Widget for ActivityHeatmap<'_> {
             // Month label on first row
             let month = current_date.month();
             if month != last_month {
-                let month_name = match month {
-                    1 => "Jan",
-                    2 => "Feb",
-                    3 => "Mar",
-                    4 => "Apr",
-                    5 => "May",
-                    6 => "Jun",
-                    7 => "Jul",
-                    8 => "Aug",
-                    9 => "Sep",
-                    10 => "Oct",
-                    11 => "Nov",
-                    12 => "Dec",
-                    _ => "",
+                let month_name: std::borrow::Cow<'_, str> = match month {
+                    1 => t!("heatmap.jan"),
+                    2 => t!("heatmap.feb"),
+                    3 => t!("heatmap.mar"),
+                    4 => t!("heatmap.apr"),
+                    5 => t!("heatmap.may"),
+                    6 => t!("heatmap.jun"),
+                    7 => t!("heatmap.jul"),
+                    8 => t!("heatmap.aug"),
+                    9 => t!("heatmap.sep"),
+                    10 => t!("heatmap.oct"),
+                    11 => t!("heatmap.nov"),
+                    12 => t!("heatmap.dec"),
+                    _ => std::borrow::Cow::Borrowed(""),
                 };
                 // Only show if we have space (3 chars)
                 if x + 3 <= inner.x + inner.width {
                     buf.set_string(
                         x,
                         inner.y,
-                        month_name,
+                        month_name.as_ref(),
                         Style::default().fg(colors.text_pending()),
                     );
                 }

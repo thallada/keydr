@@ -12,6 +12,7 @@ use crate::keyboard::display::{self, BACKSPACE, ENTER, MODIFIER_SENTINELS, SPACE
 use crate::keyboard::model::KeyboardModel;
 use crate::session::result::DrillResult;
 use crate::ui::components::activity_heatmap::ActivityHeatmap;
+use crate::i18n::t;
 use crate::ui::layout::pack_hint_lines;
 use crate::ui::theme::Theme;
 
@@ -95,8 +96,9 @@ impl Widget for StatsDashboard<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
 
+        let title = t!("stats.title");
         let block = Block::bordered()
-            .title(" Statistics ")
+            .title(title.as_ref())
             .border_style(Style::default().fg(colors.accent()))
             .style(Style::default().bg(colors.bg()));
         let inner = block.inner(area);
@@ -104,7 +106,7 @@ impl Widget for StatsDashboard<'_> {
 
         if self.history.is_empty() {
             let msg = Paragraph::new(Line::from(Span::styled(
-                "No drills completed yet. Start typing!",
+                t!("stats.empty").to_string(),
                 Style::default().fg(colors.text_pending()),
             )));
             msg.render(inner, buf);
@@ -113,10 +115,11 @@ impl Widget for StatsDashboard<'_> {
 
         // Tab header — width-aware wrapping
         let width = inner.width as usize;
+        let labels = tab_labels();
         let mut tab_lines: Vec<Line> = Vec::new();
         let mut current_spans: Vec<Span> = Vec::new();
         let mut current_width: usize = 0;
-        for (i, &label) in TAB_LABELS.iter().enumerate() {
+        for (i, label) in labels.iter().enumerate() {
             let styled_label = format!(" {label} ");
             let item_width = styled_label.chars().count() + TAB_SEPARATOR.len();
             if current_width > 0 && current_width + item_width > width {
@@ -141,12 +144,13 @@ impl Widget for StatsDashboard<'_> {
         let tab_line_count = tab_lines.len().max(1) as u16;
 
         // Footer — width-aware wrapping
-        let footer_hints: Vec<&str> = if self.active_tab == 1 {
-            FOOTER_HINTS_HISTORY.to_vec()
+        let footer_hints = if self.active_tab == 1 {
+            footer_hints_history()
         } else {
-            FOOTER_HINTS_DEFAULT.to_vec()
+            footer_hints_default()
         };
-        let footer_lines_vec = pack_hint_lines(&footer_hints, width);
+        let hint_refs: Vec<&str> = footer_hints.iter().map(|s| s.as_str()).collect();
+        let footer_lines_vec = pack_hint_lines(&hint_refs, width);
         let footer_line_count = footer_lines_vec.len().max(1) as u16;
 
         let layout = Layout::default()
@@ -179,7 +183,8 @@ impl Widget for StatsDashboard<'_> {
             let dialog_area = Rect::new(dialog_x, dialog_y, dialog_width, dialog_height);
 
             let idx = self.history.len().saturating_sub(self.history_selected);
-            let dialog_text = format!("Delete session #{idx}? (y/n)");
+            let dialog_text = t!("stats.delete_confirm", idx = idx);
+            let confirm_title = t!("stats.confirm_title");
 
             Clear.render(dialog_area, buf);
             let dialog = Paragraph::new(vec![
@@ -192,7 +197,7 @@ impl Widget for StatsDashboard<'_> {
             .style(Style::default().bg(colors.bg()))
             .block(
                 Block::bordered()
-                    .title(" Confirm ")
+                    .title(confirm_title.as_ref())
                     .border_style(Style::default().fg(colors.error()))
                     .style(Style::default().bg(colors.bg())),
             );
@@ -281,9 +286,10 @@ impl StatsDashboard<'_> {
         let avg_acc_str = format!("{avg_accuracy:.1}%");
         let time_str = format_duration(total_time);
 
+        let summary_title = t!("stats.summary_title");
         let summary_block = Block::bordered()
             .title(Line::from(Span::styled(
-                " Summary ",
+                summary_title.to_string(),
                 Style::default()
                     .fg(colors.accent())
                     .add_modifier(Modifier::BOLD),
@@ -292,18 +298,23 @@ impl StatsDashboard<'_> {
         let summary_inner = summary_block.inner(layout[0]);
         summary_block.render(layout[0], buf);
 
+        let drills_label = t!("stats.drills");
+        let avg_wpm_label = t!("stats.avg_wpm");
+        let best_wpm_label = t!("stats.best_wpm");
+        let accuracy_label = t!("stats.accuracy_label");
+        let total_time_label = t!("stats.total_time");
         let summary = vec![
             Line::from(vec![
-                Span::styled("  Drills: ", Style::default().fg(colors.fg())),
+                Span::styled(drills_label.to_string(), Style::default().fg(colors.fg())),
                 Span::styled(
                     &*total_str,
                     Style::default()
                         .fg(colors.accent())
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::styled("    Avg WPM: ", Style::default().fg(colors.fg())),
+                Span::styled(avg_wpm_label.to_string(), Style::default().fg(colors.fg())),
                 Span::styled(&*avg_wpm_str, Style::default().fg(colors.accent())),
-                Span::styled("    Best WPM: ", Style::default().fg(colors.fg())),
+                Span::styled(best_wpm_label.to_string(), Style::default().fg(colors.fg())),
                 Span::styled(
                     &*best_wpm_str,
                     Style::default()
@@ -312,7 +323,7 @@ impl StatsDashboard<'_> {
                 ),
             ]),
             Line::from(vec![
-                Span::styled("  Accuracy: ", Style::default().fg(colors.fg())),
+                Span::styled(accuracy_label.to_string(), Style::default().fg(colors.fg())),
                 Span::styled(
                     &*avg_acc_str,
                     Style::default().fg(if avg_accuracy >= 95.0 {
@@ -323,7 +334,7 @@ impl StatsDashboard<'_> {
                         colors.error()
                     }),
                 ),
-                Span::styled("    Total time: ", Style::default().fg(colors.fg())),
+                Span::styled(total_time_label.to_string(), Style::default().fg(colors.fg())),
                 Span::styled(&*time_str, Style::default().fg(colors.text_pending())),
             ]),
         ];
@@ -345,10 +356,10 @@ impl StatsDashboard<'_> {
     fn render_wpm_bar_graph(&self, area: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
 
-        let target_label = format!(" WPM per Drill (Last 20, Target: {}) ", self.target_wpm);
+        let target_label = t!("stats.wpm_chart_title", target = self.target_wpm);
         let block = Block::bordered()
             .title(Line::from(Span::styled(
-                target_label,
+                target_label.to_string(),
                 Style::default()
                     .fg(colors.accent())
                     .add_modifier(Modifier::BOLD),
@@ -490,7 +501,7 @@ impl StatsDashboard<'_> {
         if data.is_empty() {
             let block = Block::bordered()
                 .title(Line::from(Span::styled(
-                    " Accuracy % (Last 50 Drills) ",
+                    t!("stats.accuracy_chart_title").to_string(),
                     Style::default()
                         .fg(colors.accent())
                         .add_modifier(Modifier::BOLD),
@@ -514,7 +525,7 @@ impl StatsDashboard<'_> {
             .block(
                 Block::bordered()
                     .title(Line::from(Span::styled(
-                        " Accuracy % (Last 50 Drills) ",
+                        t!("stats.accuracy_chart_title").to_string(),
                         Style::default()
                             .fg(colors.accent())
                             .add_modifier(Modifier::BOLD),
@@ -524,13 +535,13 @@ impl StatsDashboard<'_> {
             )
             .x_axis(
                 Axis::default()
-                    .title("Drill #")
+                    .title(t!("stats.chart_drill").to_string())
                     .style(Style::default().fg(colors.text_pending()).bg(colors.bg()))
                     .bounds([0.0, max_x]),
             )
             .y_axis(
                 Axis::default()
-                    .title("Accuracy %")
+                    .title(t!("stats.chart_accuracy_pct").to_string())
                     .style(Style::default().fg(colors.text_pending()).bg(colors.bg()))
                     .labels(vec![
                         Span::styled(
@@ -575,7 +586,7 @@ impl StatsDashboard<'_> {
         } else {
             colors.accent()
         };
-        let wpm_label = format!("  WPM: {avg_wpm:.0}/{} ({wpm_pct:.0}%)", self.target_wpm);
+        let wpm_label = t!("stats.wpm_label", avg = format!("{avg_wpm:.0}"), target = self.target_wpm, pct = format!("{wpm_pct:.0}")).to_string();
         render_text_bar(
             &wpm_label,
             wpm_pct / 100.0,
@@ -587,7 +598,7 @@ impl StatsDashboard<'_> {
 
         // Accuracy progress
         let acc_pct = avg_accuracy.min(100.0);
-        let acc_label = format!("  Acc: {acc_pct:.1}%");
+        let acc_label = t!("stats.acc_label", pct = format!("{acc_pct:.1}")).to_string();
         let acc_color = if acc_pct >= 95.0 {
             colors.success()
         } else if acc_pct >= 85.0 {
@@ -610,10 +621,7 @@ impl StatsDashboard<'_> {
         } else {
             0.0
         };
-        let level_label = format!(
-            "  Keys: {}/{} ({} mastered)",
-            self.overall_unlocked, self.overall_total, self.overall_mastered
-        );
+        let level_label = t!("stats.keys_label", unlocked = self.overall_unlocked, total = self.overall_total, mastered = self.overall_mastered).to_string();
         render_text_bar(
             &level_label,
             key_pct,
@@ -628,9 +636,10 @@ impl StatsDashboard<'_> {
         let colors = &self.theme.colors;
 
         // Recent tests bordered table
+        let sessions_title = t!("stats.sessions_title");
         let table_block = Block::bordered()
             .title(Line::from(Span::styled(
-                " Recent Sessions ",
+                sessions_title.to_string(),
                 Style::default()
                     .fg(colors.accent())
                     .add_modifier(Modifier::BOLD),
@@ -640,7 +649,7 @@ impl StatsDashboard<'_> {
         table_block.render(area, buf);
 
         let header = Line::from(vec![Span::styled(
-            "   #     WPM    Raw    Acc%    Time      Date/Time         Mode       Ranked  Partial",
+            t!("stats.session_header").to_string(),
             Style::default()
                 .fg(colors.accent())
                 .add_modifier(Modifier::BOLD),
@@ -649,7 +658,7 @@ impl StatsDashboard<'_> {
         let mut lines = vec![
             header,
             Line::from(Span::styled(
-                "  ─────────────────────────────────────────────────────────────────────",
+                t!("stats.session_separator").to_string(),
                 Style::default().fg(colors.border()),
             )),
         ];
@@ -680,7 +689,8 @@ impl StatsDashboard<'_> {
                 " "
             };
 
-            let rank_str = if result.ranked { "yes" } else { "no" };
+            let rank_label = if result.ranked { t!("stats.yes") } else { t!("stats.no") };
+            let rank_str = rank_label.as_ref();
             let partial_pct = if result.partial {
                 result.completion_percent
             } else {
@@ -721,9 +731,10 @@ impl StatsDashboard<'_> {
     fn render_keyboard_heatmap(&self, area: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
 
+        let kbd_acc_title = t!("stats.keyboard_accuracy_title");
         let block = Block::bordered()
             .title(Line::from(Span::styled(
-                " Keyboard Accuracy % ",
+                kbd_acc_title.to_string(),
                 Style::default()
                     .fg(colors.accent())
                     .add_modifier(Modifier::BOLD),
@@ -876,9 +887,10 @@ impl StatsDashboard<'_> {
     fn render_keyboard_timing(&self, area: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
 
+        let kbd_timing_title = t!("stats.keyboard_timing_title");
         let block = Block::bordered()
             .title(Line::from(Span::styled(
-                " Keyboard Timing (ms) ",
+                kbd_timing_title.to_string(),
                 Style::default()
                     .fg(colors.accent())
                     .add_modifier(Modifier::BOLD),
@@ -997,9 +1009,10 @@ impl StatsDashboard<'_> {
     fn render_slowest_keys(&self, area: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
 
+        let slowest_title = t!("stats.slowest_keys_title");
         let block = Block::bordered()
             .title(Line::from(Span::styled(
-                " Slowest Keys (ms) ",
+                slowest_title.to_string(),
                 Style::default()
                     .fg(colors.accent())
                     .add_modifier(Modifier::BOLD),
@@ -1045,9 +1058,10 @@ impl StatsDashboard<'_> {
     fn render_fastest_keys(&self, area: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
 
+        let fastest_title = t!("stats.fastest_keys_title");
         let block = Block::bordered()
             .title(Line::from(Span::styled(
-                " Fastest Keys (ms) ",
+                fastest_title.to_string(),
                 Style::default()
                     .fg(colors.accent())
                     .add_modifier(Modifier::BOLD),
@@ -1093,9 +1107,10 @@ impl StatsDashboard<'_> {
     fn render_worst_accuracy_keys(&self, area: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
 
+        let worst_title = t!("stats.worst_accuracy_title");
         let block = Block::bordered()
             .title(Line::from(Span::styled(
-                " Worst Accuracy (%) ",
+                worst_title.to_string(),
                 Style::default()
                     .fg(colors.accent())
                     .add_modifier(Modifier::BOLD),
@@ -1134,10 +1149,11 @@ impl StatsDashboard<'_> {
         key_accuracies.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap().then_with(|| a.0.cmp(&b.0)));
 
         if key_accuracies.is_empty() {
+            let no_data = t!("stats.not_enough_data");
             buf.set_string(
                 inner.x,
                 inner.y,
-                " Not enough data",
+                no_data.as_ref(),
                 Style::default().fg(colors.text_pending()),
             );
             return;
@@ -1173,9 +1189,10 @@ impl StatsDashboard<'_> {
     fn render_best_accuracy_keys(&self, area: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
 
+        let best_title = t!("stats.best_accuracy_title");
         let block = Block::bordered()
             .title(Line::from(Span::styled(
-                " Best Accuracy (%) ",
+                best_title.to_string(),
                 Style::default()
                     .fg(colors.accent())
                     .add_modifier(Modifier::BOLD),
@@ -1211,10 +1228,11 @@ impl StatsDashboard<'_> {
         key_accuracies.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap().then_with(|| a.0.cmp(&b.0)));
 
         if key_accuracies.is_empty() {
+            let no_data = t!("stats.not_enough_data");
             buf.set_string(
                 inner.x,
                 inner.y,
-                " Not enough data",
+                no_data.as_ref(),
                 Style::default().fg(colors.text_pending()),
             );
             return;
@@ -1249,9 +1267,10 @@ impl StatsDashboard<'_> {
 
     fn render_activity_stats(&self, area: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
+        let streaks_title = t!("stats.streaks_title");
         let block = Block::bordered()
             .title(Line::from(Span::styled(
-                " Streaks ",
+                streaks_title.to_string(),
                 Style::default()
                     .fg(colors.accent())
                     .add_modifier(Modifier::BOLD),
@@ -1272,22 +1291,25 @@ impl StatsDashboard<'_> {
         let mut top_days: Vec<(chrono::NaiveDate, usize)> = day_counts.into_iter().collect();
         top_days.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| b.0.cmp(&a.0)));
 
+        let current_label = t!("stats.current_streak");
+        let best_label = t!("stats.best_streak");
+        let active_days_label = t!("stats.active_days");
         let mut lines = vec![Line::from(vec![
-            Span::styled("  Current: ", Style::default().fg(colors.fg())),
+            Span::styled(current_label.to_string(), Style::default().fg(colors.fg())),
             Span::styled(
                 format!("{current_streak}d"),
                 Style::default()
                     .fg(colors.success())
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("    Best: ", Style::default().fg(colors.fg())),
+            Span::styled(best_label.to_string(), Style::default().fg(colors.fg())),
             Span::styled(
                 format!("{best_streak}d"),
                 Style::default()
                     .fg(colors.accent())
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("    Active Days: ", Style::default().fg(colors.fg())),
+            Span::styled(active_days_label.to_string(), Style::default().fg(colors.fg())),
             Span::styled(
                 format!("{active_days_count}"),
                 Style::default().fg(colors.text_pending()),
@@ -1295,14 +1317,14 @@ impl StatsDashboard<'_> {
         ])];
 
         let top_days_text = if top_days.is_empty() {
-            "  Top Days: none".to_string()
+            t!("stats.top_days_none").to_string()
         } else {
             let parts: Vec<String> = top_days
                 .iter()
                 .take(3)
                 .map(|(d, c)| format!("{} ({})", d.format("%Y-%m-%d"), c))
                 .collect();
-            format!("  Top Days: {}", parts.join("  |  "))
+            t!("stats.top_days", days = parts.join("  |  ")).to_string()
         };
         lines.push(Line::from(Span::styled(
             top_days_text,
@@ -1321,7 +1343,7 @@ impl StatsDashboard<'_> {
             Some(d) => d,
             None => {
                 let msg = Paragraph::new(Line::from(Span::styled(
-                    "Complete some adaptive drills to see n-gram data",
+                    t!("stats.ngram_empty").to_string(),
                     Style::default().fg(colors.text_pending()),
                 )));
                 msg.render(area, buf);
@@ -1370,9 +1392,10 @@ impl StatsDashboard<'_> {
     fn render_ngram_focus(&self, data: &NgramTabData, area: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
 
+        let focus_title = t!("stats.focus_title");
         let block = Block::bordered()
             .title(Line::from(Span::styled(
-                " Active Focus ",
+                focus_title.to_string(),
                 Style::default()
                     .fg(colors.accent())
                     .add_modifier(Modifier::BOLD),
@@ -1392,16 +1415,16 @@ impl StatsDashboard<'_> {
                 let bigram_label = format!("\"{}{}\"", key.0[0], key.0[1]);
                 // Line 1: both focuses
                 lines.push(Line::from(vec![
-                    Span::styled("  Focus: ", Style::default().fg(colors.fg())),
+                    Span::styled(t!("stats.focus_char_label").to_string(), Style::default().fg(colors.fg())),
                     Span::styled(
-                        format!("Char '{ch}'"),
+                        t!("stats.focus_char_value", ch = ch).to_string(),
                         Style::default()
                             .fg(colors.focused_key())
                             .add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(" + ", Style::default().fg(colors.fg())),
+                    Span::styled(t!("stats.focus_plus").to_string(), Style::default().fg(colors.fg())),
                     Span::styled(
-                        format!("Bigram {bigram_label}"),
+                        t!("stats.focus_bigram_value", label = &bigram_label).to_string(),
                         Style::default()
                             .fg(colors.focused_key())
                             .add_modifier(Modifier::BOLD),
@@ -1410,23 +1433,21 @@ impl StatsDashboard<'_> {
                 // Line 2: details
                 if inner.height >= 2 {
                     let type_label = match anomaly_type {
-                        AnomalyType::Error => "error",
-                        AnomalyType::Speed => "speed",
+                        AnomalyType::Error => t!("stats.anomaly_error").to_string(),
+                        AnomalyType::Speed => t!("stats.anomaly_speed").to_string(),
                     };
-                    let detail = format!(
-                        "  Char '{ch}': weakest key | Bigram {bigram_label}: {type_label} anomaly {anomaly_pct:.0}%"
-                    );
+                    let detail = t!("stats.focus_detail_both", ch = ch, label = &bigram_label, r#type = &type_label, pct = format!("{anomaly_pct:.0}"));
                     lines.push(Line::from(Span::styled(
-                        detail,
+                        detail.to_string(),
                         Style::default().fg(colors.text_pending()),
                     )));
                 }
             }
             (Some(ch), None) => {
                 lines.push(Line::from(vec![
-                    Span::styled("  Focus: ", Style::default().fg(colors.fg())),
+                    Span::styled(t!("stats.focus_char_label").to_string(), Style::default().fg(colors.fg())),
                     Span::styled(
-                        format!("Char '{ch}'"),
+                        t!("stats.focus_char_value", ch = ch).to_string(),
                         Style::default()
                             .fg(colors.focused_key())
                             .add_modifier(Modifier::BOLD),
@@ -1434,7 +1455,7 @@ impl StatsDashboard<'_> {
                 ]));
                 if inner.height >= 2 {
                     lines.push(Line::from(Span::styled(
-                        format!("  Char '{ch}': weakest key, no confirmed bigram anomalies"),
+                        t!("stats.focus_detail_char_only", ch = ch).to_string(),
                         Style::default().fg(colors.text_pending()),
                     )));
                 }
@@ -1442,26 +1463,26 @@ impl StatsDashboard<'_> {
             (None, Some((key, anomaly_pct, anomaly_type))) => {
                 let bigram_label = format!("\"{}{}\"", key.0[0], key.0[1]);
                 let type_label = match anomaly_type {
-                    AnomalyType::Error => "error",
-                    AnomalyType::Speed => "speed",
+                    AnomalyType::Error => t!("stats.anomaly_error").to_string(),
+                    AnomalyType::Speed => t!("stats.anomaly_speed").to_string(),
                 };
                 lines.push(Line::from(vec![
-                    Span::styled("  Focus: ", Style::default().fg(colors.fg())),
+                    Span::styled(t!("stats.focus_char_label").to_string(), Style::default().fg(colors.fg())),
                     Span::styled(
-                        format!("Bigram {bigram_label}"),
+                        t!("stats.focus_bigram_value", label = &bigram_label).to_string(),
                         Style::default()
                             .fg(colors.focused_key())
                             .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
-                        format!("  ({type_label} anomaly: {anomaly_pct:.0}%)"),
+                        t!("stats.focus_detail_bigram_only", r#type = &type_label, pct = format!("{anomaly_pct:.0}")).to_string(),
                         Style::default().fg(colors.text_pending()),
                     ),
                 ]));
             }
             (None, None) => {
                 lines.push(Line::from(Span::styled(
-                    "  Complete some adaptive drills to see focus data",
+                    t!("stats.focus_empty").to_string(),
                     Style::default().fg(colors.text_pending()),
                 )));
             }
@@ -1512,14 +1533,14 @@ impl StatsDashboard<'_> {
         // Speed table: Bigram  Anom%  Speed  Smp  Strk
         let header = if narrow {
             if is_speed {
-                " Bgrm Speed Expct Anom%"
+                t!("stats.ngram_header_speed_narrow").to_string()
             } else {
-                " Bgrm Err Smp Rate Exp Anom%"
+                t!("stats.ngram_header_error_narrow").to_string()
             }
         } else if is_speed {
-            " Bigram   Speed  Expect  Samples  Anom%"
+            t!("stats.ngram_header_speed").to_string()
         } else {
-            " Bigram  Errors  Samples  Rate  Expect  Anom%"
+            t!("stats.ngram_header_error").to_string()
         };
         buf.set_string(
             inner.x,
@@ -1586,10 +1607,11 @@ impl StatsDashboard<'_> {
     }
 
     fn render_error_anomalies(&self, data: &NgramTabData, area: Rect, buf: &mut Buffer) {
-        let title = format!(" Error Anomalies ({}) ", data.error_anomalies.len());
+        let title = t!("stats.error_anomalies_title", count = data.error_anomalies.len());
+        let empty_msg = t!("stats.no_error_anomalies");
         self.render_anomaly_panel(
-            &title,
-            " No error anomalies detected",
+            title.as_ref(),
+            empty_msg.as_ref(),
             &data.error_anomalies,
             false,
             area,
@@ -1598,10 +1620,11 @@ impl StatsDashboard<'_> {
     }
 
     fn render_speed_anomalies(&self, data: &NgramTabData, area: Rect, buf: &mut Buffer) {
-        let title = format!(" Speed Anomalies ({}) ", data.speed_anomalies.len());
+        let title = t!("stats.speed_anomalies_title", count = data.speed_anomalies.len());
+        let empty_msg = t!("stats.no_speed_anomalies");
         self.render_anomaly_panel(
-            &title,
-            " No speed anomalies detected",
+            title.as_ref(),
+            empty_msg.as_ref(),
             &data.speed_anomalies,
             true,
             area,
@@ -1619,18 +1642,18 @@ impl StatsDashboard<'_> {
         };
 
         // Build segments from most to least important, progressively drop from the right
-        let scope = format!(" {}", data.scope_label);
-        let bigrams = format!(" | Bi: {}", data.total_bigrams);
-        let trigrams = format!(" | Tri: {}", data.total_trigrams);
-        let hesitation = format!(" | Hes: >{:.0}ms", data.hesitation_threshold_ms);
-        let gain = format!(" | Gain: {}", gain_str);
-        let gain_note = if data.latest_trigram_gain.is_none() {
-            " (every 50)"
+        let scope = t!("stats.scope_label_prefix", ).to_string() + &data.scope_label;
+        let bigrams = t!("stats.bi_label", count = data.total_bigrams).to_string();
+        let trigrams = t!("stats.tri_label", count = data.total_trigrams).to_string();
+        let hesitation = t!("stats.hes_label", ms = format!("{:.0}", data.hesitation_threshold_ms)).to_string();
+        let gain = t!("stats.gain_label", value = &gain_str).to_string();
+        let gain_note_str = if data.latest_trigram_gain.is_none() {
+            t!("stats.gain_interval").to_string()
         } else {
-            ""
+            String::new()
         };
 
-        let segments: &[&str] = &[&scope, &bigrams, &trigrams, &hesitation, &gain, gain_note];
+        let segments: &[&str] = &[&scope, &bigrams, &trigrams, &hesitation, &gain, &gain_note_str];
         let mut line = String::new();
         for seg in segments {
             if line.len() + seg.len() <= w {
@@ -1649,33 +1672,47 @@ impl StatsDashboard<'_> {
     }
 }
 
-const TAB_LABELS: [&str; 6] = [
-    "[1] Dashboard",
-    "[2] History",
-    "[3] Activity",
-    "[4] Accuracy",
-    "[5] Timing",
-    "[6] N-grams",
-];
+fn tab_labels() -> Vec<String> {
+    vec![
+        t!("stats.tab_dashboard").to_string(),
+        t!("stats.tab_history").to_string(),
+        t!("stats.tab_activity").to_string(),
+        t!("stats.tab_accuracy").to_string(),
+        t!("stats.tab_timing").to_string(),
+        t!("stats.tab_ngrams").to_string(),
+    ]
+}
+
 const TAB_SEPARATOR: &str = "  ";
-const FOOTER_HINTS_DEFAULT: [&str; 3] = ["[ESC] Back", "[Tab] Next tab", "[1-6] Switch tab"];
-const FOOTER_HINTS_HISTORY: [&str; 6] = [
-    "[ESC] Back",
-    "[Tab] Next tab",
-    "[1-6] Switch tab",
-    "[j/k] Navigate",
-    "[PgUp/PgDn] Page",
-    "[x] Delete",
-];
+
+fn footer_hints_default() -> Vec<String> {
+    vec![
+        t!("stats.hint_back").to_string(),
+        t!("stats.hint_next_tab").to_string(),
+        t!("stats.hint_switch_tab").to_string(),
+    ]
+}
+
+fn footer_hints_history() -> Vec<String> {
+    vec![
+        t!("stats.hint_back").to_string(),
+        t!("stats.hint_next_tab").to_string(),
+        t!("stats.hint_switch_tab").to_string(),
+        t!("stats.hint_navigate").to_string(),
+        t!("stats.hint_page").to_string(),
+        t!("stats.hint_delete").to_string(),
+    ]
+}
 
 fn history_visible_rows(table_inner: Rect) -> usize {
     table_inner.height.saturating_sub(2) as usize
 }
 
 fn wrapped_tab_line_count(width: usize) -> usize {
+    let labels = tab_labels();
     let mut lines = 1usize;
     let mut current_width = 0usize;
-    for label in TAB_LABELS {
+    for label in &labels {
         let item_width = format!(" {label} ").chars().count() + TAB_SEPARATOR.len();
         if current_width > 0 && current_width + item_width > width {
             lines += 1;
@@ -1687,7 +1724,9 @@ fn wrapped_tab_line_count(width: usize) -> usize {
 }
 
 fn footer_line_count_for_history(width: usize) -> usize {
-    pack_hint_lines(&FOOTER_HINTS_HISTORY, width).len().max(1)
+    let hints = footer_hints_history();
+    let hint_refs: Vec<&str> = hints.iter().map(|s| s.as_str()).collect();
+    pack_hint_lines(&hint_refs, width).len().max(1)
 }
 
 pub fn history_page_size_for_terminal(width: u16, height: u16) -> usize {

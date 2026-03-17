@@ -4,16 +4,20 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget};
 
+use crate::i18n::t;
 use crate::ui::theme::Theme;
 
-pub struct MenuItem {
-    pub key: String,
-    pub label: String,
-    pub description: String,
-}
+const MENU_ITEMS: &[(&str, &str, &str)] = &[
+    ("1", "menu.adaptive_drill", "menu.adaptive_drill_desc"),
+    ("2", "menu.code_drill", "menu.code_drill_desc"),
+    ("3", "menu.passage_drill", "menu.passage_drill_desc"),
+    ("t", "menu.skill_tree", "menu.skill_tree_desc"),
+    ("b", "menu.keyboard", "menu.keyboard_desc"),
+    ("s", "menu.statistics", "menu.statistics_desc"),
+    ("c", "menu.settings", "menu.settings_desc"),
+];
 
 pub struct Menu<'a> {
-    pub items: Vec<MenuItem>,
     pub selected: usize,
     pub theme: &'a Theme,
 }
@@ -21,57 +25,24 @@ pub struct Menu<'a> {
 impl<'a> Menu<'a> {
     pub fn new(theme: &'a Theme) -> Self {
         Self {
-            items: vec![
-                MenuItem {
-                    key: "1".to_string(),
-                    label: "Adaptive Drill".to_string(),
-                    description: "Phonetic words with adaptive letter unlocking".to_string(),
-                },
-                MenuItem {
-                    key: "2".to_string(),
-                    label: "Code Drill".to_string(),
-                    description: "Practice typing code syntax".to_string(),
-                },
-                MenuItem {
-                    key: "3".to_string(),
-                    label: "Passage Drill".to_string(),
-                    description: "Type passages from books".to_string(),
-                },
-                MenuItem {
-                    key: "t".to_string(),
-                    label: "Skill Tree".to_string(),
-                    description: "View progression branches and launch drills".to_string(),
-                },
-                MenuItem {
-                    key: "b".to_string(),
-                    label: "Keyboard".to_string(),
-                    description: "Explore keyboard layout and key statistics".to_string(),
-                },
-                MenuItem {
-                    key: "s".to_string(),
-                    label: "Statistics".to_string(),
-                    description: "View your typing statistics".to_string(),
-                },
-                MenuItem {
-                    key: "c".to_string(),
-                    label: "Settings".to_string(),
-                    description: "Configure keydr".to_string(),
-                },
-            ],
             selected: 0,
             theme,
         }
     }
 
+    pub fn item_count() -> usize {
+        MENU_ITEMS.len()
+    }
+
     pub fn next(&mut self) {
-        self.selected = (self.selected + 1) % self.items.len();
+        self.selected = (self.selected + 1) % MENU_ITEMS.len();
     }
 
     pub fn prev(&mut self) {
         if self.selected > 0 {
             self.selected -= 1;
         } else {
-            self.selected = self.items.len() - 1;
+            self.selected = MENU_ITEMS.len() - 1;
         }
     }
 }
@@ -95,6 +66,7 @@ impl Widget for &Menu<'_> {
             ])
             .split(inner);
 
+        let subtitle = t!("menu.subtitle");
         let title_lines = vec![
             Line::from(""),
             Line::from(Span::styled(
@@ -104,7 +76,7 @@ impl Widget for &Menu<'_> {
                     .add_modifier(Modifier::BOLD),
             )),
             Line::from(Span::styled(
-                "Terminal Typing Tutor",
+                subtitle.as_ref(),
                 Style::default().fg(colors.fg()),
             )),
             Line::from(""),
@@ -116,33 +88,31 @@ impl Widget for &Menu<'_> {
         let menu_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints(
-                self.items
+                MENU_ITEMS
                     .iter()
                     .map(|_| Constraint::Length(3))
                     .collect::<Vec<_>>(),
             )
             .split(layout[2]);
-        let key_width = self
-            .items
+        let key_width = MENU_ITEMS
             .iter()
-            .map(|item| item.key.len())
+            .map(|(key, _, _)| key.len())
             .max()
             .unwrap_or(1);
 
-        for (i, item) in self.items.iter().enumerate() {
+        for (i, &(key, label_key, desc_key)) in MENU_ITEMS.iter().enumerate() {
             let is_selected = i == self.selected;
             let indicator = if is_selected { ">" } else { " " };
+            let label = t!(label_key);
+            let description = t!(desc_key);
 
             let label_text = format!(
                 " {indicator} [{key:<key_width$}] {label}",
-                key = item.key,
                 key_width = key_width,
-                label = item.label
             );
             let desc_text = format!(
-                "   {:indent$}{}",
+                "   {:indent$}{description}",
                 "",
-                item.description,
                 indent = key_width + 4
             );
 

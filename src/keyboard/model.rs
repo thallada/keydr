@@ -513,10 +513,17 @@ impl KeyboardModel {
             let Some(&(row, col)) = slots.next() else {
                 break;
             };
-            let shifted = ch.to_uppercase().next().unwrap_or(ch);
+            let candidate = ch.to_uppercase().next().unwrap_or(ch);
+            let shifted = if candidate != ch && used.contains(&candidate) {
+                ch
+            } else {
+                candidate
+            };
             model.rows[row][col] = PhysicalKey { base: ch, shifted };
             used.insert(ch);
-            used.insert(shifted);
+            if shifted != ch {
+                used.insert(shifted);
+            }
         }
         model
     }
@@ -737,12 +744,14 @@ mod tests {
                         pk.base,
                         key
                     );
-                    assert!(
-                        seen.insert(pk.shifted),
-                        "duplicate shifted char {:?} in profile {}",
-                        pk.shifted,
-                        key
-                    );
+                    if pk.shifted != pk.base {
+                        assert!(
+                            seen.insert(pk.shifted),
+                            "duplicate shifted char {:?} in profile {}",
+                            pk.shifted,
+                            key
+                        );
+                    }
                 }
             }
         }
