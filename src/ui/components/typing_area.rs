@@ -103,10 +103,17 @@ fn contrast_ratio(a: ratatui::style::Color, b: ratatui::style::Color) -> f64 {
     (hi + 0.05) / (lo + 0.05)
 }
 
-fn choose_cursor_colors(
-    colors: &crate::ui::theme::ThemeColors,
-) -> (ratatui::style::Color, ratatui::style::Color) {
+fn choose_cursor_style(colors: &crate::ui::theme::ThemeColors) -> Style {
     use ratatui::style::Color;
+
+    // When both cursor colors are Reset (e.g. terminal-default theme) we cannot
+    // compute contrast because the actual terminal colours are unknown.  Use the
+    // REVERSED modifier so the terminal itself swaps fg/bg, which guarantees a
+    // visible cursor in every colour scheme.
+    if colors.text_cursor_bg() == Color::Reset && colors.text_cursor_fg() == Color::Reset {
+        return Style::default()
+            .add_modifier(Modifier::REVERSED | Modifier::BOLD);
+    }
 
     let base_bg = colors.bg();
     let mut cursor_bg = colors.text_cursor_bg();
@@ -142,7 +149,10 @@ fn choose_cursor_colors(
         }
     }
 
-    (cursor_fg, cursor_bg)
+    Style::default()
+        .fg(cursor_fg)
+        .bg(cursor_bg)
+        .add_modifier(Modifier::BOLD)
 }
 
 /// Expand target chars into render tokens, handling whitespace display.
@@ -193,7 +203,7 @@ fn build_render_tokens(target: &[char]) -> Vec<RenderToken> {
 impl Widget for TypingArea<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let colors = &self.theme.colors;
-        let (cursor_fg, cursor_bg) = choose_cursor_colors(colors);
+        let cursor_style = choose_cursor_style(colors);
         let tokens = build_render_tokens(&self.drill.target);
 
         // Group tokens into lines, splitting on line_break tokens
@@ -212,10 +222,7 @@ impl Widget for TypingArea<'_> {
                         .add_modifier(Modifier::UNDERLINED),
                 }
             } else if idx == self.drill.cursor {
-                Style::default()
-                    .fg(cursor_fg)
-                    .bg(cursor_bg)
-                    .add_modifier(Modifier::BOLD)
+                cursor_style
             } else {
                 Style::default().fg(colors.text_pending())
             };
