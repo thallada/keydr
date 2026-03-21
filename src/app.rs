@@ -1667,14 +1667,18 @@ impl App {
         match self.drill_mode {
             DrillMode::Adaptive => self.start_drill(),
             DrillMode::Code => {
-                if let Some(lang) = self.last_code_drill_language.clone() {
-                    self.code_drill_language_override = Some(lang);
+                if self.config.code_language != "all" {
+                    if let Some(lang) = self.last_code_drill_language.clone() {
+                        self.code_drill_language_override = Some(lang);
+                    }
                 }
                 self.start_code_drill();
             }
             DrillMode::Passage => {
-                if let Some(selection) = self.last_passage_drill_selection.clone() {
-                    self.passage_drill_selection_override = Some(selection);
+                if self.config.passage_book != "all" {
+                    if let Some(selection) = self.last_passage_drill_selection.clone() {
+                        self.passage_drill_selection_override = Some(selection);
+                    }
                 }
                 self.start_passage_drill();
             }
