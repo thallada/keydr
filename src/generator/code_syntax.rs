@@ -1020,51 +1020,9 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
                 ],
             },
             CodeRepo {
-                key: "kotlinx-coroutines-job",
-                urls: &[
-                    "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/b11abdf01d4d5db85247ab365abc72efc7b95062/kotlinx-coroutines-core/common/src/JobSupport.kt",
-                ],
-            },
-            CodeRepo {
-                key: "kotlinx-coroutines-channel",
-                urls: &[
-                    "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/b11abdf01d4d5db85247ab365abc72efc7b95062/kotlinx-coroutines-core/common/src/channels/BufferedChannel.kt",
-                ],
-            },
-            CodeRepo {
                 key: "kotlin-stdlib-strings-jvm",
                 urls: &[
                     "https://raw.githubusercontent.com/JetBrains/kotlin/6ddfa0b9759c13a6ea97ef7f7e3efc0469730218/libraries/stdlib/jvm/src/kotlin/text/StringsJVM.kt",
-                ],
-            },
-            CodeRepo {
-                key: "kotlinx-coroutines-transform",
-                urls: &[
-                    "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/b11abdf01d4d5db85247ab365abc72efc7b95062/kotlinx-coroutines-core/common/src/flow/operators/Transform.kt",
-                ],
-            },
-            CodeRepo {
-                key: "kotlinx-coroutines-select",
-                urls: &[
-                    "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/b11abdf01d4d5db85247ab365abc72efc7b95062/kotlinx-coroutines-core/common/src/selects/Select.kt",
-                ],
-            },
-            CodeRepo {
-                key: "kotlinx-coroutines-cancel",
-                urls: &[
-                    "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/b11abdf01d4d5db85247ab365abc72efc7b95062/kotlinx-coroutines-core/common/src/CancellableContinuation.kt",
-                ],
-            },
-            CodeRepo {
-                key: "kotlinx-coroutines-job-2",
-                urls: &[
-                    "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/b11abdf01d4d5db85247ab365abc72efc7b95062/kotlinx-coroutines-core/common/src/Job.kt",
-                ],
-            },
-            CodeRepo {
-                key: "kotlinx-coroutines-builders",
-                urls: &[
-                    "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/b11abdf01d4d5db85247ab365abc72efc7b95062/kotlinx-coroutines-core/common/src/Builders.common.kt",
                 ],
             },
         ],
@@ -1241,6 +1199,34 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
                     "https://raw.githubusercontent.com/dotnet/aspnetcore/c1a3e7b0f3a45cf91064f4fa4ebf1801f5efd58f/src/Mvc/Mvc.Core/src/ControllerBase.cs",
                 ],
             },
+            CodeRepo {
+                key: "polly",
+                urls: &[
+                    "https://raw.githubusercontent.com/App-vNext/Polly/7e9960c702379f40e628d099ab2bdd0995c5bd90/src/Polly.Core/Retry/RetryResilienceStrategy.cs",
+                    "https://raw.githubusercontent.com/App-vNext/Polly/7e9960c702379f40e628d099ab2bdd0995c5bd90/src/Polly.Core/Registry/ResiliencePipelineRegistry.cs",
+                ],
+            },
+            CodeRepo {
+                key: "dapper",
+                urls: &[
+                    "https://raw.githubusercontent.com/DapperLib/Dapper/288730e69b05c32cac898d9b55ebea219ea8a2d1/Dapper/SqlMapper.cs",
+                    "https://raw.githubusercontent.com/DapperLib/Dapper/288730e69b05c32cac898d9b55ebea219ea8a2d1/Dapper/SqlMapper.Async.cs",
+                ],
+            },
+            CodeRepo {
+                key: "serilog",
+                urls: &[
+                    "https://raw.githubusercontent.com/serilog/serilog/6c3fbcf636b0671bbd6f5032b61a2254937d8408/src/Serilog/LoggerConfiguration.cs",
+                    "https://raw.githubusercontent.com/serilog/serilog/6c3fbcf636b0671bbd6f5032b61a2254937d8408/src/Serilog/Log.cs",
+                ],
+            },
+            CodeRepo {
+                key: "automapper",
+                urls: &[
+                    "https://raw.githubusercontent.com/AutoMapper/AutoMapper/1af71bfe831e337254a555a611de6c22b85d0426/src/AutoMapper/Execution/ExpressionBuilder.cs",
+                    "https://raw.githubusercontent.com/AutoMapper/AutoMapper/1af71bfe831e337254a555a611de6c22b85d0426/src/AutoMapper/ProfileMap.cs",
+                ],
+            },
         ],
         has_builtin: false,
         block_style: BlockStyle::Braces(&[
@@ -1394,6 +1380,33 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
                     "https://raw.githubusercontent.com/flutter/flutter/aaa24c388b43b5504b21747684923eaae4356dbc/packages/flutter/lib/src/widgets/editable_text.dart",
                 ],
             },
+            CodeRepo {
+                key: "bloc",
+                urls: &[
+                    "https://raw.githubusercontent.com/felangel/bloc/82e12837156918ad15a082be357bd2bd2e12f742/packages/bloc/lib/src/bloc.dart",
+                    "https://raw.githubusercontent.com/felangel/bloc/82e12837156918ad15a082be357bd2bd2e12f742/packages/bloc/lib/src/bloc_base.dart",
+                ],
+            },
+            CodeRepo {
+                key: "dio",
+                urls: &[
+                    "https://raw.githubusercontent.com/cfug/dio/85aa6f1216203b1ca707289e82e35bcff5070b54/dio/lib/src/dio_mixin.dart",
+                    "https://raw.githubusercontent.com/cfug/dio/85aa6f1216203b1ca707289e82e35bcff5070b54/dio/lib/src/options.dart",
+                ],
+            },
+            CodeRepo {
+                key: "getx",
+                urls: &[
+                    "https://raw.githubusercontent.com/jonataslaw/getx/7bfcd9c3711c8880ee730579724dabe54f4e2598/lib/get_navigation/src/extension_navigation.dart",
+                ],
+            },
+            CodeRepo {
+                key: "drift",
+                urls: &[
+                    "https://raw.githubusercontent.com/simolus3/drift/cb0257aed4ce376d60a1dd405864f69733cf00fe/drift/lib/src/runtime/query_builder/migration.dart",
+                    "https://raw.githubusercontent.com/simolus3/drift/cb0257aed4ce376d60a1dd405864f69733cf00fe/drift/lib/src/runtime/query_builder/query_builder.dart",
+                ],
+            },
         ],
         has_builtin: false,
         block_style: BlockStyle::Braces(&[
@@ -1505,20 +1518,6 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
                 ],
             },
             CodeRepo {
-                key: "mojo-useragent",
-                urls: &[
-                    "https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojo/UserAgent.pm",
-                    "https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojo/Message.pm",
-                ],
-            },
-            CodeRepo {
-                key: "mojo-url",
-                urls: &[
-                    "https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojo/URL.pm",
-                    "https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojo/IOLoop.pm",
-                ],
-            },
-            CodeRepo {
                 key: "plack",
                 urls: &[
                     "https://raw.githubusercontent.com/plack/Plack/b3984f1c59de36903bb924c9da1273f3e11d4d2b/lib/Plack/Util.pm",
@@ -1543,34 +1542,24 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
                 ],
             },
             CodeRepo {
-                key: "mojo-collection",
+                key: "dbix-class",
                 urls: &[
-                    "https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojo/Collection.pm",
+                    "https://raw.githubusercontent.com/Perl5/DBIx-Class/d8cf3aa31fb3d6ff7813f021fcc002663725fc41/lib/DBIx/Class/ResultSet.pm",
+                    "https://raw.githubusercontent.com/Perl5/DBIx-Class/d8cf3aa31fb3d6ff7813f021fcc002663725fc41/lib/DBIx/Class/Schema.pm",
                 ],
             },
             CodeRepo {
-                key: "mojo-transaction",
+                key: "template-toolkit",
                 urls: &[
-                    "https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojo/Transaction/HTTP.pm",
-                    "https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojo/Path.pm",
+                    "https://raw.githubusercontent.com/abw/Template2/b3dcb01a6df44e822fed28dc801ab04b442db77a/lib/Template/Context.pm",
+                    "https://raw.githubusercontent.com/abw/Template2/b3dcb01a6df44e822fed28dc801ab04b442db77a/lib/Template/Provider.pm",
                 ],
             },
             CodeRepo {
-                key: "mojo-content",
+                key: "catalyst",
                 urls: &[
-                    "https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojo/Content.pm",
-                ],
-            },
-            CodeRepo {
-                key: "mojo-headers",
-                urls: &[
-                    "https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojo/Headers.pm",
-                ],
-            },
-            CodeRepo {
-                key: "mojo-log",
-                urls: &[
-                    "https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojo/Log.pm",
+                    "https://raw.githubusercontent.com/perl-catalyst/catalyst-runtime/1d40b8ea5a7f4a4ae99af921b914f04e7c9a21c3/lib/Catalyst.pm",
+                    "https://raw.githubusercontent.com/perl-catalyst/catalyst-runtime/1d40b8ea5a7f4a4ae99af921b914f04e7c9a21c3/lib/Catalyst/Request.pm",
                 ],
             },
         ],
@@ -1603,6 +1592,34 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
                     "https://raw.githubusercontent.com/ziglang/zig/738d2be9d6b6ef3ff3559130c05159ef53336224/lib/std/hash_map.zig",
                     "https://raw.githubusercontent.com/ziglang/zig/738d2be9d6b6ef3ff3559130c05159ef53336224/lib/std/array_list.zig",
                     "https://raw.githubusercontent.com/ziglang/zig/738d2be9d6b6ef3ff3559130c05159ef53336224/lib/std/os.zig",
+                ],
+            },
+            CodeRepo {
+                key: "ghostty",
+                urls: &[
+                    "https://raw.githubusercontent.com/ghostty-org/ghostty/20cfaae2e5ec84cca2c5a55843b399b32fb9c810/src/terminal/Terminal.zig",
+                    "https://raw.githubusercontent.com/ghostty-org/ghostty/20cfaae2e5ec84cca2c5a55843b399b32fb9c810/src/terminal/Screen.zig",
+                ],
+            },
+            CodeRepo {
+                key: "tigerbeetle",
+                urls: &[
+                    "https://raw.githubusercontent.com/tigerbeetle/tigerbeetle/49c92bf96496b1a3b71a689d3a9348df599004ad/src/vsr/replica.zig",
+                    "https://raw.githubusercontent.com/tigerbeetle/tigerbeetle/49c92bf96496b1a3b71a689d3a9348df599004ad/src/lsm/tree.zig",
+                ],
+            },
+            CodeRepo {
+                key: "river",
+                urls: &[
+                    "https://raw.githubusercontent.com/riverwm/river/7df0854c59c9d980f8f9eb21ae1778d737d484de/river/Server.zig",
+                    "https://raw.githubusercontent.com/riverwm/river/7df0854c59c9d980f8f9eb21ae1778d737d484de/river/Window.zig",
+                ],
+            },
+            CodeRepo {
+                key: "bun",
+                urls: &[
+                    "https://raw.githubusercontent.com/oven-sh/bun/5c59842f78880a8b5d9c2eb99c8928fc2ec50a2d/src/bun.js/event_loop.zig",
+                    "https://raw.githubusercontent.com/oven-sh/bun/5c59842f78880a8b5d9c2eb99c8928fc2ec50a2d/src/bun.js/ConsoleObject.zig",
                 ],
             },
         ],
@@ -1682,6 +1699,27 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
                     "https://raw.githubusercontent.com/JuliaLang/julia/e8208497f7f8b4c2ff1282233a65def720328579/base/reduce.jl",
                 ],
             },
+            CodeRepo {
+                key: "jump",
+                urls: &[
+                    "https://raw.githubusercontent.com/jump-dev/JuMP.jl/afab75cb4868b69fed16c7b0cd0ef779c17330b7/src/variables.jl",
+                    "https://raw.githubusercontent.com/jump-dev/JuMP.jl/afab75cb4868b69fed16c7b0cd0ef779c17330b7/src/constraints.jl",
+                ],
+            },
+            CodeRepo {
+                key: "makie",
+                urls: &[
+                    "https://raw.githubusercontent.com/MakieOrg/Makie.jl/b7e263ad464f8eae7fbe02c0d508a01851c689ee/Makie/src/basic_plots.jl",
+                    "https://raw.githubusercontent.com/MakieOrg/Makie.jl/b7e263ad464f8eae7fbe02c0d508a01851c689ee/Makie/src/scenes.jl",
+                ],
+            },
+            CodeRepo {
+                key: "plots",
+                urls: &[
+                    "https://raw.githubusercontent.com/JuliaPlots/Plots.jl/6df02e64ff646f1824528ac9f3482d186fcb3179/PlotsBase/src/recipes.jl",
+                    "https://raw.githubusercontent.com/JuliaPlots/Plots.jl/6df02e64ff646f1824528ac9f3482d186fcb3179/PlotsBase/src/Commons/attrs.jl",
+                ],
+            },
         ],
         has_builtin: false,
         block_style: BlockStyle::EndDelimited(&["function ", "macro "]),
@@ -1743,6 +1781,34 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
                 urls: &[
                     "https://raw.githubusercontent.com/nim-lang/Nim/7a82c5920c46fa7a3393ebdecc54716cb1015366/lib/pure/sugar.nim",
                     "https://raw.githubusercontent.com/nim-lang/Nim/7a82c5920c46fa7a3393ebdecc54716cb1015366/lib/pure/logging.nim",
+                ],
+            },
+            CodeRepo {
+                key: "jester",
+                urls: &[
+                    "https://raw.githubusercontent.com/dom96/jester/ac9b8541dce64feff9b53b700cab8496c1816651/jester.nim",
+                    "https://raw.githubusercontent.com/dom96/jester/ac9b8541dce64feff9b53b700cab8496c1816651/jester/request.nim",
+                ],
+            },
+            CodeRepo {
+                key: "prologue",
+                urls: &[
+                    "https://raw.githubusercontent.com/planety/prologue/555fbf61500118d390216bae3970d30fad2406b0/src/prologue/core/context.nim",
+                    "https://raw.githubusercontent.com/planety/prologue/555fbf61500118d390216bae3970d30fad2406b0/src/prologue/core/route.nim",
+                ],
+            },
+            CodeRepo {
+                key: "chronos",
+                urls: &[
+                    "https://raw.githubusercontent.com/status-im/nim-chronos/6d89155294479871de019e35a4787a9f0bfd7f3a/chronos/asyncsync.nim",
+                    "https://raw.githubusercontent.com/status-im/nim-chronos/6d89155294479871de019e35a4787a9f0bfd7f3a/chronos/transport.nim",
+                ],
+            },
+            CodeRepo {
+                key: "karax",
+                urls: &[
+                    "https://raw.githubusercontent.com/karaxnim/karax/7e1471aea2ea1001134ae6862743902c1d1e1814/karax/karax.nim",
+                    "https://raw.githubusercontent.com/karaxnim/karax/7e1471aea2ea1001134ae6862743902c1d1e1814/karax/vdom.nim",
                 ],
             },
         ],
@@ -1823,6 +1889,27 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
                 key: "ocaml-filename",
                 urls: &[
                     "https://raw.githubusercontent.com/ocaml/ocaml/d7ee697596b9688569c4db06fc32d3f9fffdeeef/stdlib/filename.ml",
+                ],
+            },
+            CodeRepo {
+                key: "lwt",
+                urls: &[
+                    "https://raw.githubusercontent.com/ocsigen/lwt/b935bf78c6b73c04fb304447374972a2604a9120/src/core/lwt.ml",
+                    "https://raw.githubusercontent.com/ocsigen/lwt/b935bf78c6b73c04fb304447374972a2604a9120/src/core/lwt_stream.ml",
+                ],
+            },
+            CodeRepo {
+                key: "dream",
+                urls: &[
+                    "https://raw.githubusercontent.com/aantron/dream/1fbb7fd440cff3cf6514d7f9aa0da73d21466611/src/server/router.ml",
+                    "https://raw.githubusercontent.com/aantron/dream/1fbb7fd440cff3cf6514d7f9aa0da73d21466611/src/http/http.ml",
+                ],
+            },
+            CodeRepo {
+                key: "janestreet-core",
+                urls: &[
+                    "https://raw.githubusercontent.com/janestreet/core/3998718a19af8b148bc1864c24ca37198e6d3820/core/src/time_ns.ml",
+                    "https://raw.githubusercontent.com/janestreet/core/3998718a19af8b148bc1864c24ca37198e6d3820/core/src/map.ml",
                 ],
             },
         ],
@@ -2004,15 +2091,6 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
                 ],
             },
             CodeRepo {
-                key: "ggplot2-geom",
-                urls: &[
-                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/geom-path.R",
-                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/geom-bar.R",
-                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/facet-wrap.R",
-                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/labels.R",
-                ],
-            },
-            CodeRepo {
                 key: "tidyr",
                 urls: &[
                     "https://raw.githubusercontent.com/tidyverse/tidyr/cdaeeb352c73dce9ebf3a5d785a2ed5fd6c5fdbc/R/pivot-long.R",
@@ -2057,30 +2135,6 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
                 ],
             },
             CodeRepo {
-                key: "ggplot2-coord",
-                urls: &[
-                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/coord-.R",
-                ],
-            },
-            CodeRepo {
-                key: "ggplot2-layer",
-                urls: &[
-                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/layer.R",
-                ],
-            },
-            CodeRepo {
-                key: "ggplot2-scale-cont",
-                urls: &[
-                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/scale-continuous.R",
-                ],
-            },
-            CodeRepo {
-                key: "ggplot2-dodge",
-                urls: &[
-                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/position-dodge.R",
-                ],
-            },
-            CodeRepo {
                 key: "dplyr-groupby",
                 urls: &[
                     "https://raw.githubusercontent.com/tidyverse/dplyr/f7c3788be32a90c83e705849c83bb111cd9d4a13/R/group-by.R",
@@ -2088,22 +2142,9 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
                 ],
             },
             CodeRepo {
-                key: "ggplot2-boxtext",
-                urls: &[
-                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/geom-boxplot.R",
-                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/geom-text.R",
-                ],
-            },
-            CodeRepo {
                 key: "devtools",
                 urls: &[
                     "https://raw.githubusercontent.com/r-lib/devtools/07292edc8d475aa43a89f4f21053d36becb68093/R/install.R",
-                ],
-            },
-            CodeRepo {
-                key: "ggplot2-guides",
-                urls: &[
-                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/guides-.R",
                 ],
             },
             CodeRepo {
@@ -2126,9 +2167,24 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
                 ],
             },
             CodeRepo {
-                key: "ggplot2-ggproto",
+                key: "data-table",
                 urls: &[
-                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/ggproto.R",
+                    "https://raw.githubusercontent.com/Rdatatable/data.table/8198bf0cd9ee40ea8b5d1b3c9baeff4919b7794d/R/data.table.R",
+                    "https://raw.githubusercontent.com/Rdatatable/data.table/8198bf0cd9ee40ea8b5d1b3c9baeff4919b7794d/R/fread.R",
+                ],
+            },
+            CodeRepo {
+                key: "mlr3",
+                urls: &[
+                    "https://raw.githubusercontent.com/mlr-org/mlr3/0defc99bcc7c5338d0affc26cd8689e637da7383/R/Learner.R",
+                    "https://raw.githubusercontent.com/mlr-org/mlr3/0defc99bcc7c5338d0affc26cd8689e637da7383/R/Task.R",
+                ],
+            },
+            CodeRepo {
+                key: "caret",
+                urls: &[
+                    "https://raw.githubusercontent.com/topepo/caret/c98cc1a3ba5f0b087d51f5c4362a3b751515e243/pkg/caret/R/train.default.R",
+                    "https://raw.githubusercontent.com/topepo/caret/c98cc1a3ba5f0b087d51f5c4362a3b751515e243/pkg/caret/R/preProcess.R",
                 ],
             },
         ],
@@ -2279,6 +2335,27 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
                 key: "otp-binary",
                 urls: &[
                     "https://raw.githubusercontent.com/erlang/otp/f67aa9da945f01315fcfd2d6ac2a90909a34afa4/lib/stdlib/src/binary.erl",
+                ],
+            },
+            CodeRepo {
+                key: "ejabberd",
+                urls: &[
+                    "https://raw.githubusercontent.com/processone/ejabberd/27b87d4a8af84cab619fa33095b42cb03f9e6020/src/ejabberd_c2s.erl",
+                    "https://raw.githubusercontent.com/processone/ejabberd/27b87d4a8af84cab619fa33095b42cb03f9e6020/src/ejabberd_router.erl",
+                ],
+            },
+            CodeRepo {
+                key: "vernemq",
+                urls: &[
+                    "https://raw.githubusercontent.com/vernemq/vernemq/17550aa92c2dd9f5a11862dc843d1981f12a7e0c/apps/vmq_server/src/vmq_mqtt_fsm.erl",
+                    "https://raw.githubusercontent.com/vernemq/vernemq/17550aa92c2dd9f5a11862dc843d1981f12a7e0c/apps/vmq_server/src/vmq_queue.erl",
+                ],
+            },
+            CodeRepo {
+                key: "couchdb",
+                urls: &[
+                    "https://raw.githubusercontent.com/apache/couchdb/72936f80eca5e99ce00426085f7608391862db3a/src/couch/src/couch_db.erl",
+                    "https://raw.githubusercontent.com/apache/couchdb/72936f80eca5e99ce00426085f7608391862db3a/src/couch/src/couch_btree.erl",
                 ],
             },
         ],
@@ -2450,6 +2527,28 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
                 key: "fsharp-async",
                 urls: &[
                     "https://raw.githubusercontent.com/dotnet/fsharp/68fb63daa05d38077a4ba32740ef7deda7ebded2/src/FSharp.Core/async.fs",
+                ],
+            },
+            CodeRepo {
+                key: "giraffe",
+                urls: &[
+                    "https://raw.githubusercontent.com/giraffe-fsharp/Giraffe/ebe4a39fc6b6dd8d532eefaca299742c38d98711/src/Giraffe/Routing.fs",
+                    "https://raw.githubusercontent.com/giraffe-fsharp/Giraffe/ebe4a39fc6b6dd8d532eefaca299742c38d98711/src/Giraffe/Core.fs",
+                    "https://raw.githubusercontent.com/giraffe-fsharp/Giraffe/ebe4a39fc6b6dd8d532eefaca299742c38d98711/src/Giraffe/FormatExpressions.fs",
+                ],
+            },
+            CodeRepo {
+                key: "fable",
+                urls: &[
+                    "https://raw.githubusercontent.com/fable-compiler/Fable/098f8700a019854fec2d21d2857afa2dc0d48c26/src/Fable.Transforms/FableTransforms.fs",
+                    "https://raw.githubusercontent.com/fable-compiler/Fable/098f8700a019854fec2d21d2857afa2dc0d48c26/src/Fable.Transforms/FSharp2Fable.fs",
+                ],
+            },
+            CodeRepo {
+                key: "farmer",
+                urls: &[
+                    "https://raw.githubusercontent.com/CompositionalIT/farmer/1df037941bf30e1a20bc58ada939d32f2a34c982/src/Farmer/Common.fs",
+                    "https://raw.githubusercontent.com/CompositionalIT/farmer/1df037941bf30e1a20bc58ada939d32f2a34c982/src/Farmer/Builders/Builders.WebApp.fs",
                 ],
             },
         ],
