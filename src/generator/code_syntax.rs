@@ -38,14 +38,54 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
             CodeRepo {
                 key: "tokio",
                 urls: &[
-                    "https://raw.githubusercontent.com/tokio-rs/tokio/master/tokio/src/sync/mutex.rs",
-                    "https://raw.githubusercontent.com/tokio-rs/tokio/master/tokio/src/net/tcp/stream.rs",
+                    "https://raw.githubusercontent.com/tokio-rs/tokio/6752f50154025a1aa2c231b643cdb78bb4c3892f/tokio/src/sync/mutex.rs",
+                    "https://raw.githubusercontent.com/tokio-rs/tokio/6752f50154025a1aa2c231b643cdb78bb4c3892f/tokio/src/net/tcp/stream.rs",
+                    "https://raw.githubusercontent.com/tokio-rs/tokio/6752f50154025a1aa2c231b643cdb78bb4c3892f/tokio/src/sync/mpsc/chan.rs",
                 ],
             },
             CodeRepo {
                 key: "ripgrep",
                 urls: &[
-                    "https://raw.githubusercontent.com/BurntSushi/ripgrep/master/crates/regex/src/config.rs",
+                    "https://raw.githubusercontent.com/BurntSushi/ripgrep/4519153e5e461527f4bca45b042fff45c4ec6fb9/crates/regex/src/config.rs",
+                    "https://raw.githubusercontent.com/BurntSushi/ripgrep/4519153e5e461527f4bca45b042fff45c4ec6fb9/crates/searcher/src/searcher/mod.rs",
+                    "https://raw.githubusercontent.com/BurntSushi/ripgrep/4519153e5e461527f4bca45b042fff45c4ec6fb9/crates/globset/src/lib.rs",
+                ],
+            },
+            CodeRepo {
+                key: "serde",
+                urls: &[
+                    "https://raw.githubusercontent.com/serde-rs/serde/fa7da4a93567ed347ad0735c28e439fca688ef26/serde_core/src/ser/mod.rs",
+                    "https://raw.githubusercontent.com/serde-rs/serde/fa7da4a93567ed347ad0735c28e439fca688ef26/serde_core/src/de/mod.rs",
+                    "https://raw.githubusercontent.com/serde-rs/serde/fa7da4a93567ed347ad0735c28e439fca688ef26/serde_core/src/macros.rs",
+                ],
+            },
+            CodeRepo {
+                key: "axum",
+                urls: &[
+                    "https://raw.githubusercontent.com/tokio-rs/axum/441216428893d13544f12722b54dcaaadd47135a/axum/src/routing/mod.rs",
+                    "https://raw.githubusercontent.com/tokio-rs/axum/441216428893d13544f12722b54dcaaadd47135a/axum/src/extract/state.rs",
+                    "https://raw.githubusercontent.com/tokio-rs/axum/441216428893d13544f12722b54dcaaadd47135a/axum/src/routing/method_routing.rs",
+                ],
+            },
+            CodeRepo {
+                key: "bevy",
+                urls: &[
+                    "https://raw.githubusercontent.com/bevyengine/bevy/84be6ac40c88eb7c5ba0243e3d6902058225c6b6/crates/bevy_ecs/src/world/mod.rs",
+                    "https://raw.githubusercontent.com/bevyengine/bevy/84be6ac40c88eb7c5ba0243e3d6902058225c6b6/crates/bevy_ecs/src/query/state.rs",
+                    "https://raw.githubusercontent.com/bevyengine/bevy/84be6ac40c88eb7c5ba0243e3d6902058225c6b6/crates/bevy_ecs/src/system/system_param.rs",
+                ],
+            },
+            CodeRepo {
+                key: "clap",
+                urls: &[
+                    "https://raw.githubusercontent.com/clap-rs/clap/f0d30d961d26f8fb636b33242256fca73a717f77/clap_builder/src/builder/command.rs",
+                    "https://raw.githubusercontent.com/clap-rs/clap/f0d30d961d26f8fb636b33242256fca73a717f77/clap_builder/src/parser/parser.rs",
+                ],
+            },
+            CodeRepo {
+                key: "tokio-runtime",
+                urls: &[
+                    "https://raw.githubusercontent.com/tokio-rs/tokio/6752f50154025a1aa2c231b643cdb78bb4c3892f/tokio/src/runtime/scheduler/multi_thread/worker.rs",
                 ],
             },
         ],
@@ -77,13 +117,57 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "python",
         display_name: "Python",
         extensions: &[".py", ".pyi"],
-        repos: &[CodeRepo {
-            key: "cpython",
-            urls: &[
-                "https://raw.githubusercontent.com/python/cpython/main/Lib/json/encoder.py",
-                "https://raw.githubusercontent.com/python/cpython/main/Lib/pathlib/__init__.py",
-            ],
-        }],
+        repos: &[
+            CodeRepo {
+                key: "cpython",
+                urls: &[
+                    "https://raw.githubusercontent.com/python/cpython/70d1b08a4bb52652094c3eb69e36223ecd8b8075/Lib/json/encoder.py",
+                    "https://raw.githubusercontent.com/python/cpython/70d1b08a4bb52652094c3eb69e36223ecd8b8075/Lib/pathlib/__init__.py",
+                ],
+            },
+            CodeRepo {
+                key: "django",
+                urls: &[
+                    "https://raw.githubusercontent.com/django/django/afa026cd80a2388255a137a274568aef09f9fee7/django/db/models/query.py",
+                    "https://raw.githubusercontent.com/django/django/afa026cd80a2388255a137a274568aef09f9fee7/django/http/request.py",
+                ],
+            },
+            CodeRepo {
+                key: "flask",
+                urls: &[
+                    "https://raw.githubusercontent.com/pallets/flask/7ef2946fb5151b745df30201b8c27790cac53875/src/flask/app.py",
+                    "https://raw.githubusercontent.com/pallets/flask/7ef2946fb5151b745df30201b8c27790cac53875/src/flask/helpers.py",
+                    "https://raw.githubusercontent.com/pallets/flask/7ef2946fb5151b745df30201b8c27790cac53875/src/flask/ctx.py",
+                ],
+            },
+            CodeRepo {
+                key: "requests",
+                urls: &[
+                    "https://raw.githubusercontent.com/psf/requests/6360477c52303c9445b45fa8744b02d05a2f0905/src/requests/models.py",
+                    "https://raw.githubusercontent.com/psf/requests/6360477c52303c9445b45fa8744b02d05a2f0905/src/requests/sessions.py",
+                ],
+            },
+            CodeRepo {
+                key: "fastapi",
+                urls: &[
+                    "https://raw.githubusercontent.com/fastapi/fastapi/d128a7089a645466b789e32097de125a3b0f8979/fastapi/routing.py",
+                    "https://raw.githubusercontent.com/fastapi/fastapi/d128a7089a645466b789e32097de125a3b0f8979/fastapi/applications.py",
+                ],
+            },
+            CodeRepo {
+                key: "black",
+                urls: &[
+                    "https://raw.githubusercontent.com/psf/black/e079b7e100d1e181d4ee860ee4512bf3326f32c3/src/black/linegen.py",
+                    "https://raw.githubusercontent.com/psf/black/e079b7e100d1e181d4ee860ee4512bf3326f32c3/src/black/parsing.py",
+                ],
+            },
+            CodeRepo {
+                key: "cpython-collections",
+                urls: &[
+                    "https://raw.githubusercontent.com/python/cpython/70d1b08a4bb52652094c3eb69e36223ecd8b8075/Lib/collections/__init__.py",
+                ],
+            },
+        ],
         has_builtin: true,
         block_style: BlockStyle::Indentation(&["def ", "class ", "async def ", "@"]),
     },
@@ -91,13 +175,47 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "javascript",
         display_name: "JavaScript",
         extensions: &[".js", ".mjs"],
-        repos: &[CodeRepo {
-            key: "node-stdlib",
-            urls: &[
-                "https://raw.githubusercontent.com/nodejs/node/main/lib/path.js",
-                "https://raw.githubusercontent.com/nodejs/node/main/lib/url.js",
-            ],
-        }],
+        repos: &[
+            CodeRepo {
+                key: "node-stdlib",
+                urls: &[
+                    "https://raw.githubusercontent.com/nodejs/node/bf452bb0af57b859f2f907329ef4c2a71f09b5e7/lib/path.js",
+                    "https://raw.githubusercontent.com/nodejs/node/bf452bb0af57b859f2f907329ef4c2a71f09b5e7/lib/url.js",
+                    "https://raw.githubusercontent.com/nodejs/node/bf452bb0af57b859f2f907329ef4c2a71f09b5e7/lib/fs.js",
+                    "https://raw.githubusercontent.com/nodejs/node/bf452bb0af57b859f2f907329ef4c2a71f09b5e7/lib/events.js",
+                ],
+            },
+            CodeRepo {
+                key: "express",
+                urls: &[
+                    "https://raw.githubusercontent.com/expressjs/express/6c4249feec8ab40631817c8e7001baf2ed022224/lib/application.js",
+                    "https://raw.githubusercontent.com/expressjs/express/6c4249feec8ab40631817c8e7001baf2ed022224/lib/response.js",
+                    "https://raw.githubusercontent.com/expressjs/express/6c4249feec8ab40631817c8e7001baf2ed022224/lib/request.js",
+                ],
+            },
+            CodeRepo {
+                key: "webpack",
+                urls: &[
+                    "https://raw.githubusercontent.com/webpack/webpack/9fb3b03ae1f7e66e6c6815561de5830c1821af5c/lib/Compiler.js",
+                    "https://raw.githubusercontent.com/webpack/webpack/9fb3b03ae1f7e66e6c6815561de5830c1821af5c/lib/NormalModule.js",
+                ],
+            },
+            CodeRepo {
+                key: "three-js",
+                urls: &[
+                    "https://raw.githubusercontent.com/mrdoob/three.js/85f77d7f2ad12ce724aa5624facb11b23233281d/src/math/Vector3.js",
+                    "https://raw.githubusercontent.com/mrdoob/three.js/85f77d7f2ad12ce724aa5624facb11b23233281d/src/math/Matrix4.js",
+                    "https://raw.githubusercontent.com/mrdoob/three.js/85f77d7f2ad12ce724aa5624facb11b23233281d/src/math/Quaternion.js",
+                ],
+            },
+            CodeRepo {
+                key: "node-streams",
+                urls: &[
+                    "https://raw.githubusercontent.com/nodejs/node/bf452bb0af57b859f2f907329ef4c2a71f09b5e7/lib/internal/streams/readable.js",
+                    "https://raw.githubusercontent.com/nodejs/node/bf452bb0af57b859f2f907329ef4c2a71f09b5e7/lib/internal/streams/writable.js",
+                ],
+            },
+        ],
         has_builtin: true,
         block_style: BlockStyle::Braces(&[
             "function ",
@@ -114,10 +232,46 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "go",
         display_name: "Go",
         extensions: &[".go"],
-        repos: &[CodeRepo {
-            key: "go-stdlib",
-            urls: &["https://raw.githubusercontent.com/golang/go/master/src/fmt/print.go"],
-        }],
+        repos: &[
+            CodeRepo {
+                key: "go-stdlib",
+                urls: &[
+                    "https://raw.githubusercontent.com/golang/go/1f8aff4386ca8be6ae9b9553205d113884c4a8ee/src/fmt/print.go",
+                    "https://raw.githubusercontent.com/golang/go/1f8aff4386ca8be6ae9b9553205d113884c4a8ee/src/fmt/format.go",
+                    "https://raw.githubusercontent.com/golang/go/1f8aff4386ca8be6ae9b9553205d113884c4a8ee/src/net/http/server.go",
+                ],
+            },
+            CodeRepo {
+                key: "gin",
+                urls: &[
+                    "https://raw.githubusercontent.com/gin-gonic/gin/d3ffc9985281dcf4d3bef604cce4e662b1a327a6/gin.go",
+                    "https://raw.githubusercontent.com/gin-gonic/gin/d3ffc9985281dcf4d3bef604cce4e662b1a327a6/context.go",
+                    "https://raw.githubusercontent.com/gin-gonic/gin/d3ffc9985281dcf4d3bef604cce4e662b1a327a6/routergroup.go",
+                ],
+            },
+            CodeRepo {
+                key: "hugo",
+                urls: &[
+                    "https://raw.githubusercontent.com/gohugoio/hugo/df520e315087210e069050a873fb5e208659af91/hugolib/page.go",
+                    "https://raw.githubusercontent.com/gohugoio/hugo/df520e315087210e069050a873fb5e208659af91/hugolib/site.go",
+                ],
+            },
+            CodeRepo {
+                key: "prometheus",
+                urls: &[
+                    "https://raw.githubusercontent.com/prometheus/prometheus/ced39f8a74dda22d4a87fc8a2d1d71c446826bb1/model/labels/labels_common.go",
+                    "https://raw.githubusercontent.com/prometheus/prometheus/ced39f8a74dda22d4a87fc8a2d1d71c446826bb1/model/labels/matcher.go",
+                    "https://raw.githubusercontent.com/prometheus/prometheus/ced39f8a74dda22d4a87fc8a2d1d71c446826bb1/tsdb/head.go",
+                ],
+            },
+            CodeRepo {
+                key: "kubernetes",
+                urls: &[
+                    "https://raw.githubusercontent.com/kubernetes/kubernetes/610490d1e13f20aaf76ca4092afcf32ba07b5b34/pkg/scheduler/schedule_one.go",
+                    "https://raw.githubusercontent.com/kubernetes/kubernetes/610490d1e13f20aaf76ca4092afcf32ba07b5b34/pkg/scheduler/scheduler.go",
+                ],
+            },
+        ],
         has_builtin: true,
         block_style: BlockStyle::Braces(&["func ", "type "]),
     },
@@ -128,13 +282,77 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         repos: &[
             CodeRepo {
                 key: "ts-node",
-                urls: &["https://raw.githubusercontent.com/TypeStrong/ts-node/main/src/index.ts"],
+                urls: &[
+                    "https://raw.githubusercontent.com/TypeStrong/ts-node/ddb05ef23be92a90c3ecac5a0220435c65ebbd2a/src/index.ts",
+                ],
             },
             CodeRepo {
                 key: "deno-std",
                 urls: &[
-                    "https://raw.githubusercontent.com/denoland/std/main/path/posix/normalize.ts",
-                    "https://raw.githubusercontent.com/denoland/std/main/fs/walk.ts",
+                    "https://raw.githubusercontent.com/denoland/std/1cd63ca60af2e63d51162918b2c061c6f841f9ee/fs/walk.ts",
+                    "https://raw.githubusercontent.com/denoland/std/1cd63ca60af2e63d51162918b2c061c6f841f9ee/fs/copy.ts",
+                ],
+            },
+            CodeRepo {
+                key: "typeorm",
+                urls: &[
+                    "https://raw.githubusercontent.com/typeorm/typeorm/c6f0aa5119fe7c5ab5b602ae8bfbf798278ce443/src/query-builder/QueryBuilder.ts",
+                    "https://raw.githubusercontent.com/typeorm/typeorm/c6f0aa5119fe7c5ab5b602ae8bfbf798278ce443/src/query-builder/SelectQueryBuilder.ts",
+                    "https://raw.githubusercontent.com/typeorm/typeorm/c6f0aa5119fe7c5ab5b602ae8bfbf798278ce443/src/entity-manager/EntityManager.ts",
+                ],
+            },
+            CodeRepo {
+                key: "zod",
+                urls: &[
+                    "https://raw.githubusercontent.com/colinhacks/zod/c7805073fef5b6b8857307c3d4b3597a70613bc2/packages/zod/src/v4/classic/schemas.ts",
+                ],
+            },
+            CodeRepo {
+                key: "prisma",
+                urls: &[
+                    "https://raw.githubusercontent.com/prisma/prisma/5fece0a97ca3f7a05a7ae6691d49728d19b795a4/packages/client/src/runtime/core/model/applyModel.ts",
+                    "https://raw.githubusercontent.com/prisma/prisma/5fece0a97ca3f7a05a7ae6691d49728d19b795a4/packages/client/src/runtime/core/jsonProtocol/serializeJsonQuery.ts",
+                ],
+            },
+            CodeRepo {
+                key: "typescript-compiler",
+                urls: &[
+                    "https://raw.githubusercontent.com/microsoft/TypeScript/71586adc7bec6b358809b5301ad2c6f0d7703174/src/compiler/utilities.ts",
+                    "https://raw.githubusercontent.com/microsoft/TypeScript/71586adc7bec6b358809b5301ad2c6f0d7703174/src/compiler/checker.ts",
+                ],
+            },
+            CodeRepo {
+                key: "vscode",
+                urls: &[
+                    "https://raw.githubusercontent.com/microsoft/vscode/b27242af3a1749bb0223224e87ec8432e825b91f/src/vs/editor/common/model/textModel.ts",
+                    "https://raw.githubusercontent.com/microsoft/vscode/b27242af3a1749bb0223224e87ec8432e825b91f/src/vs/base/common/strings.ts",
+                ],
+            },
+            CodeRepo {
+                key: "angular",
+                urls: &[
+                    "https://raw.githubusercontent.com/angular/angular/c9502999cfd5063e8af32424b99496ae9906b04a/packages/core/src/render3/instructions/shared.ts",
+                    "https://raw.githubusercontent.com/angular/angular/c9502999cfd5063e8af32424b99496ae9906b04a/packages/core/src/di/injector.ts",
+                ],
+            },
+            CodeRepo {
+                key: "nestjs",
+                urls: &[
+                    "https://raw.githubusercontent.com/nestjs/nest/f7d4460f0b34bd4a70be4552c3ca9e11eaecdb8c/packages/core/injector/container.ts",
+                    "https://raw.githubusercontent.com/nestjs/nest/f7d4460f0b34bd4a70be4552c3ca9e11eaecdb8c/packages/core/router/router-explorer.ts",
+                ],
+            },
+            CodeRepo {
+                key: "react-router",
+                urls: &[
+                    "https://raw.githubusercontent.com/remix-run/react-router/7b21212c8044e7a541f101b62dc2496911fbc2d2/packages/react-router/lib/router/router.ts",
+                ],
+            },
+            CodeRepo {
+                key: "lexical",
+                urls: &[
+                    "https://raw.githubusercontent.com/facebook/lexical/84c9e0d66f494a992e8de2320b261295a56f1688/packages/lexical/src/LexicalNode.ts",
+                    "https://raw.githubusercontent.com/facebook/lexical/84c9e0d66f494a992e8de2320b261295a56f1688/packages/lexical/src/LexicalEditor.ts",
                 ],
             },
         ],
@@ -160,14 +378,46 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
             CodeRepo {
                 key: "guava",
                 urls: &[
-                    "https://raw.githubusercontent.com/google/guava/master/guava/src/com/google/common/collect/ImmutableList.java",
-                    "https://raw.githubusercontent.com/google/guava/master/guava/src/com/google/common/base/Preconditions.java",
+                    "https://raw.githubusercontent.com/google/guava/816eaa1d8b0ab1f5d16b671337dbb447e3845ce0/guava/src/com/google/common/collect/ImmutableList.java",
+                    "https://raw.githubusercontent.com/google/guava/816eaa1d8b0ab1f5d16b671337dbb447e3845ce0/guava/src/com/google/common/base/Preconditions.java",
                 ],
             },
             CodeRepo {
                 key: "gson",
                 urls: &[
-                    "https://raw.githubusercontent.com/google/gson/main/gson/src/main/java/com/google/gson/Gson.java",
+                    "https://raw.githubusercontent.com/google/gson/1fa9b7a0a994b006b3be00e2df9de778e71e6807/gson/src/main/java/com/google/gson/Gson.java",
+                    "https://raw.githubusercontent.com/google/gson/1fa9b7a0a994b006b3be00e2df9de778e71e6807/gson/src/main/java/com/google/gson/stream/JsonReader.java",
+                ],
+            },
+            CodeRepo {
+                key: "spring-framework",
+                urls: &[
+                    "https://raw.githubusercontent.com/spring-projects/spring-framework/e7fdbb8339b3d5ee8e61a4d232d1d499a816a61b/spring-context/src/main/java/org/springframework/context/annotation/ConfigurationClassParser.java",
+                    "https://raw.githubusercontent.com/spring-projects/spring-framework/e7fdbb8339b3d5ee8e61a4d232d1d499a816a61b/spring-beans/src/main/java/org/springframework/beans/factory/support/DefaultListableBeanFactory.java",
+                ],
+            },
+            CodeRepo {
+                key: "elasticsearch",
+                urls: &[
+                    "https://raw.githubusercontent.com/elastic/elasticsearch/31afffb42a14f1838474b431ea06ff281a7cd96e/server/src/main/java/org/elasticsearch/index/query/QueryBuilders.java",
+                ],
+            },
+            CodeRepo {
+                key: "junit5",
+                urls: &[
+                    "https://raw.githubusercontent.com/junit-team/junit5/596ca97324f3b820895ae84b64a5cfcd3446fe5a/junit-jupiter-api/src/main/java/org/junit/jupiter/api/Assertions.java",
+                ],
+            },
+            CodeRepo {
+                key: "commons-lang",
+                urls: &[
+                    "https://raw.githubusercontent.com/apache/commons-lang/4d52dd2e873bf9152d5132256d7a8c2b4e975bd9/src/main/java/org/apache/commons/lang3/StringUtils.java",
+                ],
+            },
+            CodeRepo {
+                key: "commons-lang-math",
+                urls: &[
+                    "https://raw.githubusercontent.com/apache/commons-lang/4d52dd2e873bf9152d5132256d7a8c2b4e975bd9/src/main/java/org/apache/commons/lang3/math/NumberUtils.java",
                 ],
             },
         ],
@@ -196,13 +446,34 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
             CodeRepo {
                 key: "redis",
                 urls: &[
-                    "https://raw.githubusercontent.com/redis/redis/unstable/src/server.c",
-                    "https://raw.githubusercontent.com/redis/redis/unstable/src/networking.c",
+                    "https://raw.githubusercontent.com/redis/redis/a6a27f56f2df1a9da3d46aea1fca6e33a89e3f61/src/server.c",
+                    "https://raw.githubusercontent.com/redis/redis/a6a27f56f2df1a9da3d46aea1fca6e33a89e3f61/src/networking.c",
                 ],
             },
             CodeRepo {
                 key: "jq",
-                urls: &["https://raw.githubusercontent.com/jqlang/jq/master/src/builtin.c"],
+                urls: &["https://raw.githubusercontent.com/jqlang/jq/cec6b0f34603edc5cd12db1f63dacdf547b4bb4a/src/builtin.c"],
+            },
+            CodeRepo {
+                key: "sqlite",
+                urls: &[
+                    "https://raw.githubusercontent.com/sqlite/sqlite/f92d107242c8aed695bc2823e41d63afd69c84f7/src/where.c",
+                    "https://raw.githubusercontent.com/sqlite/sqlite/f92d107242c8aed695bc2823e41d63afd69c84f7/src/select.c",
+                ],
+            },
+            CodeRepo {
+                key: "curl",
+                urls: &[
+                    "https://raw.githubusercontent.com/curl/curl/b9690e9cd14188a5f6ab994cfea98f33447c487e/lib/url.c",
+                    "https://raw.githubusercontent.com/curl/curl/b9690e9cd14188a5f6ab994cfea98f33447c487e/lib/transfer.c",
+                ],
+            },
+            CodeRepo {
+                key: "git",
+                urls: &[
+                    "https://raw.githubusercontent.com/git/git/270e10ad6dda3379ea0da7efd11e4fbf2cd7a325/diff.c",
+                    "https://raw.githubusercontent.com/git/git/270e10ad6dda3379ea0da7efd11e4fbf2cd7a325/commit.c",
+                ],
             },
         ],
         has_builtin: true,
@@ -229,12 +500,51 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
             CodeRepo {
                 key: "json",
                 urls: &[
-                    "https://raw.githubusercontent.com/nlohmann/json/develop/include/nlohmann/json.hpp",
+                    "https://raw.githubusercontent.com/nlohmann/json/9a737481aed085fd289f82dff1fa8c3c66627a7e/include/nlohmann/json.hpp",
                 ],
             },
             CodeRepo {
                 key: "fmt",
-                urls: &["https://raw.githubusercontent.com/fmtlib/fmt/master/include/fmt/format.h"],
+                urls: &["https://raw.githubusercontent.com/fmtlib/fmt/cdb8dc76d936a12aacc20b6d283d7c24ee4307fe/include/fmt/format.h"],
+            },
+            CodeRepo {
+                key: "abseil",
+                urls: &[
+                    "https://raw.githubusercontent.com/abseil/abseil-cpp/4ff7ff9ee91464682e2916af9ae0d62357001dc4/absl/strings/str_cat.cc",
+                    "https://raw.githubusercontent.com/abseil/abseil-cpp/4ff7ff9ee91464682e2916af9ae0d62357001dc4/absl/container/flat_hash_map.h",
+                ],
+            },
+            CodeRepo {
+                key: "grpc",
+                urls: &[
+                    "https://raw.githubusercontent.com/grpc/grpc/a2f0c2965a3f644a24fcb1c40d7fe1706e65ef93/src/cpp/server/server_builder.cc",
+                ],
+            },
+            CodeRepo {
+                key: "imgui",
+                urls: &[
+                    "https://raw.githubusercontent.com/ocornut/imgui/689f837afae1f8673c7eebaaee8927350f3e1080/imgui_widgets.cpp",
+                    "https://raw.githubusercontent.com/ocornut/imgui/689f837afae1f8673c7eebaaee8927350f3e1080/imgui.cpp",
+                ],
+            },
+            CodeRepo {
+                key: "opencv",
+                urls: &[
+                    "https://raw.githubusercontent.com/opencv/opencv/2027a3399076b099930fc8eb2721d8c028fdabc0/modules/core/src/matrix.cpp",
+                    "https://raw.githubusercontent.com/opencv/opencv/2027a3399076b099930fc8eb2721d8c028fdabc0/modules/core/src/algorithm.cpp",
+                ],
+            },
+            CodeRepo {
+                key: "protobuf",
+                urls: &[
+                    "https://raw.githubusercontent.com/protocolbuffers/protobuf/b6e522885b3b69562677ba146be979d414f0b6c3/src/google/protobuf/descriptor.cc",
+                ],
+            },
+            CodeRepo {
+                key: "electron",
+                urls: &[
+                    "https://raw.githubusercontent.com/electron/electron/e0bd4ffc39d6bd563d7094905f579c8d79643b4c/shell/browser/api/electron_api_web_contents.cc",
+                ],
             },
         ],
         has_builtin: true,
@@ -264,14 +574,54 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
             CodeRepo {
                 key: "rake",
                 urls: &[
-                    "https://raw.githubusercontent.com/ruby/rake/master/lib/rake/task.rb",
-                    "https://raw.githubusercontent.com/ruby/rake/master/lib/rake/application.rb",
+                    "https://raw.githubusercontent.com/ruby/rake/83e40e3d5aef8289a097d0c0259958a40f866555/lib/rake/task.rb",
+                    "https://raw.githubusercontent.com/ruby/rake/83e40e3d5aef8289a097d0c0259958a40f866555/lib/rake/application.rb",
                 ],
             },
             CodeRepo {
                 key: "sinatra",
                 urls: &[
-                    "https://raw.githubusercontent.com/sinatra/sinatra/main/lib/sinatra/base.rb",
+                    "https://raw.githubusercontent.com/sinatra/sinatra/f891dd2b6f4911e356600efe6c3b82af97d262c6/lib/sinatra/base.rb",
+                ],
+            },
+            CodeRepo {
+                key: "rails",
+                urls: &[
+                    "https://raw.githubusercontent.com/rails/rails/2ea08c89169c05bb2087cd67314bcff23116e597/activerecord/lib/active_record/relation/query_methods.rb",
+                    "https://raw.githubusercontent.com/rails/rails/2ea08c89169c05bb2087cd67314bcff23116e597/actionpack/lib/action_controller/metal/strong_parameters.rb",
+                ],
+            },
+            CodeRepo {
+                key: "jekyll",
+                urls: &[
+                    "https://raw.githubusercontent.com/jekyll/jekyll/ff0d4dd78d939d8596f5ded57f3b2b321eb66b5a/lib/jekyll/site.rb",
+                    "https://raw.githubusercontent.com/jekyll/jekyll/ff0d4dd78d939d8596f5ded57f3b2b321eb66b5a/lib/jekyll/document.rb",
+                ],
+            },
+            CodeRepo {
+                key: "devise",
+                urls: &[
+                    "https://raw.githubusercontent.com/heartcombo/devise/5e3a8bf3a01cc556185dbde47ecf3bb20c41b150/lib/devise/models/authenticatable.rb",
+                ],
+            },
+            CodeRepo {
+                key: "rails-routing",
+                urls: &[
+                    "https://raw.githubusercontent.com/rails/rails/2ea08c89169c05bb2087cd67314bcff23116e597/actionpack/lib/action_dispatch/routing/mapper.rb",
+                    "https://raw.githubusercontent.com/rails/rails/2ea08c89169c05bb2087cd67314bcff23116e597/activesupport/lib/active_support/core_ext/string/inflections.rb",
+                ],
+            },
+            CodeRepo {
+                key: "ruby-net-http",
+                urls: &[
+                    "https://raw.githubusercontent.com/ruby/ruby/c6bee053a2bb07fd5187f88b9312d58244ba390b/lib/net/http.rb",
+                    "https://raw.githubusercontent.com/ruby/ruby/c6bee053a2bb07fd5187f88b9312d58244ba390b/lib/uri/generic.rb",
+                ],
+            },
+            CodeRepo {
+                key: "rails-activerecord",
+                urls: &[
+                    "https://raw.githubusercontent.com/rails/rails/2ea08c89169c05bb2087cd67314bcff23116e597/activerecord/lib/active_record/base.rb",
                 ],
             },
         ],
@@ -294,15 +644,96 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
             CodeRepo {
                 key: "swift-algorithms",
                 urls: &[
-                    "https://raw.githubusercontent.com/apple/swift-algorithms/main/Sources/Algorithms/Chunked.swift",
-                    "https://raw.githubusercontent.com/apple/swift-algorithms/main/Sources/Algorithms/Combinations.swift",
+                    "https://raw.githubusercontent.com/apple/swift-algorithms/0b4376902cfc3901c496a79f2cb70f1ffd583fff/Sources/Algorithms/Chunked.swift",
+                    "https://raw.githubusercontent.com/apple/swift-algorithms/0b4376902cfc3901c496a79f2cb70f1ffd583fff/Sources/Algorithms/Combinations.swift",
+                    "https://raw.githubusercontent.com/apple/swift-algorithms/0b4376902cfc3901c496a79f2cb70f1ffd583fff/Sources/Algorithms/Permutations.swift",
                 ],
             },
             CodeRepo {
                 key: "swift-nio",
                 urls: &[
-                    "https://raw.githubusercontent.com/apple/swift-nio/main/Sources/NIOCore/Channel.swift",
-                    "https://raw.githubusercontent.com/apple/swift-nio/main/Sources/NIOCore/EventLoop.swift",
+                    "https://raw.githubusercontent.com/apple/swift-nio/558f24a4647193b5a0e2104031b71c55d31ff83a/Sources/NIOCore/Channel.swift",
+                    "https://raw.githubusercontent.com/apple/swift-nio/558f24a4647193b5a0e2104031b71c55d31ff83a/Sources/NIOCore/EventLoop.swift",
+                ],
+            },
+            CodeRepo {
+                key: "vapor",
+                urls: &[
+                    "https://raw.githubusercontent.com/vapor/vapor/ff88583e10f02aa47be49e632d5179f89e855e03/Sources/Vapor/Application.swift",
+                    "https://raw.githubusercontent.com/vapor/vapor/ff88583e10f02aa47be49e632d5179f89e855e03/Sources/Vapor/Routing/RoutesBuilder.swift",
+                ],
+            },
+            CodeRepo {
+                key: "alamofire",
+                urls: &[
+                    "https://raw.githubusercontent.com/Alamofire/Alamofire/36f1747e31305e0cfda27864091318950c66a5b1/Source/Core/Session.swift",
+                    "https://raw.githubusercontent.com/Alamofire/Alamofire/36f1747e31305e0cfda27864091318950c66a5b1/Source/Core/Request.swift",
+                    "https://raw.githubusercontent.com/Alamofire/Alamofire/36f1747e31305e0cfda27864091318950c66a5b1/Source/Core/Response.swift",
+                ],
+            },
+            CodeRepo {
+                key: "swift-collections",
+                urls: &[
+                    "https://raw.githubusercontent.com/apple/swift-collections/63bfbed01a39126550b0f1ac87ac48027697831a/Sources/OrderedCollections/OrderedDictionary/OrderedDictionary.swift",
+                ],
+            },
+            CodeRepo {
+                key: "swift-stdlib-array",
+                urls: &[
+                    "https://raw.githubusercontent.com/apple/swift/a891406502855a598d830c806b4fc1887766f6cb/stdlib/public/core/Array.swift",
+                    "https://raw.githubusercontent.com/apple/swift/a891406502855a598d830c806b4fc1887766f6cb/stdlib/public/core/String.swift",
+                ],
+            },
+            CodeRepo {
+                key: "swift-stdlib-collections",
+                urls: &[
+                    "https://raw.githubusercontent.com/apple/swift/a891406502855a598d830c806b4fc1887766f6cb/stdlib/public/core/Dictionary.swift",
+                    "https://raw.githubusercontent.com/apple/swift/a891406502855a598d830c806b4fc1887766f6cb/stdlib/public/core/Set.swift",
+                ],
+            },
+            CodeRepo {
+                key: "swift-stdlib-types",
+                urls: &[
+                    "https://raw.githubusercontent.com/apple/swift/a891406502855a598d830c806b4fc1887766f6cb/stdlib/public/core/Result.swift",
+                    "https://raw.githubusercontent.com/apple/swift/a891406502855a598d830c806b4fc1887766f6cb/stdlib/public/core/Optional.swift",
+                    "https://raw.githubusercontent.com/apple/swift/a891406502855a598d830c806b4fc1887766f6cb/stdlib/public/core/Sequence.swift",
+                ],
+            },
+            CodeRepo {
+                key: "swift-nio-buffer",
+                urls: &[
+                    "https://raw.githubusercontent.com/apple/swift-nio/558f24a4647193b5a0e2104031b71c55d31ff83a/Sources/NIOCore/ByteBuffer-core.swift",
+                    "https://raw.githubusercontent.com/apple/swift-nio/558f24a4647193b5a0e2104031b71c55d31ff83a/Sources/NIOPosix/SocketChannel.swift",
+                ],
+            },
+            CodeRepo {
+                key: "rxswift",
+                urls: &[
+                    "https://raw.githubusercontent.com/ReactiveX/RxSwift/132aea4f236ccadc51590b38af0357a331d51fa2/RxSwift/Observables/Merge.swift",
+                ],
+            },
+            CodeRepo {
+                key: "kingfisher",
+                urls: &[
+                    "https://raw.githubusercontent.com/onevcat/Kingfisher/79a6be40f52b228415af9b73126cdeeb5970bf1e/Sources/General/KingfisherManager.swift",
+                ],
+            },
+            CodeRepo {
+                key: "swiftformat",
+                urls: &[
+                    "https://raw.githubusercontent.com/nicklockwood/SwiftFormat/c8e50ff2cfc2eab46246c072a9ae25ab656c6ec3/Sources/SwiftFormat.swift",
+                ],
+            },
+            CodeRepo {
+                key: "tca",
+                urls: &[
+                    "https://raw.githubusercontent.com/pointfreeco/swift-composable-architecture/ce8ee57840b2b46cd6b5cf06ed0526dd1d690126/Sources/ComposableArchitecture/Store.swift",
+                ],
+            },
+            CodeRepo {
+                key: "snapkit",
+                urls: &[
+                    "https://raw.githubusercontent.com/SnapKit/SnapKit/19f59a63f0faac287f4e59986959859d81ec851c/Sources/ConstraintMaker.swift",
                 ],
             },
         ],
@@ -328,12 +759,93 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         repos: &[
             CodeRepo {
                 key: "nvm",
-                urls: &["https://raw.githubusercontent.com/nvm-sh/nvm/master/nvm.sh"],
+                urls: &["https://raw.githubusercontent.com/nvm-sh/nvm/001ea8cac1eb61c8f0e29889ea05ab0af69546d8/nvm.sh"],
             },
             CodeRepo {
                 key: "oh-my-zsh",
                 urls: &[
-                    "https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/lib/functions.zsh",
+                    "https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/9e2c1548c3dfeefd055e1c6606f66657093ae928/lib/functions.zsh",
+                ],
+            },
+            CodeRepo {
+                key: "asdf",
+                urls: &[
+                    "https://raw.githubusercontent.com/asdf-vm/asdf/9d5f08b100fce9617a4e734a8a67eec63552c345/lib/functions/installs.bash",
+                    "https://raw.githubusercontent.com/asdf-vm/asdf/9d5f08b100fce9617a4e734a8a67eec63552c345/lib/functions/versions.bash",
+                ],
+            },
+            CodeRepo {
+                key: "omz-diagnostics",
+                urls: &[
+                    "https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/9e2c1548c3dfeefd055e1c6606f66657093ae928/lib/diagnostics.zsh",
+                ],
+            },
+            CodeRepo {
+                key: "rbenv",
+                urls: &[
+                    "https://raw.githubusercontent.com/rbenv/rbenv/23c3041695feb811c18dbb270096c7956f7c377d/libexec/rbenv-init",
+                ],
+            },
+            CodeRepo {
+                key: "neofetch",
+                urls: &[
+                    "https://raw.githubusercontent.com/dylanaraps/neofetch/ccd5d9f52609bbdcd5d8fa78c4fdb0f12954125f/neofetch",
+                ],
+            },
+            CodeRepo {
+                key: "n",
+                urls: &[
+                    "https://raw.githubusercontent.com/tj/n/f52d2172f12cd76f0efe9524690723f52ab74f40/bin/n",
+                ],
+            },
+            CodeRepo {
+                key: "acme-sh",
+                urls: &[
+                    "https://raw.githubusercontent.com/acmesh-official/acme.sh/5d158b164028b240e0710a8d7a0ce4835a0ba1be/acme.sh",
+                ],
+            },
+            CodeRepo {
+                key: "dehydrated",
+                urls: &[
+                    "https://raw.githubusercontent.com/dehydrated-io/dehydrated/7ea8aaab5c257cb2c4b980f2f73597369a44d503/dehydrated",
+                ],
+            },
+            CodeRepo {
+                key: "git-completion",
+                urls: &[
+                    "https://raw.githubusercontent.com/git/git/270e10ad6dda3379ea0da7efd11e4fbf2cd7a325/contrib/completion/git-completion.bash",
+                ],
+            },
+            CodeRepo {
+                key: "fzf",
+                urls: &[
+                    "https://raw.githubusercontent.com/junegunn/fzf/cc16a97a40a16efecbed5bd7fb322010c033e503/shell/completion.bash",
+                    "https://raw.githubusercontent.com/junegunn/fzf/cc16a97a40a16efecbed5bd7fb322010c033e503/shell/key-bindings.bash",
+                ],
+            },
+            CodeRepo {
+                key: "bash-my-aws",
+                urls: &[
+                    "https://raw.githubusercontent.com/bash-my-aws/bash-my-aws/775ff9362c62670dcb44d6976d176c305e03d279/lib/instance-functions",
+                ],
+            },
+            CodeRepo {
+                key: "p10k",
+                urls: &[
+                    "https://raw.githubusercontent.com/romkatv/powerlevel10k/604f19a9eaa18e76db2e60b8d446d5f879065f90/internal/p10k.zsh",
+                ],
+            },
+            CodeRepo {
+                key: "liquidprompt",
+                urls: &[
+                    "https://raw.githubusercontent.com/liquidprompt/liquidprompt/a4f6b8d8c90b3eaa33d13dfd1093062ab9c4b30c/liquidprompt",
+                ],
+            },
+            CodeRepo {
+                key: "omz-git",
+                urls: &[
+                    "https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/9e2c1548c3dfeefd055e1c6606f66657093ae928/lib/git.zsh",
+                    "https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/9e2c1548c3dfeefd055e1c6606f66657093ae928/lib/cli.zsh",
                 ],
             },
         ],
@@ -347,12 +859,77 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         repos: &[
             CodeRepo {
                 key: "kong",
-                urls: &["https://raw.githubusercontent.com/Kong/kong/master/kong/init.lua"],
+                urls: &["https://raw.githubusercontent.com/Kong/kong/58f2daa56b90615f78d5953229936192cd1128e9/kong/init.lua"],
             },
             CodeRepo {
                 key: "luarocks",
                 urls: &[
-                    "https://raw.githubusercontent.com/luarocks/luarocks/master/src/luarocks/core/cfg.lua",
+                    "https://raw.githubusercontent.com/luarocks/luarocks/6b0a7f7f8770f5d21730a5f2fa8fcbc695687c43/src/luarocks/core/cfg.lua",
+                ],
+            },
+            CodeRepo {
+                key: "neovim",
+                urls: &[
+                    "https://raw.githubusercontent.com/neovim/neovim/da58fe8fd27510bb68db91b7d67264737e2279a2/runtime/lua/vim/lsp/client.lua",
+                    "https://raw.githubusercontent.com/neovim/neovim/da58fe8fd27510bb68db91b7d67264737e2279a2/runtime/lua/vim/treesitter/query.lua",
+                ],
+            },
+            CodeRepo {
+                key: "openresty",
+                urls: &[
+                    "https://raw.githubusercontent.com/openresty/lua-resty-core/04c564acc22c90f9650fe42fec74879ae4b656a6/lib/resty/core/request.lua",
+                ],
+            },
+            CodeRepo {
+                key: "neovim-lsp-handlers",
+                urls: &[
+                    "https://raw.githubusercontent.com/neovim/neovim/da58fe8fd27510bb68db91b7d67264737e2279a2/runtime/lua/vim/lsp/handlers.lua",
+                    "https://raw.githubusercontent.com/neovim/neovim/da58fe8fd27510bb68db91b7d67264737e2279a2/runtime/lua/vim/lsp/util.lua",
+                ],
+            },
+            CodeRepo {
+                key: "neovim-treesitter",
+                urls: &[
+                    "https://raw.githubusercontent.com/neovim/neovim/da58fe8fd27510bb68db91b7d67264737e2279a2/runtime/lua/vim/treesitter/languagetree.lua",
+                ],
+            },
+            CodeRepo {
+                key: "plenary",
+                urls: &[
+                    "https://raw.githubusercontent.com/nvim-lua/plenary.nvim/b9fd5226c2f76c951fc8ed5923d85e4de065e509/lua/plenary/path.lua",
+                    "https://raw.githubusercontent.com/nvim-lua/plenary.nvim/b9fd5226c2f76c951fc8ed5923d85e4de065e509/lua/plenary/job.lua",
+                ],
+            },
+            CodeRepo {
+                key: "telescope",
+                urls: &[
+                    "https://raw.githubusercontent.com/nvim-telescope/telescope.nvim/e6cdb4dc528c5dc4ca8da86e83ef4e3c84b0729c/lua/telescope/pickers.lua",
+                    "https://raw.githubusercontent.com/nvim-telescope/telescope.nvim/e6cdb4dc528c5dc4ca8da86e83ef4e3c84b0729c/lua/telescope/builtin/__files.lua",
+                ],
+            },
+            CodeRepo {
+                key: "awesome-wm",
+                urls: &[
+                    "https://raw.githubusercontent.com/awesomeWM/awesome/496008691facf3d962c487588741db3ec9654c52/lib/awful/layout/init.lua",
+                    "https://raw.githubusercontent.com/awesomeWM/awesome/496008691facf3d962c487588741db3ec9654c52/lib/awful/widget/taglist.lua",
+                ],
+            },
+            CodeRepo {
+                key: "neovim-diagnostic",
+                urls: &[
+                    "https://raw.githubusercontent.com/neovim/neovim/da58fe8fd27510bb68db91b7d67264737e2279a2/runtime/lua/vim/diagnostic.lua",
+                ],
+            },
+            CodeRepo {
+                key: "neovim-lsp-buf",
+                urls: &[
+                    "https://raw.githubusercontent.com/neovim/neovim/da58fe8fd27510bb68db91b7d67264737e2279a2/runtime/lua/vim/lsp/buf.lua",
+                ],
+            },
+            CodeRepo {
+                key: "neovim-snippet",
+                urls: &[
+                    "https://raw.githubusercontent.com/neovim/neovim/da58fe8fd27510bb68db91b7d67264737e2279a2/runtime/lua/vim/snippet.lua",
                 ],
             },
         ],
@@ -364,13 +941,133 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "kotlin",
         display_name: "Kotlin",
         extensions: &[".kt", ".kts"],
-        repos: &[CodeRepo {
-            key: "kotlinx-coroutines",
-            urls: &[
-                "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/master/kotlinx-coroutines-core/common/src/flow/Builders.kt",
-                "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/master/kotlinx-coroutines-core/common/src/channels/Channel.kt",
-            ],
-        }],
+        repos: &[
+            CodeRepo {
+                key: "kotlinx-coroutines",
+                urls: &[
+                    "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/b11abdf01d4d5db85247ab365abc72efc7b95062/kotlinx-coroutines-core/common/src/flow/Builders.kt",
+                    "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/b11abdf01d4d5db85247ab365abc72efc7b95062/kotlinx-coroutines-core/common/src/channels/Channel.kt",
+                    "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/b11abdf01d4d5db85247ab365abc72efc7b95062/kotlinx-coroutines-core/common/src/flow/SharedFlow.kt",
+                ],
+            },
+            CodeRepo {
+                key: "ktor",
+                urls: &[
+                    "https://raw.githubusercontent.com/ktorio/ktor/1567ffe13d1dd131fc2449579dabe6d1167726a8/ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingBuilder.kt",
+                    "https://raw.githubusercontent.com/ktorio/ktor/1567ffe13d1dd131fc2449579dabe6d1167726a8/ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingNode.kt",
+                    "https://raw.githubusercontent.com/ktorio/ktor/1567ffe13d1dd131fc2449579dabe6d1167726a8/ktor-client/ktor-client-core/common/src/io/ktor/client/HttpClient.kt",
+                ],
+            },
+            CodeRepo {
+                key: "okhttp",
+                urls: &[
+                    "https://raw.githubusercontent.com/square/okhttp/99791c205d84bb4cacc433da99d418e93e1fccce/okhttp/src/commonJvmAndroid/kotlin/okhttp3/OkHttpClient.kt",
+                    "https://raw.githubusercontent.com/square/okhttp/99791c205d84bb4cacc433da99d418e93e1fccce/okhttp/src/commonJvmAndroid/kotlin/okhttp3/Request.kt",
+                ],
+            },
+            CodeRepo {
+                key: "kotlinx-serialization",
+                urls: &[
+                    "https://raw.githubusercontent.com/Kotlin/kotlinx.serialization/c49dc47fbc3c9f2d2cbf42cd2a3876a1337c88bf/core/commonMain/src/kotlinx/serialization/Serializers.kt",
+                    "https://raw.githubusercontent.com/Kotlin/kotlinx.serialization/c49dc47fbc3c9f2d2cbf42cd2a3876a1337c88bf/core/commonMain/src/kotlinx/serialization/descriptors/SerialDescriptors.kt",
+                ],
+            },
+            CodeRepo {
+                key: "kotlinx-coroutines-extra",
+                urls: &[
+                    "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/b11abdf01d4d5db85247ab365abc72efc7b95062/kotlinx-coroutines-core/common/src/flow/operators/Merge.kt",
+                    "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/b11abdf01d4d5db85247ab365abc72efc7b95062/kotlinx-coroutines-core/common/src/Delay.kt",
+                    "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/b11abdf01d4d5db85247ab365abc72efc7b95062/kotlinx-coroutines-core/common/src/CoroutineScope.kt",
+                ],
+            },
+            CodeRepo {
+                key: "kotlin-stdlib-collections",
+                urls: &[
+                    "https://raw.githubusercontent.com/JetBrains/kotlin/6ddfa0b9759c13a6ea97ef7f7e3efc0469730218/libraries/stdlib/src/kotlin/collections/Maps.kt",
+                    "https://raw.githubusercontent.com/JetBrains/kotlin/6ddfa0b9759c13a6ea97ef7f7e3efc0469730218/libraries/stdlib/src/kotlin/collections/Collections.kt",
+                ],
+            },
+            CodeRepo {
+                key: "kotlin-stdlib-sequences",
+                urls: &[
+                    "https://raw.githubusercontent.com/JetBrains/kotlin/6ddfa0b9759c13a6ea97ef7f7e3efc0469730218/libraries/stdlib/src/kotlin/collections/Sequences.kt",
+                    "https://raw.githubusercontent.com/JetBrains/kotlin/6ddfa0b9759c13a6ea97ef7f7e3efc0469730218/libraries/stdlib/src/kotlin/text/Strings.kt",
+                ],
+            },
+            CodeRepo {
+                key: "arrow-core",
+                urls: &[
+                    "https://raw.githubusercontent.com/arrow-kt/arrow/83618a806cd05b5ebf09b20ef9cfd1464e0671e8/arrow-libs/core/arrow-core/src/commonMain/kotlin/arrow/core/Either.kt",
+                ],
+            },
+            CodeRepo {
+                key: "koin",
+                urls: &[
+                    "https://raw.githubusercontent.com/InsertKoinIO/koin/767281ef63d1e742522a4bd4d73cf7276926d70f/projects/core/koin-core/src/commonMain/kotlin/org/koin/core/KoinApplication.kt",
+                    "https://raw.githubusercontent.com/InsertKoinIO/koin/767281ef63d1e742522a4bd4d73cf7276926d70f/projects/core/koin-core/src/commonMain/kotlin/org/koin/core/Koin.kt",
+                ],
+            },
+            CodeRepo {
+                key: "sqldelight",
+                urls: &[
+                    "https://raw.githubusercontent.com/cashapp/sqldelight/585cd14faac58d9045d53bf0ee95f278a73f978b/sqldelight-compiler/src/main/kotlin/app/cash/sqldelight/core/compiler/QueryGenerator.kt",
+                ],
+            },
+            CodeRepo {
+                key: "accompanist",
+                urls: &[
+                    "https://raw.githubusercontent.com/google/accompanist/12ec3408fc101e0006e38dc62f7acff7a822e20b/permissions/src/main/java/com/google/accompanist/permissions/PermissionsUtil.kt",
+                ],
+            },
+            CodeRepo {
+                key: "kotlinx-coroutines-job",
+                urls: &[
+                    "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/b11abdf01d4d5db85247ab365abc72efc7b95062/kotlinx-coroutines-core/common/src/JobSupport.kt",
+                ],
+            },
+            CodeRepo {
+                key: "kotlinx-coroutines-channel",
+                urls: &[
+                    "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/b11abdf01d4d5db85247ab365abc72efc7b95062/kotlinx-coroutines-core/common/src/channels/BufferedChannel.kt",
+                ],
+            },
+            CodeRepo {
+                key: "kotlin-stdlib-strings-jvm",
+                urls: &[
+                    "https://raw.githubusercontent.com/JetBrains/kotlin/6ddfa0b9759c13a6ea97ef7f7e3efc0469730218/libraries/stdlib/jvm/src/kotlin/text/StringsJVM.kt",
+                ],
+            },
+            CodeRepo {
+                key: "kotlinx-coroutines-transform",
+                urls: &[
+                    "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/b11abdf01d4d5db85247ab365abc72efc7b95062/kotlinx-coroutines-core/common/src/flow/operators/Transform.kt",
+                ],
+            },
+            CodeRepo {
+                key: "kotlinx-coroutines-select",
+                urls: &[
+                    "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/b11abdf01d4d5db85247ab365abc72efc7b95062/kotlinx-coroutines-core/common/src/selects/Select.kt",
+                ],
+            },
+            CodeRepo {
+                key: "kotlinx-coroutines-cancel",
+                urls: &[
+                    "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/b11abdf01d4d5db85247ab365abc72efc7b95062/kotlinx-coroutines-core/common/src/CancellableContinuation.kt",
+                ],
+            },
+            CodeRepo {
+                key: "kotlinx-coroutines-job-2",
+                urls: &[
+                    "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/b11abdf01d4d5db85247ab365abc72efc7b95062/kotlinx-coroutines-core/common/src/Job.kt",
+                ],
+            },
+            CodeRepo {
+                key: "kotlinx-coroutines-builders",
+                urls: &[
+                    "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/b11abdf01d4d5db85247ab365abc72efc7b95062/kotlinx-coroutines-core/common/src/Builders.common.kt",
+                ],
+            },
+        ],
         has_builtin: false,
         block_style: BlockStyle::Braces(&[
             "fun ",
@@ -397,14 +1094,81 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "scala",
         display_name: "Scala",
         extensions: &[".scala"],
-        repos: &[CodeRepo {
-            key: "scala-stdlib",
-            urls: &[
-                "https://raw.githubusercontent.com/scala/scala/2.13.x/src/library/scala/collection/immutable/List.scala",
-                "https://raw.githubusercontent.com/scala/scala/2.13.x/src/library/scala/collection/mutable/HashMap.scala",
-                "https://raw.githubusercontent.com/scala/scala/2.13.x/src/library/scala/Option.scala",
-            ],
-        }],
+        repos: &[
+            CodeRepo {
+                key: "scala-stdlib",
+                urls: &[
+                    "https://raw.githubusercontent.com/scala/scala/30a9dff1e0ccca2a79137dea5bf602a3354e9155/src/library/scala/collection/immutable/List.scala",
+                    "https://raw.githubusercontent.com/scala/scala/30a9dff1e0ccca2a79137dea5bf602a3354e9155/src/library/scala/collection/mutable/HashMap.scala",
+                    "https://raw.githubusercontent.com/scala/scala/30a9dff1e0ccca2a79137dea5bf602a3354e9155/src/library/scala/Option.scala",
+                ],
+            },
+            CodeRepo {
+                key: "akka",
+                urls: &[
+                    "https://raw.githubusercontent.com/akka/akka/1717068c7905dc7641194d86a7b84579896c0020/akka-actor/src/main/scala/akka/actor/Actor.scala",
+                    "https://raw.githubusercontent.com/akka/akka/1717068c7905dc7641194d86a7b84579896c0020/akka-stream/src/main/scala/akka/stream/scaladsl/Flow.scala",
+                ],
+            },
+            CodeRepo {
+                key: "spark",
+                urls: &[
+                    "https://raw.githubusercontent.com/apache/spark/d90b6c5bbd7128a75c17443a000a0e3ec32e366b/sql/core/src/main/scala/org/apache/spark/sql/classic/Dataset.scala",
+                    "https://raw.githubusercontent.com/apache/spark/d90b6c5bbd7128a75c17443a000a0e3ec32e366b/sql/core/src/main/scala/org/apache/spark/sql/classic/SparkSession.scala",
+                ],
+            },
+            CodeRepo {
+                key: "spark-rdd",
+                urls: &[
+                    "https://raw.githubusercontent.com/apache/spark/d90b6c5bbd7128a75c17443a000a0e3ec32e366b/core/src/main/scala/org/apache/spark/rdd/RDD.scala",
+                ],
+            },
+            CodeRepo {
+                key: "scala-stdlib-extra",
+                urls: &[
+                    "https://raw.githubusercontent.com/scala/scala/30a9dff1e0ccca2a79137dea5bf602a3354e9155/src/library/scala/collection/immutable/Map.scala",
+                    "https://raw.githubusercontent.com/scala/scala/30a9dff1e0ccca2a79137dea5bf602a3354e9155/src/library/scala/collection/immutable/Vector.scala",
+                ],
+            },
+            CodeRepo {
+                key: "cats",
+                urls: &[
+                    "https://raw.githubusercontent.com/typelevel/cats/ef54b470abec39f901ffb36596adaca29fd84687/core/src/main/scala/cats/Monad.scala",
+                    "https://raw.githubusercontent.com/typelevel/cats/ef54b470abec39f901ffb36596adaca29fd84687/core/src/main/scala/cats/Functor.scala",
+                ],
+            },
+            CodeRepo {
+                key: "cats-effect",
+                urls: &[
+                    "https://raw.githubusercontent.com/typelevel/cats-effect/10756cafd3ebbbd2f75c2ab2bc61fd4ab414bfb7/core/shared/src/main/scala/cats/effect/IO.scala",
+                ],
+            },
+            CodeRepo {
+                key: "play",
+                urls: &[
+                    "https://raw.githubusercontent.com/playframework/playframework/6c14473a4a581b24b12121dee4952cf9615065d0/core/play/src/main/scala/play/api/mvc/Results.scala",
+                ],
+            },
+            CodeRepo {
+                key: "http4s",
+                urls: &[
+                    "https://raw.githubusercontent.com/http4s/http4s/c63fbff43dfe7e3bec25b789fd0a0027ec40ed62/core/shared/src/main/scala/org/http4s/Uri.scala",
+                    "https://raw.githubusercontent.com/http4s/http4s/c63fbff43dfe7e3bec25b789fd0a0027ec40ed62/core/shared/src/main/scala/org/http4s/Headers.scala",
+                ],
+            },
+            CodeRepo {
+                key: "zio",
+                urls: &[
+                    "https://raw.githubusercontent.com/zio/zio/9f65dd2154192fddf00a04b33989cd933b40ecf9/core/shared/src/main/scala/zio/ZIO.scala",
+                ],
+            },
+            CodeRepo {
+                key: "scala-iterator",
+                urls: &[
+                    "https://raw.githubusercontent.com/scala/scala/30a9dff1e0ccca2a79137dea5bf602a3354e9155/src/library/scala/collection/Iterator.scala",
+                ],
+            },
+        ],
         has_builtin: false,
         block_style: BlockStyle::Braces(&[
             "def ",
@@ -428,13 +1192,53 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
             CodeRepo {
                 key: "aspnetcore",
                 urls: &[
-                    "https://raw.githubusercontent.com/dotnet/aspnetcore/main/src/Http/Http.Abstractions/src/HttpContext.cs",
+                    "https://raw.githubusercontent.com/dotnet/aspnetcore/c1a3e7b0f3a45cf91064f4fa4ebf1801f5efd58f/src/Http/Http.Abstractions/src/HttpContext.cs",
                 ],
             },
             CodeRepo {
                 key: "roslyn",
                 urls: &[
-                    "https://raw.githubusercontent.com/dotnet/roslyn/main/src/Compilers/CSharp/Portable/Syntax/SyntaxFactory.cs",
+                    "https://raw.githubusercontent.com/dotnet/roslyn/68d99b22ba5d08644224a3160266d798ae3dd7b7/src/Compilers/CSharp/Portable/Syntax/SyntaxFactory.cs",
+                ],
+            },
+            CodeRepo {
+                key: "runtime",
+                urls: &[
+                    "https://raw.githubusercontent.com/dotnet/runtime/dd96f2c77c57efe67eba429b5e689fde6f5c0248/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.String.cs",
+                    "https://raw.githubusercontent.com/dotnet/runtime/dd96f2c77c57efe67eba429b5e689fde6f5c0248/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializerOptions.cs",
+                ],
+            },
+            CodeRepo {
+                key: "newtonsoft-json",
+                urls: &[
+                    "https://raw.githubusercontent.com/JamesNK/Newtonsoft.Json/4f73e74372445108d2c1bda37b36e6f5e43402e0/Src/Newtonsoft.Json/JsonConvert.cs",
+                ],
+            },
+            CodeRepo {
+                key: "runtime-stringbuilder",
+                urls: &[
+                    "https://raw.githubusercontent.com/dotnet/runtime/dd96f2c77c57efe67eba429b5e689fde6f5c0248/src/libraries/System.Private.CoreLib/src/System/Text/StringBuilder.cs",
+                ],
+            },
+            CodeRepo {
+                key: "runtime-collections",
+                urls: &[
+                    "https://raw.githubusercontent.com/dotnet/runtime/dd96f2c77c57efe67eba429b5e689fde6f5c0248/src/libraries/System.Collections/src/System/Collections/Generic/SortedList.cs",
+                    "https://raw.githubusercontent.com/dotnet/runtime/dd96f2c77c57efe67eba429b5e689fde6f5c0248/src/libraries/System.Private.CoreLib/src/System/Collections/Generic/Dictionary.cs",
+                ],
+            },
+            CodeRepo {
+                key: "runtime-string",
+                urls: &[
+                    "https://raw.githubusercontent.com/dotnet/runtime/dd96f2c77c57efe67eba429b5e689fde6f5c0248/src/libraries/System.Private.CoreLib/src/System/String.Manipulation.cs",
+                ],
+            },
+            CodeRepo {
+                key: "aspnetcore-mvc",
+                urls: &[
+                    "https://raw.githubusercontent.com/dotnet/aspnetcore/c1a3e7b0f3a45cf91064f4fa4ebf1801f5efd58f/src/Http/Http.Abstractions/src/HttpRequest.cs",
+                    "https://raw.githubusercontent.com/dotnet/aspnetcore/c1a3e7b0f3a45cf91064f4fa4ebf1801f5efd58f/src/Http/Http.Abstractions/src/HttpResponse.cs",
+                    "https://raw.githubusercontent.com/dotnet/aspnetcore/c1a3e7b0f3a45cf91064f4fa4ebf1801f5efd58f/src/Mvc/Mvc.Core/src/ControllerBase.cs",
                 ],
             },
         ],
@@ -459,13 +1263,39 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
             CodeRepo {
                 key: "wordpress",
                 urls: &[
-                    "https://raw.githubusercontent.com/WordPress/WordPress/master/wp-includes/formatting.php",
+                    "https://raw.githubusercontent.com/WordPress/WordPress/3a476a9f7dbfed77f2f007fd99e967b075a6602e/wp-includes/formatting.php",
                 ],
             },
             CodeRepo {
                 key: "symfony",
                 urls: &[
-                    "https://raw.githubusercontent.com/symfony/symfony/7.2/src/Symfony/Component/HttpFoundation/Request.php",
+                    "https://raw.githubusercontent.com/symfony/symfony/66f06e5e066c95109dd3251cf93d00adbbb82309/src/Symfony/Component/HttpFoundation/Request.php",
+                ],
+            },
+            CodeRepo {
+                key: "laravel",
+                urls: &[
+                    "https://raw.githubusercontent.com/laravel/framework/f4d44f467696a822e50521e0c4a45012aa84cf97/src/Illuminate/Database/Eloquent/Builder.php",
+                    "https://raw.githubusercontent.com/laravel/framework/f4d44f467696a822e50521e0c4a45012aa84cf97/src/Illuminate/Collections/Collection.php",
+                    "https://raw.githubusercontent.com/laravel/framework/f4d44f467696a822e50521e0c4a45012aa84cf97/src/Illuminate/Routing/Router.php",
+                ],
+            },
+            CodeRepo {
+                key: "composer",
+                urls: &[
+                    "https://raw.githubusercontent.com/composer/composer/b83fd2977ffad7ec46e4ef6108e1912698d647f7/src/Composer/DependencyResolver/Solver.php",
+                ],
+            },
+            CodeRepo {
+                key: "symfony-response",
+                urls: &[
+                    "https://raw.githubusercontent.com/symfony/symfony/66f06e5e066c95109dd3251cf93d00adbbb82309/src/Symfony/Component/HttpFoundation/Response.php",
+                ],
+            },
+            CodeRepo {
+                key: "wordpress-post",
+                urls: &[
+                    "https://raw.githubusercontent.com/WordPress/WordPress/3a476a9f7dbfed77f2f007fd99e967b075a6602e/wp-includes/post.php",
                 ],
             },
         ],
@@ -485,12 +1315,86 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "dart",
         display_name: "Dart",
         extensions: &[".dart"],
-        repos: &[CodeRepo {
-            key: "flutter",
-            urls: &[
-                "https://raw.githubusercontent.com/flutter/flutter/master/packages/flutter/lib/src/widgets/framework.dart",
-            ],
-        }],
+        repos: &[
+            CodeRepo {
+                key: "flutter",
+                urls: &[
+                    "https://raw.githubusercontent.com/flutter/flutter/aaa24c388b43b5504b21747684923eaae4356dbc/packages/flutter/lib/src/widgets/framework.dart",
+                ],
+            },
+            CodeRepo {
+                key: "dart-sdk",
+                urls: &[
+                    "https://raw.githubusercontent.com/dart-lang/sdk/3177f01f5f492f3780d342dbce91cb21649cfeb8/sdk/lib/collection/list.dart",
+                    "https://raw.githubusercontent.com/dart-lang/sdk/3177f01f5f492f3780d342dbce91cb21649cfeb8/sdk/lib/async/future.dart",
+                ],
+            },
+            CodeRepo {
+                key: "riverpod",
+                urls: &[
+                    "https://raw.githubusercontent.com/rrousselGit/riverpod/6b8a0aa1ab299a8266ee880d8390a2b578836c1b/packages/riverpod/lib/src/core/element.dart",
+                    "https://raw.githubusercontent.com/rrousselGit/riverpod/6b8a0aa1ab299a8266ee880d8390a2b578836c1b/packages/riverpod/lib/src/core/provider_container.dart",
+                    "https://raw.githubusercontent.com/rrousselGit/riverpod/6b8a0aa1ab299a8266ee880d8390a2b578836c1b/packages/riverpod/lib/src/core/ref.dart",
+                ],
+            },
+            CodeRepo {
+                key: "flutter-widgets",
+                urls: &[
+                    "https://raw.githubusercontent.com/flutter/flutter/aaa24c388b43b5504b21747684923eaae4356dbc/packages/flutter/lib/src/widgets/basic.dart",
+                ],
+            },
+            CodeRepo {
+                key: "flutter-material",
+                urls: &[
+                    "https://raw.githubusercontent.com/flutter/flutter/aaa24c388b43b5504b21747684923eaae4356dbc/packages/flutter/lib/src/material/app_bar.dart",
+                    "https://raw.githubusercontent.com/flutter/flutter/aaa24c388b43b5504b21747684923eaae4356dbc/packages/flutter/lib/src/material/text_field.dart",
+                ],
+            },
+            CodeRepo {
+                key: "dart-sdk-core",
+                urls: &[
+                    "https://raw.githubusercontent.com/dart-lang/sdk/3177f01f5f492f3780d342dbce91cb21649cfeb8/sdk/lib/core/list.dart",
+                    "https://raw.githubusercontent.com/dart-lang/sdk/3177f01f5f492f3780d342dbce91cb21649cfeb8/sdk/lib/core/string.dart",
+                    "https://raw.githubusercontent.com/dart-lang/sdk/3177f01f5f492f3780d342dbce91cb21649cfeb8/sdk/lib/core/map.dart",
+                ],
+            },
+            CodeRepo {
+                key: "flame",
+                urls: &[
+                    "https://raw.githubusercontent.com/flame-engine/flame/86495694665cc4e85f7d3a94b05766cc6f6b95ba/packages/flame/lib/src/game/game.dart",
+                ],
+            },
+            CodeRepo {
+                key: "flutter-box",
+                urls: &[
+                    "https://raw.githubusercontent.com/flutter/flutter/aaa24c388b43b5504b21747684923eaae4356dbc/packages/flutter/lib/src/rendering/box.dart",
+                ],
+            },
+            CodeRepo {
+                key: "flutter-dropdown",
+                urls: &[
+                    "https://raw.githubusercontent.com/flutter/flutter/aaa24c388b43b5504b21747684923eaae4356dbc/packages/flutter/lib/src/material/dropdown.dart",
+                ],
+            },
+            CodeRepo {
+                key: "flutter-scroll-view",
+                urls: &[
+                    "https://raw.githubusercontent.com/flutter/flutter/aaa24c388b43b5504b21747684923eaae4356dbc/packages/flutter/lib/src/widgets/scroll_view.dart",
+                ],
+            },
+            CodeRepo {
+                key: "flutter-navigator",
+                urls: &[
+                    "https://raw.githubusercontent.com/flutter/flutter/aaa24c388b43b5504b21747684923eaae4356dbc/packages/flutter/lib/src/widgets/navigator.dart",
+                ],
+            },
+            CodeRepo {
+                key: "flutter-editable-text",
+                urls: &[
+                    "https://raw.githubusercontent.com/flutter/flutter/aaa24c388b43b5504b21747684923eaae4356dbc/packages/flutter/lib/src/widgets/editable_text.dart",
+                ],
+            },
+        ],
         has_builtin: false,
         block_style: BlockStyle::Braces(&[
             "void ",
@@ -518,13 +1422,26 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
             CodeRepo {
                 key: "phoenix",
                 urls: &[
-                    "https://raw.githubusercontent.com/phoenixframework/phoenix/main/lib/phoenix/router.ex",
+                    "https://raw.githubusercontent.com/phoenixframework/phoenix/2db25def4aa93c501eee0b0ea4f7bbc4954e4ed3/lib/phoenix/router.ex",
                 ],
             },
             CodeRepo {
                 key: "elixir-lang",
                 urls: &[
-                    "https://raw.githubusercontent.com/elixir-lang/elixir/main/lib/elixir/lib/enum.ex",
+                    "https://raw.githubusercontent.com/elixir-lang/elixir/2916f201899843d3632645a1074a76553639dcd1/lib/elixir/lib/enum.ex",
+                ],
+            },
+            CodeRepo {
+                key: "ecto",
+                urls: &[
+                    "https://raw.githubusercontent.com/elixir-ecto/ecto/d962b66b77e744598b866365ce3be94dfa803273/lib/ecto/query.ex",
+                    "https://raw.githubusercontent.com/elixir-ecto/ecto/d962b66b77e744598b866365ce3be94dfa803273/lib/ecto/changeset.ex",
+                ],
+            },
+            CodeRepo {
+                key: "livebook",
+                urls: &[
+                    "https://raw.githubusercontent.com/livebook-dev/livebook/5ded53df10fb90b2ae960550a2af073923e64161/lib/livebook/session.ex",
                 ],
             },
         ],
@@ -543,10 +1460,120 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "perl",
         display_name: "Perl",
         extensions: &[".pl", ".pm"],
-        repos: &[CodeRepo {
-            key: "mojolicious",
-            urls: &["https://raw.githubusercontent.com/mojolicious/mojo/main/lib/Mojolicious.pm"],
-        }],
+        repos: &[
+            CodeRepo {
+                key: "mojolicious",
+                urls: &["https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojolicious.pm"],
+            },
+            CodeRepo {
+                key: "moose",
+                urls: &[
+                    "https://raw.githubusercontent.com/moose/Moose/b31896a655ef061e3459c03e5feb2382de009fc4/lib/Moose.pm",
+                    "https://raw.githubusercontent.com/moose/Moose/b31896a655ef061e3459c03e5feb2382de009fc4/lib/Moose/Object.pm",
+                ],
+            },
+            CodeRepo {
+                key: "dancer2",
+                urls: &[
+                    "https://raw.githubusercontent.com/PerlDancer/Dancer2/25176c5b860493b4a6dcda5bc12ecbefa67df716/lib/Dancer2/Core/App.pm",
+                ],
+            },
+            CodeRepo {
+                key: "http-tiny",
+                urls: &[
+                    "https://raw.githubusercontent.com/Perl/perl5/998bf44359cb8ecec81cf136272558ce43409066/cpan/HTTP-Tiny/lib/HTTP/Tiny.pm",
+                ],
+            },
+            CodeRepo {
+                key: "lwp-useragent",
+                urls: &[
+                    "https://raw.githubusercontent.com/libwww-perl/libwww-perl/7420d1bfff7cd5369ca24e87c37edf97b2cbb0c1/lib/LWP/UserAgent.pm",
+                    "https://raw.githubusercontent.com/libwww-perl/libwww-perl/7420d1bfff7cd5369ca24e87c37edf97b2cbb0c1/lib/LWP/Protocol/http.pm",
+                ],
+            },
+            CodeRepo {
+                key: "test-more",
+                urls: &[
+                    "https://raw.githubusercontent.com/Perl/perl5/998bf44359cb8ecec81cf136272558ce43409066/cpan/Test-Simple/lib/Test/More.pm",
+                ],
+            },
+            CodeRepo {
+                key: "mojo-dom",
+                urls: &[
+                    "https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojo/DOM.pm",
+                    "https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojo/Util.pm",
+                ],
+            },
+            CodeRepo {
+                key: "mojo-useragent",
+                urls: &[
+                    "https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojo/UserAgent.pm",
+                    "https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojo/Message.pm",
+                ],
+            },
+            CodeRepo {
+                key: "mojo-url",
+                urls: &[
+                    "https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojo/URL.pm",
+                    "https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojo/IOLoop.pm",
+                ],
+            },
+            CodeRepo {
+                key: "plack",
+                urls: &[
+                    "https://raw.githubusercontent.com/plack/Plack/b3984f1c59de36903bb924c9da1273f3e11d4d2b/lib/Plack/Util.pm",
+                ],
+            },
+            CodeRepo {
+                key: "json-pp",
+                urls: &[
+                    "https://raw.githubusercontent.com/Perl/perl5/998bf44359cb8ecec81cf136272558ce43409066/cpan/JSON-PP/lib/JSON/PP.pm",
+                ],
+            },
+            CodeRepo {
+                key: "bioperl",
+                urls: &[
+                    "https://raw.githubusercontent.com/bioperl/bioperl-live/2b622d6a291b95126f3da6d3799a23d8ac7d1ef1/lib/Bio/SeqIO.pm",
+                ],
+            },
+            CodeRepo {
+                key: "perl-file-copy",
+                urls: &[
+                    "https://raw.githubusercontent.com/Perl/perl5/998bf44359cb8ecec81cf136272558ce43409066/lib/File/Copy.pm",
+                ],
+            },
+            CodeRepo {
+                key: "mojo-collection",
+                urls: &[
+                    "https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojo/Collection.pm",
+                ],
+            },
+            CodeRepo {
+                key: "mojo-transaction",
+                urls: &[
+                    "https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojo/Transaction/HTTP.pm",
+                    "https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojo/Path.pm",
+                ],
+            },
+            CodeRepo {
+                key: "mojo-content",
+                urls: &[
+                    "https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojo/Content.pm",
+                ],
+            },
+            CodeRepo {
+                key: "mojo-headers",
+                urls: &[
+                    "https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojo/Headers.pm",
+                ],
+            },
+            CodeRepo {
+                key: "mojo-log",
+                urls: &[
+                    "https://raw.githubusercontent.com/mojolicious/mojo/19fc4f19a0d83204a458ae4a19d192b7eaf4ba81/lib/Mojo/Log.pm",
+                ],
+            },
+        ],
         has_builtin: false,
         block_style: BlockStyle::Braces(&["sub "]),
     },
@@ -554,13 +1581,31 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "zig",
         display_name: "Zig",
         extensions: &[".zig"],
-        repos: &[CodeRepo {
-            key: "zig-stdlib",
-            urls: &[
-                "https://raw.githubusercontent.com/ziglang/zig/master/lib/std/mem.zig",
-                "https://raw.githubusercontent.com/ziglang/zig/master/lib/std/fmt.zig",
-            ],
-        }],
+        repos: &[
+            CodeRepo {
+                key: "zig-stdlib",
+                urls: &[
+                    "https://raw.githubusercontent.com/ziglang/zig/738d2be9d6b6ef3ff3559130c05159ef53336224/lib/std/mem.zig",
+                    "https://raw.githubusercontent.com/ziglang/zig/738d2be9d6b6ef3ff3559130c05159ef53336224/lib/std/fmt.zig",
+                ],
+            },
+            CodeRepo {
+                key: "mach",
+                urls: &[
+                    "https://raw.githubusercontent.com/hexops/mach/c1b78f519cf0be283472627f32d53bea2d74d206/src/Core.zig",
+                    "https://raw.githubusercontent.com/hexops/mach/c1b78f519cf0be283472627f32d53bea2d74d206/src/graph.zig",
+                    "https://raw.githubusercontent.com/hexops/mach/c1b78f519cf0be283472627f32d53bea2d74d206/src/gfx/Text.zig",
+                ],
+            },
+            CodeRepo {
+                key: "zig-stdlib-extra",
+                urls: &[
+                    "https://raw.githubusercontent.com/ziglang/zig/738d2be9d6b6ef3ff3559130c05159ef53336224/lib/std/hash_map.zig",
+                    "https://raw.githubusercontent.com/ziglang/zig/738d2be9d6b6ef3ff3559130c05159ef53336224/lib/std/array_list.zig",
+                    "https://raw.githubusercontent.com/ziglang/zig/738d2be9d6b6ef3ff3559130c05159ef53336224/lib/std/os.zig",
+                ],
+            },
+        ],
         has_builtin: false,
         block_style: BlockStyle::Braces(&[
             "pub fn ",
@@ -575,10 +1620,69 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "julia",
         display_name: "Julia",
         extensions: &[".jl"],
-        repos: &[CodeRepo {
-            key: "julia-stdlib",
-            urls: &["https://raw.githubusercontent.com/JuliaLang/julia/master/base/array.jl"],
-        }],
+        repos: &[
+            CodeRepo {
+                key: "julia-stdlib",
+                urls: &["https://raw.githubusercontent.com/JuliaLang/julia/e8208497f7f8b4c2ff1282233a65def720328579/base/array.jl"],
+            },
+            CodeRepo {
+                key: "flux",
+                urls: &[
+                    "https://raw.githubusercontent.com/FluxML/Flux.jl/cec0db7b7db64b066a472f21e002f9ad7a2460c6/src/layers/basic.jl",
+                    "https://raw.githubusercontent.com/FluxML/Flux.jl/cec0db7b7db64b066a472f21e002f9ad7a2460c6/src/layers/conv.jl",
+                ],
+            },
+            CodeRepo {
+                key: "dataframes",
+                urls: &[
+                    "https://raw.githubusercontent.com/JuliaData/DataFrames.jl/feaaf37648bfa3a6a02263f059ff3b3db356a97d/src/dataframe/dataframe.jl",
+                ],
+            },
+            CodeRepo {
+                key: "julia-strings",
+                urls: &[
+                    "https://raw.githubusercontent.com/JuliaLang/julia/e8208497f7f8b4c2ff1282233a65def720328579/base/strings/basic.jl",
+                ],
+            },
+            CodeRepo {
+                key: "julia-dict",
+                urls: &[
+                    "https://raw.githubusercontent.com/JuliaLang/julia/e8208497f7f8b4c2ff1282233a65def720328579/base/dict.jl",
+                ],
+            },
+            CodeRepo {
+                key: "julia-math",
+                urls: &[
+                    "https://raw.githubusercontent.com/JuliaLang/julia/e8208497f7f8b4c2ff1282233a65def720328579/base/math.jl",
+                    "https://raw.githubusercontent.com/JuliaLang/julia/e8208497f7f8b4c2ff1282233a65def720328579/base/sort.jl",
+                ],
+            },
+            CodeRepo {
+                key: "julia-iterators",
+                urls: &[
+                    "https://raw.githubusercontent.com/JuliaLang/julia/e8208497f7f8b4c2ff1282233a65def720328579/base/iterators.jl",
+                ],
+            },
+            CodeRepo {
+                key: "distributions",
+                urls: &[
+                    "https://raw.githubusercontent.com/JuliaStats/Distributions.jl/196d79be2f21744a88c01295f2772f091244d557/src/univariates.jl",
+                    "https://raw.githubusercontent.com/JuliaStats/Distributions.jl/196d79be2f21744a88c01295f2772f091244d557/src/univariate/continuous/normal.jl",
+                ],
+            },
+            CodeRepo {
+                key: "dataframes-abstract",
+                urls: &[
+                    "https://raw.githubusercontent.com/JuliaData/DataFrames.jl/feaaf37648bfa3a6a02263f059ff3b3db356a97d/src/abstractdataframe/abstractdataframe.jl",
+                ],
+            },
+            CodeRepo {
+                key: "julia-reduce",
+                urls: &[
+                    "https://raw.githubusercontent.com/JuliaLang/julia/e8208497f7f8b4c2ff1282233a65def720328579/base/reduce.jl",
+                ],
+            },
+        ],
         has_builtin: false,
         block_style: BlockStyle::EndDelimited(&["function ", "macro "]),
     },
@@ -586,10 +1690,62 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "nim",
         display_name: "Nim",
         extensions: &[".nim"],
-        repos: &[CodeRepo {
-            key: "nim-stdlib",
-            urls: &["https://raw.githubusercontent.com/nim-lang/Nim/devel/lib/pure/strutils.nim"],
-        }],
+        repos: &[
+            CodeRepo {
+                key: "nim-stdlib",
+                urls: &["https://raw.githubusercontent.com/nim-lang/Nim/7a82c5920c46fa7a3393ebdecc54716cb1015366/lib/pure/strutils.nim"],
+            },
+            CodeRepo {
+                key: "nim-json",
+                urls: &[
+                    "https://raw.githubusercontent.com/nim-lang/Nim/7a82c5920c46fa7a3393ebdecc54716cb1015366/lib/pure/json.nim",
+                ],
+            },
+            CodeRepo {
+                key: "nim-os",
+                urls: &[
+                    "https://raw.githubusercontent.com/nim-lang/Nim/7a82c5920c46fa7a3393ebdecc54716cb1015366/lib/pure/os.nim",
+                ],
+            },
+            CodeRepo {
+                key: "nim-tables",
+                urls: &[
+                    "https://raw.githubusercontent.com/nim-lang/Nim/7a82c5920c46fa7a3393ebdecc54716cb1015366/lib/pure/collections/tables.nim",
+                ],
+            },
+            CodeRepo {
+                key: "nim-sequtils",
+                urls: &[
+                    "https://raw.githubusercontent.com/nim-lang/Nim/7a82c5920c46fa7a3393ebdecc54716cb1015366/lib/pure/collections/sequtils.nim",
+                ],
+            },
+            CodeRepo {
+                key: "nim-asyncdispatch",
+                urls: &[
+                    "https://raw.githubusercontent.com/nim-lang/Nim/7a82c5920c46fa7a3393ebdecc54716cb1015366/lib/pure/asyncdispatch.nim",
+                ],
+            },
+            CodeRepo {
+                key: "nim-httpclient",
+                urls: &[
+                    "https://raw.githubusercontent.com/nim-lang/Nim/7a82c5920c46fa7a3393ebdecc54716cb1015366/lib/pure/httpclient.nim",
+                ],
+            },
+            CodeRepo {
+                key: "nim-parseutils",
+                urls: &[
+                    "https://raw.githubusercontent.com/nim-lang/Nim/7a82c5920c46fa7a3393ebdecc54716cb1015366/lib/pure/parseutils.nim",
+                    "https://raw.githubusercontent.com/nim-lang/Nim/7a82c5920c46fa7a3393ebdecc54716cb1015366/lib/pure/uri.nim",
+                ],
+            },
+            CodeRepo {
+                key: "nim-sugar",
+                urls: &[
+                    "https://raw.githubusercontent.com/nim-lang/Nim/7a82c5920c46fa7a3393ebdecc54716cb1015366/lib/pure/sugar.nim",
+                    "https://raw.githubusercontent.com/nim-lang/Nim/7a82c5920c46fa7a3393ebdecc54716cb1015366/lib/pure/logging.nim",
+                ],
+            },
+        ],
         has_builtin: false,
         block_style: BlockStyle::Indentation(&["proc ", "func ", "method ", "type "]),
     },
@@ -597,10 +1753,79 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "ocaml",
         display_name: "OCaml",
         extensions: &[".ml", ".mli"],
-        repos: &[CodeRepo {
-            key: "ocaml-stdlib",
-            urls: &["https://raw.githubusercontent.com/ocaml/ocaml/trunk/stdlib/list.ml"],
-        }],
+        repos: &[
+            CodeRepo {
+                key: "ocaml-stdlib",
+                urls: &["https://raw.githubusercontent.com/ocaml/ocaml/d7ee697596b9688569c4db06fc32d3f9fffdeeef/stdlib/list.ml"],
+            },
+            CodeRepo {
+                key: "ocaml-map",
+                urls: &[
+                    "https://raw.githubusercontent.com/ocaml/ocaml/d7ee697596b9688569c4db06fc32d3f9fffdeeef/stdlib/map.ml",
+                    "https://raw.githubusercontent.com/ocaml/ocaml/d7ee697596b9688569c4db06fc32d3f9fffdeeef/stdlib/hashtbl.ml",
+                ],
+            },
+            CodeRepo {
+                key: "dune",
+                urls: &[
+                    "https://raw.githubusercontent.com/ocaml/dune/c30a6e555e3f79d6196b59ca82eaba9ee08e1e6f/src/dune_rules/simple_rules.ml",
+                ],
+            },
+            CodeRepo {
+                key: "ocaml-string",
+                urls: &[
+                    "https://raw.githubusercontent.com/ocaml/ocaml/d7ee697596b9688569c4db06fc32d3f9fffdeeef/stdlib/string.ml",
+                ],
+            },
+            CodeRepo {
+                key: "ocaml-array",
+                urls: &[
+                    "https://raw.githubusercontent.com/ocaml/ocaml/d7ee697596b9688569c4db06fc32d3f9fffdeeef/stdlib/array.ml",
+                ],
+            },
+            CodeRepo {
+                key: "ocaml-seq",
+                urls: &[
+                    "https://raw.githubusercontent.com/ocaml/ocaml/d7ee697596b9688569c4db06fc32d3f9fffdeeef/stdlib/seq.ml",
+                ],
+            },
+            CodeRepo {
+                key: "ocaml-buffer",
+                urls: &[
+                    "https://raw.githubusercontent.com/ocaml/ocaml/d7ee697596b9688569c4db06fc32d3f9fffdeeef/stdlib/buffer.ml",
+                ],
+            },
+            CodeRepo {
+                key: "ocaml-set",
+                urls: &[
+                    "https://raw.githubusercontent.com/ocaml/ocaml/d7ee697596b9688569c4db06fc32d3f9fffdeeef/stdlib/set.ml",
+                ],
+            },
+            CodeRepo {
+                key: "ocaml-format",
+                urls: &[
+                    "https://raw.githubusercontent.com/ocaml/ocaml/d7ee697596b9688569c4db06fc32d3f9fffdeeef/stdlib/format.ml",
+                ],
+            },
+            CodeRepo {
+                key: "ocaml-scanf",
+                urls: &[
+                    "https://raw.githubusercontent.com/ocaml/ocaml/d7ee697596b9688569c4db06fc32d3f9fffdeeef/stdlib/scanf.ml",
+                ],
+            },
+            CodeRepo {
+                key: "cohttp",
+                urls: &[
+                    "https://raw.githubusercontent.com/mirage/ocaml-cohttp/d2e6993f482b7ec95778d786eef2f2c119a8a6eb/cohttp/src/s.ml",
+                ],
+            },
+            CodeRepo {
+                key: "ocaml-filename",
+                urls: &[
+                    "https://raw.githubusercontent.com/ocaml/ocaml/d7ee697596b9688569c4db06fc32d3f9fffdeeef/stdlib/filename.ml",
+                ],
+            },
+        ],
         has_builtin: false,
         block_style: BlockStyle::Indentation(&["let ", "type ", "module "]),
     },
@@ -612,13 +1837,51 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
             CodeRepo {
                 key: "aeson",
                 urls: &[
-                    "https://raw.githubusercontent.com/haskell/aeson/master/src/Data/Aeson/Types/Internal.hs",
+                    "https://raw.githubusercontent.com/haskell/aeson/45d31f1bd9a0edbd6ba55fbcdd5082b159d33106/src/Data/Aeson/Types/Internal.hs",
                 ],
             },
             CodeRepo {
                 key: "xmonad",
                 urls: &[
-                    "https://raw.githubusercontent.com/xmonad/xmonad/master/src/XMonad/Operations.hs",
+                    "https://raw.githubusercontent.com/xmonad/xmonad/f87bfb23ce809611a44ff9ea4373830956a6e180/src/XMonad/Operations.hs",
+                ],
+            },
+            CodeRepo {
+                key: "pandoc",
+                urls: &[
+                    "https://raw.githubusercontent.com/jgm/pandoc/7777de6adb166d92b4c9ee4b24054637ab8477b7/src/Text/Pandoc/Readers/Markdown.hs",
+                ],
+            },
+            CodeRepo {
+                key: "servant",
+                urls: &[
+                    "https://raw.githubusercontent.com/haskell-servant/servant/0767cd8b37358d051b8405c28bb1f7ff7de5e313/servant/src/Servant/API.hs",
+                ],
+            },
+            CodeRepo {
+                key: "aeson-tojson",
+                urls: &[
+                    "https://raw.githubusercontent.com/haskell/aeson/45d31f1bd9a0edbd6ba55fbcdd5082b159d33106/src/Data/Aeson/Types/ToJSON.hs",
+                    "https://raw.githubusercontent.com/haskell/aeson/45d31f1bd9a0edbd6ba55fbcdd5082b159d33106/src/Data/Aeson/Types/FromJSON.hs",
+                ],
+            },
+            CodeRepo {
+                key: "servant-server",
+                urls: &[
+                    "https://raw.githubusercontent.com/haskell-servant/servant/0767cd8b37358d051b8405c28bb1f7ff7de5e313/servant-server/src/Servant/Server/Internal.hs",
+                ],
+            },
+            CodeRepo {
+                key: "pandoc-writers",
+                urls: &[
+                    "https://raw.githubusercontent.com/jgm/pandoc/7777de6adb166d92b4c9ee4b24054637ab8477b7/src/Text/Pandoc/Writers/HTML.hs",
+                    "https://raw.githubusercontent.com/jgm/pandoc/7777de6adb166d92b4c9ee4b24054637ab8477b7/src/Text/Pandoc/Options.hs",
+                ],
+            },
+            CodeRepo {
+                key: "yesod",
+                urls: &[
+                    "https://raw.githubusercontent.com/yesodweb/yesod/1b033c741ce81d01070de993b285a17e71178156/yesod-core/src/Yesod/Core/Handler.hs",
                 ],
             },
         ],
@@ -637,12 +1900,65 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "clojure",
         display_name: "Clojure",
         extensions: &[".clj", ".cljs"],
-        repos: &[CodeRepo {
-            key: "clojure-core",
-            urls: &[
-                "https://raw.githubusercontent.com/clojure/clojure/master/src/clj/clojure/core.clj",
-            ],
-        }],
+        repos: &[
+            CodeRepo {
+                key: "clojure-core",
+                urls: &[
+                    "https://raw.githubusercontent.com/clojure/clojure/a3fa897590f70207eea3573759739810f2b6ab6c/src/clj/clojure/core.clj",
+                ],
+            },
+            CodeRepo {
+                key: "ring",
+                urls: &[
+                    "https://raw.githubusercontent.com/ring-clojure/ring/0a36f21646232cdcaed92e55da8f31ba7f44e856/ring-core/src/ring/middleware/params.clj",
+                    "https://raw.githubusercontent.com/ring-clojure/ring/0a36f21646232cdcaed92e55da8f31ba7f44e856/ring-core/src/ring/util/response.clj",
+                ],
+            },
+            CodeRepo {
+                key: "clojure-set",
+                urls: &[
+                    "https://raw.githubusercontent.com/clojure/clojure/a3fa897590f70207eea3573759739810f2b6ab6c/src/clj/clojure/set.clj",
+                    "https://raw.githubusercontent.com/clojure/clojure/a3fa897590f70207eea3573759739810f2b6ab6c/src/clj/clojure/string.clj",
+                ],
+            },
+            CodeRepo {
+                key: "clojure-io",
+                urls: &[
+                    "https://raw.githubusercontent.com/clojure/clojure/a3fa897590f70207eea3573759739810f2b6ab6c/src/clj/clojure/java/io.clj",
+                ],
+            },
+            CodeRepo {
+                key: "clojure-walk",
+                urls: &[
+                    "https://raw.githubusercontent.com/clojure/clojure/a3fa897590f70207eea3573759739810f2b6ab6c/src/clj/clojure/walk.clj",
+                    "https://raw.githubusercontent.com/clojure/clojure/a3fa897590f70207eea3573759739810f2b6ab6c/src/clj/clojure/pprint/dispatch.clj",
+                ],
+            },
+            CodeRepo {
+                key: "data-json",
+                urls: &[
+                    "https://raw.githubusercontent.com/clojure/data.json/94463ffb54482427fd9b31f264b06bff6dcfd557/src/main/clojure/clojure/data/json.clj",
+                ],
+            },
+            CodeRepo {
+                key: "compojure",
+                urls: &[
+                    "https://raw.githubusercontent.com/weavejester/compojure/8a4758d28e8fcd28fa7610dca6e2908d039e6a4f/src/compojure/core.clj",
+                ],
+            },
+            CodeRepo {
+                key: "core-async",
+                urls: &[
+                    "https://raw.githubusercontent.com/clojure/core.async/6a0f4cfa2cdf27638a8a918181aeab0f7e06f3be/src/main/clojure/clojure/core/async.clj",
+                ],
+            },
+            CodeRepo {
+                key: "clojure-zip",
+                urls: &[
+                    "https://raw.githubusercontent.com/clojure/clojure/a3fa897590f70207eea3573759739810f2b6ab6c/src/clj/clojure/zip.clj",
+                ],
+            },
+        ],
         has_builtin: false,
         block_style: BlockStyle::Indentation(&["(defn ", "(defn- ", "(defmacro "]),
     },
@@ -650,13 +1966,172 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "r",
         display_name: "R",
         extensions: &[".r", ".R"],
-        repos: &[CodeRepo {
-            key: "shiny",
-            urls: &[
-                "https://raw.githubusercontent.com/rstudio/shiny/main/R/bootstrap.R",
-                "https://raw.githubusercontent.com/rstudio/shiny/main/R/input-text.R",
-            ],
-        }],
+        repos: &[
+            CodeRepo {
+                key: "shiny",
+                urls: &[
+                    "https://raw.githubusercontent.com/rstudio/shiny/75a63716e578976965daeadde81af7166a50faac/R/bootstrap.R",
+                    "https://raw.githubusercontent.com/rstudio/shiny/75a63716e578976965daeadde81af7166a50faac/R/input-text.R",
+                ],
+            },
+            CodeRepo {
+                key: "ggplot2",
+                urls: &[
+                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/plot.R",
+                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/geom-point.R",
+                ],
+            },
+            CodeRepo {
+                key: "dplyr",
+                urls: &[
+                    "https://raw.githubusercontent.com/tidyverse/dplyr/f7c3788be32a90c83e705849c83bb111cd9d4a13/R/mutate.R",
+                    "https://raw.githubusercontent.com/tidyverse/dplyr/f7c3788be32a90c83e705849c83bb111cd9d4a13/R/filter.R",
+                ],
+            },
+            CodeRepo {
+                key: "dplyr-extra",
+                urls: &[
+                    "https://raw.githubusercontent.com/tidyverse/dplyr/f7c3788be32a90c83e705849c83bb111cd9d4a13/R/select.R",
+                    "https://raw.githubusercontent.com/tidyverse/dplyr/f7c3788be32a90c83e705849c83bb111cd9d4a13/R/join.R",
+                ],
+            },
+            CodeRepo {
+                key: "ggplot2-extra",
+                urls: &[
+                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/aes.R",
+                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/scale-colour.R",
+                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/theme.R",
+                ],
+            },
+            CodeRepo {
+                key: "ggplot2-geom",
+                urls: &[
+                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/geom-path.R",
+                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/geom-bar.R",
+                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/facet-wrap.R",
+                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/labels.R",
+                ],
+            },
+            CodeRepo {
+                key: "tidyr",
+                urls: &[
+                    "https://raw.githubusercontent.com/tidyverse/tidyr/cdaeeb352c73dce9ebf3a5d785a2ed5fd6c5fdbc/R/pivot-long.R",
+                ],
+            },
+            CodeRepo {
+                key: "purrr",
+                urls: &[
+                    "https://raw.githubusercontent.com/tidyverse/purrr/90e74842bcd76d310e578351b27501408c5ed1f9/R/map.R",
+                ],
+            },
+            CodeRepo {
+                key: "stringr",
+                urls: &[
+                    "https://raw.githubusercontent.com/tidyverse/stringr/ae054b1d28f630fee22ddb3cb7525396e62af4fe/R/modifiers.R",
+                ],
+            },
+            CodeRepo {
+                key: "shiny-reactives",
+                urls: &[
+                    "https://raw.githubusercontent.com/rstudio/shiny/75a63716e578976965daeadde81af7166a50faac/R/reactives.R",
+                    "https://raw.githubusercontent.com/rstudio/shiny/75a63716e578976965daeadde81af7166a50faac/R/update-input.R",
+                ],
+            },
+            CodeRepo {
+                key: "shiny-inputs",
+                urls: &[
+                    "https://raw.githubusercontent.com/rstudio/shiny/75a63716e578976965daeadde81af7166a50faac/R/input-select.R",
+                    "https://raw.githubusercontent.com/rstudio/shiny/75a63716e578976965daeadde81af7166a50faac/R/input-slider.R",
+                ],
+            },
+            CodeRepo {
+                key: "readr",
+                urls: &[
+                    "https://raw.githubusercontent.com/tidyverse/readr/9620048a5b79b27467285c089efdf019bcc1056e/R/read_delim.R",
+                ],
+            },
+            CodeRepo {
+                key: "tibble",
+                urls: &[
+                    "https://raw.githubusercontent.com/tidyverse/tibble/8b004f20bda23ba4d1254222ff5adcd5da173d64/R/tibble.R",
+                ],
+            },
+            CodeRepo {
+                key: "ggplot2-coord",
+                urls: &[
+                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/coord-.R",
+                ],
+            },
+            CodeRepo {
+                key: "ggplot2-layer",
+                urls: &[
+                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/layer.R",
+                ],
+            },
+            CodeRepo {
+                key: "ggplot2-scale-cont",
+                urls: &[
+                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/scale-continuous.R",
+                ],
+            },
+            CodeRepo {
+                key: "ggplot2-dodge",
+                urls: &[
+                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/position-dodge.R",
+                ],
+            },
+            CodeRepo {
+                key: "dplyr-groupby",
+                urls: &[
+                    "https://raw.githubusercontent.com/tidyverse/dplyr/f7c3788be32a90c83e705849c83bb111cd9d4a13/R/group-by.R",
+                    "https://raw.githubusercontent.com/tidyverse/dplyr/f7c3788be32a90c83e705849c83bb111cd9d4a13/R/summarise.R",
+                ],
+            },
+            CodeRepo {
+                key: "ggplot2-boxtext",
+                urls: &[
+                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/geom-boxplot.R",
+                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/geom-text.R",
+                ],
+            },
+            CodeRepo {
+                key: "devtools",
+                urls: &[
+                    "https://raw.githubusercontent.com/r-lib/devtools/07292edc8d475aa43a89f4f21053d36becb68093/R/install.R",
+                ],
+            },
+            CodeRepo {
+                key: "ggplot2-guides",
+                urls: &[
+                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/guides-.R",
+                ],
+            },
+            CodeRepo {
+                key: "testthat",
+                urls: &[
+                    "https://raw.githubusercontent.com/r-lib/testthat/4b13712bb08bbcf19e3b5265e95218043c3d528e/R/expect-equality.R",
+                    "https://raw.githubusercontent.com/r-lib/testthat/4b13712bb08bbcf19e3b5265e95218043c3d528e/R/expect-comparison.R",
+                ],
+            },
+            CodeRepo {
+                key: "rlang-env",
+                urls: &[
+                    "https://raw.githubusercontent.com/r-lib/rlang/0337a22ba3fdacf476c38f0cd8a85ec5b1e9e250/R/env.R",
+                ],
+            },
+            CodeRepo {
+                key: "rlang-arg",
+                urls: &[
+                    "https://raw.githubusercontent.com/r-lib/rlang/0337a22ba3fdacf476c38f0cd8a85ec5b1e9e250/R/arg.R",
+                ],
+            },
+            CodeRepo {
+                key: "ggplot2-ggproto",
+                urls: &[
+                    "https://raw.githubusercontent.com/tidyverse/ggplot2/c02c05aa6303e9592e37289d780224a06be5a27e/R/ggproto.R",
+                ],
+            },
+        ],
         has_builtin: false,
         // R functions are defined as `name <- function(...)`. Since our extractor only
         // supports `starts_with`, we match roxygen doc blocks that precede functions.
@@ -666,13 +2141,147 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "erlang",
         display_name: "Erlang",
         extensions: &[".erl"],
-        repos: &[CodeRepo {
-            key: "cowboy",
-            urls: &[
-                "https://raw.githubusercontent.com/ninenines/cowboy/master/src/cowboy_req.erl",
-                "https://raw.githubusercontent.com/ninenines/cowboy/master/src/cowboy_http.erl",
-            ],
-        }],
+        repos: &[
+            CodeRepo {
+                key: "cowboy",
+                urls: &[
+                    "https://raw.githubusercontent.com/ninenines/cowboy/9f580ea964c4ea585aeeeb9f29613bf027d44269/src/cowboy_req.erl",
+                    "https://raw.githubusercontent.com/ninenines/cowboy/9f580ea964c4ea585aeeeb9f29613bf027d44269/src/cowboy_http.erl",
+                ],
+            },
+            CodeRepo {
+                key: "rabbitmq",
+                urls: &[
+                    "https://raw.githubusercontent.com/rabbitmq/rabbitmq-server/ac254196aa0883a7254ef617768fcbcea86220a0/deps/rabbit/src/rabbit_channel.erl",
+                ],
+            },
+            CodeRepo {
+                key: "otp",
+                urls: &[
+                    "https://raw.githubusercontent.com/erlang/otp/f67aa9da945f01315fcfd2d6ac2a90909a34afa4/lib/stdlib/src/lists.erl",
+                ],
+            },
+            CodeRepo {
+                key: "otp-gen-server",
+                urls: &[
+                    "https://raw.githubusercontent.com/erlang/otp/f67aa9da945f01315fcfd2d6ac2a90909a34afa4/lib/stdlib/src/gen_server.erl",
+                ],
+            },
+            CodeRepo {
+                key: "otp-gen-statem",
+                urls: &[
+                    "https://raw.githubusercontent.com/erlang/otp/f67aa9da945f01315fcfd2d6ac2a90909a34afa4/lib/stdlib/src/gen_statem.erl",
+                ],
+            },
+            CodeRepo {
+                key: "otp-ets",
+                urls: &[
+                    "https://raw.githubusercontent.com/erlang/otp/f67aa9da945f01315fcfd2d6ac2a90909a34afa4/lib/stdlib/src/ets.erl",
+                ],
+            },
+            CodeRepo {
+                key: "otp-timer",
+                urls: &[
+                    "https://raw.githubusercontent.com/erlang/otp/f67aa9da945f01315fcfd2d6ac2a90909a34afa4/lib/stdlib/src/timer.erl",
+                ],
+            },
+            CodeRepo {
+                key: "otp-erl-scan",
+                urls: &[
+                    "https://raw.githubusercontent.com/erlang/otp/f67aa9da945f01315fcfd2d6ac2a90909a34afa4/lib/stdlib/src/erl_scan.erl",
+                ],
+            },
+            CodeRepo {
+                key: "otp-erl-lint",
+                urls: &[
+                    "https://raw.githubusercontent.com/erlang/otp/f67aa9da945f01315fcfd2d6ac2a90909a34afa4/lib/stdlib/src/erl_lint.erl",
+                ],
+            },
+            CodeRepo {
+                key: "otp-io",
+                urls: &[
+                    "https://raw.githubusercontent.com/erlang/otp/f67aa9da945f01315fcfd2d6ac2a90909a34afa4/lib/stdlib/src/io.erl",
+                ],
+            },
+            CodeRepo {
+                key: "otp-beam-lib",
+                urls: &[
+                    "https://raw.githubusercontent.com/erlang/otp/f67aa9da945f01315fcfd2d6ac2a90909a34afa4/lib/stdlib/src/beam_lib.erl",
+                ],
+            },
+            CodeRepo {
+                key: "otp-dict",
+                urls: &[
+                    "https://raw.githubusercontent.com/erlang/otp/f67aa9da945f01315fcfd2d6ac2a90909a34afa4/lib/stdlib/src/dict.erl",
+                ],
+            },
+            CodeRepo {
+                key: "otp-gen-event",
+                urls: &[
+                    "https://raw.githubusercontent.com/erlang/otp/f67aa9da945f01315fcfd2d6ac2a90909a34afa4/lib/stdlib/src/gen_event.erl",
+                ],
+            },
+            CodeRepo {
+                key: "otp-supervisor",
+                urls: &[
+                    "https://raw.githubusercontent.com/erlang/otp/f67aa9da945f01315fcfd2d6ac2a90909a34afa4/lib/stdlib/src/supervisor.erl",
+                ],
+            },
+            CodeRepo {
+                key: "otp-logger",
+                urls: &[
+                    "https://raw.githubusercontent.com/erlang/otp/f67aa9da945f01315fcfd2d6ac2a90909a34afa4/lib/kernel/src/logger.erl",
+                ],
+            },
+            CodeRepo {
+                key: "otp-file",
+                urls: &[
+                    "https://raw.githubusercontent.com/erlang/otp/f67aa9da945f01315fcfd2d6ac2a90909a34afa4/lib/kernel/src/file.erl",
+                ],
+            },
+            CodeRepo {
+                key: "otp-code",
+                urls: &[
+                    "https://raw.githubusercontent.com/erlang/otp/f67aa9da945f01315fcfd2d6ac2a90909a34afa4/lib/kernel/src/code.erl",
+                ],
+            },
+            CodeRepo {
+                key: "otp-ssl",
+                urls: &[
+                    "https://raw.githubusercontent.com/erlang/otp/f67aa9da945f01315fcfd2d6ac2a90909a34afa4/lib/ssl/src/ssl.erl",
+                ],
+            },
+            CodeRepo {
+                key: "otp-httpc",
+                urls: &[
+                    "https://raw.githubusercontent.com/erlang/otp/f67aa9da945f01315fcfd2d6ac2a90909a34afa4/lib/inets/src/http_client/httpc.erl",
+                ],
+            },
+            CodeRepo {
+                key: "emqx-channel",
+                urls: &[
+                    "https://raw.githubusercontent.com/emqx/emqx/0173360ca3c5a7087ff8d83a813c9ec65858624a/apps/emqx/src/emqx_channel.erl",
+                ],
+            },
+            CodeRepo {
+                key: "emqx-session",
+                urls: &[
+                    "https://raw.githubusercontent.com/emqx/emqx/0173360ca3c5a7087ff8d83a813c9ec65858624a/apps/emqx/src/emqx_session.erl",
+                ],
+            },
+            CodeRepo {
+                key: "otp-filename",
+                urls: &[
+                    "https://raw.githubusercontent.com/erlang/otp/f67aa9da945f01315fcfd2d6ac2a90909a34afa4/lib/stdlib/src/filename.erl",
+                ],
+            },
+            CodeRepo {
+                key: "otp-binary",
+                urls: &[
+                    "https://raw.githubusercontent.com/erlang/otp/f67aa9da945f01315fcfd2d6ac2a90909a34afa4/lib/stdlib/src/binary.erl",
+                ],
+            },
+        ],
         has_builtin: false,
         // Erlang: -spec and -record use braces for types/fields.
         // Erlang functions themselves don't use braces (they end with `.`),
@@ -683,13 +2292,109 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "groovy",
         display_name: "Groovy",
         extensions: &[".groovy"],
-        repos: &[CodeRepo {
-            key: "nextflow",
-            urls: &[
-                "https://raw.githubusercontent.com/nextflow-io/nextflow/master/modules/nextflow/src/main/groovy/nextflow/processor/TaskProcessor.groovy",
-                "https://raw.githubusercontent.com/nextflow-io/nextflow/master/modules/nextflow/src/main/groovy/nextflow/Session.groovy",
-            ],
-        }],
+        repos: &[
+            CodeRepo {
+                key: "nextflow",
+                urls: &[
+                    "https://raw.githubusercontent.com/nextflow-io/nextflow/2e1d42ef84a74998af34ef0c41b4afbae6c41d17/modules/nextflow/src/main/groovy/nextflow/processor/TaskProcessor.groovy",
+                    "https://raw.githubusercontent.com/nextflow-io/nextflow/2e1d42ef84a74998af34ef0c41b4afbae6c41d17/modules/nextflow/src/main/groovy/nextflow/Session.groovy",
+                    "https://raw.githubusercontent.com/nextflow-io/nextflow/2e1d42ef84a74998af34ef0c41b4afbae6c41d17/modules/nextflow/src/main/groovy/nextflow/Channel.groovy",
+                    "https://raw.githubusercontent.com/nextflow-io/nextflow/2e1d42ef84a74998af34ef0c41b4afbae6c41d17/modules/nextflow/src/main/groovy/nextflow/processor/TaskConfig.groovy",
+                ],
+            },
+            CodeRepo {
+                key: "codenarc",
+                urls: &[
+                    "https://raw.githubusercontent.com/CodeNarc/CodeNarc/0eb23cff04cbf71794c8852e2ea25ac1fe81b36c/src/main/groovy/org/codenarc/CodeNarcRunner.groovy",
+                ],
+            },
+            CodeRepo {
+                key: "spock",
+                urls: &[
+                    "https://raw.githubusercontent.com/spockframework/spock/b71e3d7590dae28d608aa92f90b45bef33aaeda8/spock-core/src/main/groovy/spock/util/EmbeddedSpecRunner.groovy",
+                    "https://raw.githubusercontent.com/spockframework/spock/b71e3d7590dae28d608aa92f90b45bef33aaeda8/spock-core/src/main/groovy/spock/util/EmbeddedSpecCompiler.groovy",
+                ],
+            },
+            CodeRepo {
+                key: "nextflow-runner",
+                urls: &[
+                    "https://raw.githubusercontent.com/nextflow-io/nextflow/2e1d42ef84a74998af34ef0c41b4afbae6c41d17/modules/nextflow/src/main/groovy/nextflow/script/ScriptRunner.groovy",
+                ],
+            },
+            CodeRepo {
+                key: "nextflow-executor",
+                urls: &[
+                    "https://raw.githubusercontent.com/nextflow-io/nextflow/2e1d42ef84a74998af34ef0c41b4afbae6c41d17/modules/nextflow/src/main/groovy/nextflow/executor/Executor.groovy",
+                ],
+            },
+            CodeRepo {
+                key: "nextflow-core",
+                urls: &[
+                    "https://raw.githubusercontent.com/nextflow-io/nextflow/2e1d42ef84a74998af34ef0c41b4afbae6c41d17/modules/nextflow/src/main/groovy/nextflow/Nextflow.groovy",
+                    "https://raw.githubusercontent.com/nextflow-io/nextflow/2e1d42ef84a74998af34ef0c41b4afbae6c41d17/modules/nextflow/src/main/groovy/nextflow/script/WorkflowMetadata.groovy",
+                ],
+            },
+            CodeRepo {
+                key: "nextflow-trace",
+                urls: &[
+                    "https://raw.githubusercontent.com/nextflow-io/nextflow/2e1d42ef84a74998af34ef0c41b4afbae6c41d17/modules/nextflow/src/main/groovy/nextflow/trace/TraceRecord.groovy",
+                ],
+            },
+            CodeRepo {
+                key: "grails",
+                urls: &[
+                    "https://raw.githubusercontent.com/grails/grails-core/13617a4a4a78894146f6b3b85b15e1a52e29c5b8/grails-core/src/main/groovy/grails/boot/GrailsApp.groovy",
+                ],
+            },
+            CodeRepo {
+                key: "rundeck-execution",
+                urls: &[
+                    "https://raw.githubusercontent.com/rundeck/rundeck/4c70fb21fb1dbf58beb91fb64ca8265e5849f857/rundeckapp/grails-app/services/rundeck/services/ExecutionService.groovy",
+                ],
+            },
+            CodeRepo {
+                key: "rundeck-scheduled",
+                urls: &[
+                    "https://raw.githubusercontent.com/rundeck/rundeck/4c70fb21fb1dbf58beb91fb64ca8265e5849f857/rundeckapp/grails-app/services/rundeck/services/ScheduledExecutionService.groovy",
+                ],
+            },
+            CodeRepo {
+                key: "rundeck-exec-controller",
+                urls: &[
+                    "https://raw.githubusercontent.com/rundeck/rundeck/4c70fb21fb1dbf58beb91fb64ca8265e5849f857/rundeckapp/grails-app/controllers/rundeck/controllers/ExecutionController.groovy",
+                ],
+            },
+            CodeRepo {
+                key: "rundeck-sched-controller",
+                urls: &[
+                    "https://raw.githubusercontent.com/rundeck/rundeck/4c70fb21fb1dbf58beb91fb64ca8265e5849f857/rundeckapp/grails-app/controllers/rundeck/controllers/ScheduledExecutionController.groovy",
+                ],
+            },
+            CodeRepo {
+                key: "rundeck-framework",
+                urls: &[
+                    "https://raw.githubusercontent.com/rundeck/rundeck/4c70fb21fb1dbf58beb91fb64ca8265e5849f857/rundeckapp/grails-app/services/rundeck/services/FrameworkService.groovy",
+                ],
+            },
+            CodeRepo {
+                key: "rundeck-project",
+                urls: &[
+                    "https://raw.githubusercontent.com/rundeck/rundeck/4c70fb21fb1dbf58beb91fb64ca8265e5849f857/rundeckapp/grails-app/services/rundeck/services/ProjectService.groovy",
+                ],
+            },
+            CodeRepo {
+                key: "rundeck-logfile",
+                urls: &[
+                    "https://raw.githubusercontent.com/rundeck/rundeck/4c70fb21fb1dbf58beb91fb64ca8265e5849f857/rundeckapp/grails-app/services/rundeck/services/LogFileStorageService.groovy",
+                ],
+            },
+            CodeRepo {
+                key: "nextflow-file-helper",
+                urls: &[
+                    "https://raw.githubusercontent.com/nextflow-io/nextflow/2e1d42ef84a74998af34ef0c41b4afbae6c41d17/modules/nf-commons/src/main/nextflow/file/FileHelper.groovy",
+                ],
+            },
+        ],
         has_builtin: false,
         block_style: BlockStyle::Braces(&["def ", "void ", "static ", "public ", "private "]),
     },
@@ -697,12 +2402,57 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "fsharp",
         display_name: "F#",
         extensions: &[".fs", ".fsx"],
-        repos: &[CodeRepo {
-            key: "fsharp-compiler",
-            urls: &[
-                "https://raw.githubusercontent.com/dotnet/fsharp/main/src/Compiler/Utilities/lib.fs",
-            ],
-        }],
+        repos: &[
+            CodeRepo {
+                key: "fsharp-compiler",
+                urls: &[
+                    "https://raw.githubusercontent.com/dotnet/fsharp/68fb63daa05d38077a4ba32740ef7deda7ebded2/src/Compiler/Utilities/lib.fs",
+                ],
+            },
+            CodeRepo {
+                key: "fsharp-core",
+                urls: &[
+                    "https://raw.githubusercontent.com/dotnet/fsharp/68fb63daa05d38077a4ba32740ef7deda7ebded2/src/FSharp.Core/list.fs",
+                    "https://raw.githubusercontent.com/dotnet/fsharp/68fb63daa05d38077a4ba32740ef7deda7ebded2/src/FSharp.Core/map.fs",
+                ],
+            },
+            CodeRepo {
+                key: "Saturn",
+                urls: &[
+                    "https://raw.githubusercontent.com/SaturnFramework/Saturn/4ae4d6126a6c7c0e91bded2ddbe1103030010c78/src/Saturn/Router.fs",
+                ],
+            },
+            CodeRepo {
+                key: "fsharp-array",
+                urls: &[
+                    "https://raw.githubusercontent.com/dotnet/fsharp/68fb63daa05d38077a4ba32740ef7deda7ebded2/src/FSharp.Core/array.fs",
+                ],
+            },
+            CodeRepo {
+                key: "fsharp-seq",
+                urls: &[
+                    "https://raw.githubusercontent.com/dotnet/fsharp/68fb63daa05d38077a4ba32740ef7deda7ebded2/src/FSharp.Core/seq.fs",
+                ],
+            },
+            CodeRepo {
+                key: "fsharp-option",
+                urls: &[
+                    "https://raw.githubusercontent.com/dotnet/fsharp/68fb63daa05d38077a4ba32740ef7deda7ebded2/src/FSharp.Core/option.fs",
+                ],
+            },
+            CodeRepo {
+                key: "fsharp-result",
+                urls: &[
+                    "https://raw.githubusercontent.com/dotnet/fsharp/68fb63daa05d38077a4ba32740ef7deda7ebded2/src/FSharp.Core/result.fs",
+                ],
+            },
+            CodeRepo {
+                key: "fsharp-async",
+                urls: &[
+                    "https://raw.githubusercontent.com/dotnet/fsharp/68fb63daa05d38077a4ba32740ef7deda7ebded2/src/FSharp.Core/async.fs",
+                ],
+            },
+        ],
         has_builtin: false,
         block_style: BlockStyle::Indentation(&["let ", "member ", "type ", "module "]),
     },
@@ -710,12 +2460,83 @@ pub const CODE_LANGUAGES: &[CodeLanguage] = &[
         key: "objective-c",
         display_name: "Objective-C",
         extensions: &[".m", ".h"],
-        repos: &[CodeRepo {
-            key: "afnetworking",
-            urls: &[
-                "https://raw.githubusercontent.com/AFNetworking/AFNetworking/master/AFNetworking/AFURLSessionManager.m",
-            ],
-        }],
+        repos: &[
+            CodeRepo {
+                key: "afnetworking",
+                urls: &[
+                    "https://raw.githubusercontent.com/AFNetworking/AFNetworking/d9f589cc2c1fe9d55eb5eea00558010afea7a41e/AFNetworking/AFURLSessionManager.m",
+                ],
+            },
+            CodeRepo {
+                key: "sdwebimage",
+                urls: &[
+                    "https://raw.githubusercontent.com/SDWebImage/SDWebImage/2de3a496eaf6df9a1312862adcfd54acd73c39c0/SDWebImage/Core/SDWebImageManager.m",
+                ],
+            },
+            CodeRepo {
+                key: "realm-cocoa",
+                urls: &[
+                    "https://raw.githubusercontent.com/realm/realm-cocoa/c22f9303d446fc3c044e4c151ed19597464b6bd7/Realm/RLMRealm.mm",
+                ],
+            },
+            CodeRepo {
+                key: "afnetworking-http",
+                urls: &[
+                    "https://raw.githubusercontent.com/AFNetworking/AFNetworking/d9f589cc2c1fe9d55eb5eea00558010afea7a41e/AFNetworking/AFHTTPSessionManager.m",
+                ],
+            },
+            CodeRepo {
+                key: "sdwebimage-cache",
+                urls: &[
+                    "https://raw.githubusercontent.com/SDWebImage/SDWebImage/2de3a496eaf6df9a1312862adcfd54acd73c39c0/SDWebImage/Core/SDImageCache.m",
+                ],
+            },
+            CodeRepo {
+                key: "iterm2",
+                urls: &[
+                    "https://raw.githubusercontent.com/gnachman/iTerm2/1d997ee0082b3ad413366253d2868f7665b8c25f/sources/iTermController.m",
+                    "https://raw.githubusercontent.com/gnachman/iTerm2/1d997ee0082b3ad413366253d2868f7665b8c25f/sources/PTYSession.m",
+                    "https://raw.githubusercontent.com/gnachman/iTerm2/1d997ee0082b3ad413366253d2868f7665b8c25f/sources/VT100Terminal.m",
+                ],
+            },
+            CodeRepo {
+                key: "mbprogresshud",
+                urls: &[
+                    "https://raw.githubusercontent.com/jdg/MBProgressHUD/4a7c5f3e53cdea77c5dcb8578c2ee5acacdf6781/MBProgressHUD.m",
+                ],
+            },
+            CodeRepo {
+                key: "cocoalumberjack",
+                urls: &[
+                    "https://raw.githubusercontent.com/CocoaLumberjack/CocoaLumberjack/f817a936d8ff9ddc7e3cbb2dcf0eb7a6f75c6e44/Sources/CocoaLumberjack/DDLog.m",
+                ],
+            },
+            CodeRepo {
+                key: "fmdb",
+                urls: &[
+                    "https://raw.githubusercontent.com/ccgus/fmdb/d3abf748a2788471535993286603322ccdd02c3d/src/fmdb/FMDatabase.m",
+                ],
+            },
+            CodeRepo {
+                key: "mantle",
+                urls: &[
+                    "https://raw.githubusercontent.com/Mantle/Mantle/2a8e2123a3931038179ee06105c9e6ec336b12ea/Mantle/MTLJSONAdapter.m",
+                ],
+            },
+            CodeRepo {
+                key: "reactive-objc",
+                urls: &[
+                    "https://raw.githubusercontent.com/ReactiveCocoa/ReactiveObjC/1af6617f007cae727dce48d2031cc1e66d06f04a/ReactiveObjC/RACSignal.m",
+                ],
+            },
+            CodeRepo {
+                key: "masonry",
+                urls: &[
+                    "https://raw.githubusercontent.com/Masonry/Masonry/8bd77ea92bbe995e14c454f821200b222e5a8804/Masonry/MASConstraintMaker.m",
+                    "https://raw.githubusercontent.com/Masonry/Masonry/8bd77ea92bbe995e14c454f821200b222e5a8804/Masonry/MASViewConstraint.m",
+                ],
+            },
+        ],
         has_builtin: false,
         block_style: BlockStyle::Braces(&[
             "- (",

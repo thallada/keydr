@@ -5192,8 +5192,8 @@ mod review_tests {
             .expect("de should be selectable");
 
         let output = render_settings_to_string(&app);
-        assert!(output.contains("German"));
-        assert!(!output.contains("German (preview)"));
+        assert!(output.contains("Deutsch"));
+        assert!(!output.contains("Deutsch (preview)"));
         assert!(output.contains("de_qwertz"));
         assert!(!output.contains("qwerty (preview)"));
     }
@@ -5396,7 +5396,7 @@ mod review_tests {
         assert!(output.contains("default adaptive drill will mix in keys"));
         assert!(output.contains("focus only on this branch"));
         assert!(output.contains("from this branch in the Skill Tree."));
-        assert!(output.contains("Proceed? (y/n)"));
+        assert!(output.contains("[y] Unlock"));
     }
 
     #[test]
@@ -5408,7 +5408,7 @@ mod review_tests {
         let output = render_skill_tree_to_string_with_size(&app, 90, 24);
         assert!(output.contains("focus only on this branch"));
         assert!(output.contains("from this branch in the Skill Tree."));
-        assert!(output.contains("Proceed? (y/n)"));
+        assert!(output.contains("[y] Unlock"));
     }
 
     #[test]

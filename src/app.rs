@@ -2089,24 +2089,20 @@ impl App {
         let chosen = self.code_drill_language_override.clone().unwrap();
 
         // Step 2: Check if we need to download (only if not already attempted)
-        if self.config.code_downloads_enabled
-            && !self.code_download_attempted
-            && !is_language_cached(&self.config.code_download_dir, &chosen)
-        {
-            if let Some(lang) = language_by_key(&chosen) {
-                if !lang.repos.is_empty() {
-                    let repo_idx = self.rng.gen_range(0..lang.repos.len());
-                    self.code_download_queue = vec![(chosen.clone(), repo_idx)];
-                    self.code_intro_download_total = 1;
-                    self.code_intro_downloaded = 0;
-                    self.code_intro_downloading = true;
-                    self.code_intro_current_repo = lang.repos[repo_idx].key.to_string();
-                    self.code_download_action = CodeDownloadCompleteAction::StartCodeDrill;
-                    self.code_download_job = None;
-                    self.code_download_attempted = true;
-                    self.screen = AppScreen::CodeDownloadProgress;
-                    return;
-                }
+        if self.config.code_downloads_enabled && !self.code_download_attempted {
+            let queue =
+                build_code_download_queue(&chosen, &self.config.code_download_dir);
+            if !queue.is_empty() {
+                self.code_intro_download_total = queue.len();
+                self.code_download_queue = queue;
+                self.code_intro_downloaded = 0;
+                self.code_intro_downloading = true;
+                self.code_intro_current_repo.clear();
+                self.code_download_action = CodeDownloadCompleteAction::StartCodeDrill;
+                self.code_download_job = None;
+                self.code_download_attempted = true;
+                self.screen = AppScreen::CodeDownloadProgress;
+                return;
             }
         }
 
