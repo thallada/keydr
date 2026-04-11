@@ -146,10 +146,7 @@ stats:
   no_speed_anomalies: ' Nessuna anomalia di velocità rilevata'
   scope_label_prefix: ' '
   bi_label: ' | Bi: %{count}'
-  tri_label: ' | Tri: %{count}'
   hes_label: ' | Esi: >%{ms}ms'
-  gain_label: ' | Guad: %{value}'
-  gain_interval: ' (ogni 50)'
   focus_char_value: 'Carattere ''%{ch}'''
 
 # Mappa di attività

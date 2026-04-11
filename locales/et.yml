@@ -146,10 +146,7 @@ stats:
   no_speed_anomalies: ' Kiiruse anomaaliaid ei tuvastatud'
   scope_label_prefix: ' '
   bi_label: ' | Bi: %{count}'
-  tri_label: ' | Tri: %{count}'
   hes_label: ' | Kõhk: >%{ms}ms'
-  gain_label: ' | Kasv: %{value}'
-  gain_interval: ' (iga 50)'
   focus_char_value: 'Märk ''%{ch}'''
 
 # Aktiivsuse soojuskaart

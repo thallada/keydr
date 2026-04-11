@@ -146,10 +146,7 @@ stats:
   no_speed_anomalies: ' Ni zaznanih anomalij hitrosti'
   scope_label_prefix: ' '
   bi_label: ' | Bi: %{count}'
-  tri_label: ' | Tri: %{count}'
   hes_label: ' | Okl: >%{ms}ms'
-  gain_label: ' | Dobiček: %{value}'
-  gain_interval: ' (vsakih 50)'
   focus_char_value: 'Znak ''%{ch}'''
 
 # Toplotna karta aktivnosti

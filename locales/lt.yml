@@ -146,10 +146,7 @@ stats:
   no_speed_anomalies: ' Greičio anomalijų nerasta'
   scope_label_prefix: ' '
   bi_label: ' | Bi: %{count}'
-  tri_label: ' | Tri: %{count}'
   hes_label: ' | Hes: >%{ms}ms'
-  gain_label: ' | Augimas: %{value}'
-  gain_interval: ' (kas 50)'
   focus_char_value: 'Simb. ''%{ch}'''
 
 # Activity heatmap

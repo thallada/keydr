@@ -15,17 +15,12 @@ pub(crate) const MIN_SAMPLES_FOR_FOCUS: usize = 20;
 const ANOMALY_MIN_SAMPLES: usize = 3;
 const SPEED_ANOMALY_PCT_THRESHOLD: f64 = 50.0;
 const MIN_CHAR_SAMPLES_FOR_SPEED: usize = 10;
-const MAX_TRIGRAM_ENTRIES: usize = 5000;
-
 // ---------------------------------------------------------------------------
 // N-gram keys
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BigramKey(pub [char; 2]);
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct TrigramKey(pub [char; 3]);
 
 // ---------------------------------------------------------------------------
 // NgramStat
@@ -348,102 +343,6 @@ impl BigramStatsStore {
 }
 
 // ---------------------------------------------------------------------------
-// TrigramStatsStore
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct TrigramStatsStore {
-    pub stats: HashMap<TrigramKey, NgramStat>,
-}
-
-impl TrigramStatsStore {
-    pub fn update(
-        &mut self,
-        key: TrigramKey,
-        time_ms: f64,
-        correct: bool,
-        hesitation: bool,
-        drill_index: u32,
-    ) {
-        let stat = self.stats.entry(key).or_default();
-        update_stat(stat, time_ms, correct, hesitation, drill_index);
-    }
-
-    pub fn smoothed_error_rate(&self, key: &TrigramKey) -> f64 {
-        match self.stats.get(key) {
-            Some(s) => s.error_rate_ema,
-            None => 0.5,
-        }
-    }
-
-    pub fn redundancy_score(
-        &self,
-        key: &TrigramKey,
-        bigram_stats: &BigramStatsStore,
-        char_stats: &KeyStatsStore,
-    ) -> f64 {
-        let e_a = char_stats.smoothed_error_rate(key.0[0]);
-        let e_b = char_stats.smoothed_error_rate(key.0[1]);
-        let e_c = char_stats.smoothed_error_rate(key.0[2]);
-        let e_abc = self.smoothed_error_rate(key);
-
-        let expected_from_chars = 1.0 - (1.0 - e_a) * (1.0 - e_b) * (1.0 - e_c);
-
-        let e_ab = bigram_stats.smoothed_error_rate(&BigramKey([key.0[0], key.0[1]]));
-        let e_bc = bigram_stats.smoothed_error_rate(&BigramKey([key.0[1], key.0[2]]));
-        let expected_from_bigrams = e_ab.max(e_bc);
-
-        let expected = expected_from_chars.max(expected_from_bigrams);
-        e_abc / expected.max(0.01)
-    }
-
-    /// Prune to `max_entries` by composite utility score.
-    /// `total_drills` is the current total drill count for recency calculation.
-    pub fn prune(
-        &mut self,
-        max_entries: usize,
-        total_drills: u32,
-        bigram_stats: &BigramStatsStore,
-        char_stats: &KeyStatsStore,
-    ) {
-        if self.stats.len() <= max_entries {
-            return;
-        }
-
-        let recency_weight = 0.3;
-        let signal_weight = 0.5;
-        let data_weight = 0.2;
-
-        let mut scored: Vec<(TrigramKey, f64)> = self
-            .stats
-            .iter()
-            .map(|(key, stat)| {
-                let drills_since = total_drills.saturating_sub(stat.last_seen_drill_index) as f64;
-                let recency = 1.0 / (drills_since + 1.0);
-                let redundancy = self
-                    .redundancy_score(key, bigram_stats, char_stats)
-                    .min(3.0);
-                let data = (stat.sample_count as f64).ln_1p();
-
-                let utility =
-                    recency_weight * recency + signal_weight * redundancy + data_weight * data;
-                (key.clone(), utility)
-            })
-            .collect();
-
-        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        scored.truncate(max_entries);
-
-        let keep: HashMap<TrigramKey, NgramStat> = scored
-            .into_iter()
-            .filter_map(|(key, _)| self.stats.remove(&key).map(|stat| (key, stat)))
-            .collect();
-
-        self.stats = keep;
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Extraction events & function
 // ---------------------------------------------------------------------------
 
@@ -455,27 +354,17 @@ pub struct BigramEvent {
     pub has_hesitation: bool,
 }
 
-#[derive(Debug)]
-pub struct TrigramEvent {
-    pub key: TrigramKey,
-    pub total_time_ms: f64,
-    pub correct: bool,
-    pub has_hesitation: bool,
-}
-
-/// Extract bigram and trigram events from a sequence of per-key times.
+/// Extract bigram events from a sequence of per-key times.
 ///
 /// - BACKSPACE entries are filtered out
-/// - Space characters split windows (no cross-word n-grams)
+/// - Space characters split windows (no cross-word bigrams)
 /// - For bigram "ab": time = window[1].time_ms
-/// - For trigram "abc": time = window[1].time_ms + window[2].time_ms
-/// - hesitation = any transition time > hesitation_threshold
+/// - hesitation = transition time > hesitation_threshold
 pub fn extract_ngram_events(
     per_key_times: &[KeyTime],
     hesitation_threshold: f64,
-) -> (Vec<BigramEvent>, Vec<TrigramEvent>) {
+) -> Vec<BigramEvent> {
     let mut bigrams = Vec::new();
-    let mut trigrams = Vec::new();
 
     // Filter out backspace entries
     let filtered: Vec<&KeyTime> = per_key_times
@@ -505,30 +394,7 @@ pub fn extract_ngram_events(
         });
     }
 
-    // Extract trigrams: slide a window of 3
-    for window in filtered.windows(3) {
-        let a = window[0];
-        let b = window[1];
-        let c = window[2];
-
-        // Skip if any is a space (no cross-word)
-        if a.key == ' ' || b.key == ' ' || c.key == ' ' {
-            continue;
-        }
-
-        let time_ms = b.time_ms + c.time_ms;
-        let correct = a.correct && b.correct && c.correct;
-        let has_hesitation = b.time_ms > hesitation_threshold || c.time_ms > hesitation_threshold;
-
-        trigrams.push(TrigramEvent {
-            key: TrigramKey([a.key, b.key, c.key]),
-            total_time_ms: time_ms,
-            correct,
-            has_hesitation,
-        });
-    }
-
-    (bigrams, trigrams)
+    bigrams
 }
 
 // ---------------------------------------------------------------------------
@@ -581,39 +447,6 @@ pub fn select_focus(
 }
 
 // ---------------------------------------------------------------------------
-// Trigram marginal gain analysis
-// ---------------------------------------------------------------------------
-
-/// Compute what fraction of trigrams with sufficient samples show genuine
-/// redundancy beyond their constituent bigrams. Returns a value in [0.0, 1.0].
-pub fn trigram_marginal_gain(
-    trigram_stats: &TrigramStatsStore,
-    bigram_stats: &BigramStatsStore,
-    char_stats: &KeyStatsStore,
-) -> f64 {
-    let qualified: Vec<&TrigramKey> = trigram_stats
-        .stats
-        .iter()
-        .filter(|(_, s)| s.sample_count >= MIN_SAMPLES_FOR_FOCUS)
-        .map(|(k, _)| k)
-        .collect();
-
-    if qualified.is_empty() {
-        return 0.0;
-    }
-
-    let with_signal = qualified
-        .iter()
-        .filter(|k| {
-            trigram_stats.redundancy_score(k, bigram_stats, char_stats)
-                > ERROR_ANOMALY_RATIO_THRESHOLD
-        })
-        .count();
-
-    with_signal as f64 / qualified.len() as f64
-}
-
-// ---------------------------------------------------------------------------
 // Hesitation helpers
 // ---------------------------------------------------------------------------
 
@@ -635,9 +468,6 @@ pub fn compute_median(values: &mut [f64]) -> f64 {
         values[mid]
     }
 }
-
-/// Constant for max trigram entries (used by App during pruning).
-pub const MAX_TRIGRAMS: usize = MAX_TRIGRAM_ENTRIES;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -666,15 +496,11 @@ mod tests {
             make_keytime('l', 180.0, true),
             make_keytime('o', 160.0, true),
         ];
-        let (bigrams, trigrams) = extract_ngram_events(&times, 800.0);
+        let bigrams = extract_ngram_events(&times, 800.0);
         assert_eq!(bigrams.len(), 4); // he, el, ll, lo
         assert_eq!(bigrams[0].key, BigramKey(['h', 'e']));
         assert_eq!(bigrams[0].total_time_ms, 200.0);
         assert!(bigrams[0].correct);
-
-        assert_eq!(trigrams.len(), 3); // hel, ell, llo
-        assert_eq!(trigrams[0].key, TrigramKey(['h', 'e', 'l']));
-        assert_eq!(trigrams[0].total_time_ms, 200.0 + 150.0); // e.time + l.time
     }
 
     #[test]
@@ -685,7 +511,7 @@ mod tests {
             make_keytime(BACKSPACE, 150.0, true),
             make_keytime('b', 180.0, true),
         ];
-        let (bigrams, _) = extract_ngram_events(&times, 800.0);
+        let bigrams = extract_ngram_events(&times, 800.0);
         // After filtering backspace: a, x, b -> bigrams: ax, xb
         assert_eq!(bigrams.len(), 2);
         assert_eq!(bigrams[0].key, BigramKey(['a', 'x']));
@@ -701,13 +527,11 @@ mod tests {
             make_keytime('c', 180.0, true),
             make_keytime('d', 160.0, true),
         ];
-        let (bigrams, trigrams) = extract_ngram_events(&times, 800.0);
+        let bigrams = extract_ngram_events(&times, 800.0);
         // ab is valid, b-space skipped, space-c skipped, cd is valid
         assert_eq!(bigrams.len(), 2);
         assert_eq!(bigrams[0].key, BigramKey(['a', 'b']));
         assert_eq!(bigrams[1].key, BigramKey(['c', 'd']));
-        // Only trigram with no space: none (ab_space and space_cd both have space)
-        assert_eq!(trigrams.len(), 0);
     }
 
     #[test]
@@ -717,7 +541,7 @@ mod tests {
             make_keytime('b', 900.0, true), // > 800 threshold
             make_keytime('c', 200.0, true),
         ];
-        let (bigrams, _) = extract_ngram_events(&times, 800.0);
+        let bigrams = extract_ngram_events(&times, 800.0);
         assert!(bigrams[0].has_hesitation); // ab: b.time = 900 > 800
         assert!(!bigrams[1].has_hesitation); // bc: c.time = 200 < 800
     }
@@ -729,10 +553,9 @@ mod tests {
             make_keytime('b', 200.0, false), // incorrect
             make_keytime('c', 150.0, true),
         ];
-        let (bigrams, trigrams) = extract_ngram_events(&times, 800.0);
+        let bigrams = extract_ngram_events(&times, 800.0);
         assert!(!bigrams[0].correct); // ab: a correct, b incorrect -> false
         assert!(!bigrams[1].correct); // bc: b incorrect, c correct -> false
-        assert!(!trigrams[0].correct); // abc: b incorrect -> false
     }
 
     // --- EMA error rate tests ---
@@ -848,36 +671,6 @@ mod tests {
         assert!(
             redundancy > ERROR_ANOMALY_RATIO_THRESHOLD,
             "Genuine difficulty 'ed' should have redundancy > {ERROR_ANOMALY_RATIO_THRESHOLD}, got {redundancy}"
-        );
-    }
-
-    #[test]
-    fn redundancy_trigram_explained_by_bigram() {
-        // "the" where "th" bigram explains the difficulty
-        let mut char_stats = KeyStatsStore::default();
-        for &(ch, ema) in &[('t', 0.03), ('h', 0.04), ('e', 0.04)] {
-            let s = char_stats.stats.entry(ch).or_default();
-            s.error_rate_ema = ema;
-        }
-
-        let mut bigram_stats = BigramStatsStore::default();
-        let th_stat = bigram_stats.stats.entry(BigramKey(['t', 'h'])).or_default();
-        th_stat.error_rate_ema = 0.15;
-        th_stat.sample_count = 100;
-        let he_stat = bigram_stats.stats.entry(BigramKey(['h', 'e'])).or_default();
-        he_stat.error_rate_ema = 0.04;
-        he_stat.sample_count = 100;
-
-        let mut trigram_stats = TrigramStatsStore::default();
-        let the_key = TrigramKey(['t', 'h', 'e']);
-        let the_stat = trigram_stats.stats.entry(the_key.clone()).or_default();
-        the_stat.error_rate_ema = 0.16;
-        the_stat.sample_count = 100;
-
-        let redundancy = trigram_stats.redundancy_score(&the_key, &bigram_stats, &char_stats);
-        assert!(
-            redundancy < ERROR_ANOMALY_RATIO_THRESHOLD,
-            "Trigram 'the' explained by 'th' bigram should have redundancy < {ERROR_ANOMALY_RATIO_THRESHOLD}, got {redundancy}"
         );
     }
 
@@ -1117,19 +910,6 @@ mod tests {
         assert_eq!(compute_median(&mut vals), 0.0);
     }
 
-    // --- Trigram marginal gain ---
-
-    #[test]
-    fn marginal_gain_zero_when_no_qualified() {
-        let trigram_stats = TrigramStatsStore::default();
-        let bigram_stats = BigramStatsStore::default();
-        let char_stats = KeyStatsStore::default();
-        assert_eq!(
-            trigram_marginal_gain(&trigram_stats, &bigram_stats, &char_stats),
-            0.0
-        );
-    }
-
     // --- Replay invariance ---
 
     #[test]
@@ -1217,50 +997,6 @@ mod tests {
         assert_eq!(bigram_stats.stats[&key].last_seen_drill_index, 42);
     }
 
-    #[test]
-    fn prune_recency_correct_with_mixed_drill_indices() {
-        // Simulate interleaved partial (indices 0,1,3) and full (indices 2,4) drills.
-        // The key point: total_drills must match the index space (5, not 2)
-        // to avoid artificially inflating recency for partial-drill trigrams.
-        let mut trigram_stats = TrigramStatsStore::default();
-        let bigram_stats = BigramStatsStore::default();
-        let char_stats = KeyStatsStore::default();
-
-        // "Old" trigram last seen at drill index 0 (earliest)
-        let old_key = TrigramKey(['o', 'l', 'd']);
-        trigram_stats.update(old_key.clone(), 300.0, true, false, 0);
-        trigram_stats.stats.get_mut(&old_key).unwrap().sample_count = 5;
-
-        // "Mid" trigram last seen at partial drill index 1
-        let mid_key = TrigramKey(['m', 'i', 'd']);
-        trigram_stats.update(mid_key.clone(), 300.0, true, false, 1);
-        trigram_stats.stats.get_mut(&mid_key).unwrap().sample_count = 5;
-
-        // "New" trigram last seen at drill index 4 (most recent)
-        let new_key = TrigramKey(['n', 'e', 'w']);
-        trigram_stats.update(new_key.clone(), 300.0, true, false, 4);
-        trigram_stats.stats.get_mut(&new_key).unwrap().sample_count = 5;
-
-        // Prune down to 2 entries with total_drills = 5 (matching history length)
-        trigram_stats.prune(2, 5, &bigram_stats, &char_stats);
-
-        // "New" (index 4) should survive over "old" (index 0) due to higher recency
-        assert!(
-            trigram_stats.stats.contains_key(&new_key),
-            "most recent trigram should survive prune"
-        );
-        assert!(
-            !trigram_stats.stats.contains_key(&old_key),
-            "oldest trigram should be pruned"
-        );
-        assert_eq!(trigram_stats.stats.len(), 2);
-
-        // Now verify that using a WRONG total (e.g. 2 completed drills instead of 5)
-        // would compress the recency range. We don't assert this breaks ordering here
-        // since the fix is in app.rs passing the correct total -- this test just confirms
-        // the correct behavior when the right total is used.
-    }
-
     // --- Performance budget tests ---
     // These enforce hard pass/fail limits. Budgets are for release builds;
     // debug builds are ~10-20x slower, so we apply a 20x multiplier.
@@ -1298,7 +1034,7 @@ mod tests {
     #[test]
     fn perf_budget_update_under_1ms() {
         let keystrokes = make_bench_keystrokes(500);
-        let (bigram_events, _) = extract_ngram_events(&keystrokes, 800.0);
+        let bigram_events = extract_ngram_events(&keystrokes, 800.0);
         let budget = std::time::Duration::from_millis(1 * DEBUG_MULTIPLIER as u64);
 
         let start = std::time::Instant::now();
@@ -1376,11 +1112,10 @@ mod tests {
 
         let start = std::time::Instant::now();
         let mut bigram_stats = BigramStatsStore::default();
-        let mut trigram_stats = TrigramStatsStore::default();
         let mut key_stats = KeyStatsStore::default();
 
         for (drill_idx, keystrokes) in drills.iter().enumerate() {
-            let (bigram_events, trigram_events) = extract_ngram_events(keystrokes, 800.0);
+            let bigram_events = extract_ngram_events(keystrokes, 800.0);
 
             for kt in keystrokes {
                 if kt.correct {
@@ -1400,21 +1135,11 @@ mod tests {
                     drill_idx as u32,
                 );
             }
-            for ev in &trigram_events {
-                trigram_stats.update(
-                    ev.key.clone(),
-                    ev.total_time_ms,
-                    ev.correct,
-                    ev.has_hesitation,
-                    drill_idx as u32,
-                );
-            }
         }
         let elapsed = start.elapsed();
 
         // Sanity: we actually processed data
         assert!(!bigram_stats.stats.is_empty());
-        assert!(!trigram_stats.stats.is_empty());
 
         assert!(
             elapsed < budget,

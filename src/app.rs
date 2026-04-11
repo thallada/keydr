@@ -15,7 +15,7 @@ use crate::engine::FocusSelection;
 use crate::engine::filter::CharFilter;
 use crate::engine::key_stats::KeyStatsStore;
 use crate::engine::ngram_stats::{
-    self, BigramStatsStore, TrigramStatsStore, extract_ngram_events, select_focus,
+    self, BigramStatsStore, extract_ngram_events, select_focus,
 };
 use crate::engine::scoring;
 use crate::engine::skill_tree::{BranchId, BranchStatus, DrillScope, SkillTree, SkillTreeProgress};
@@ -382,11 +382,8 @@ pub struct App {
     pub explorer_accuracy_cache_ranked: Option<(char, usize, usize)>,
     pub bigram_stats: BigramStatsStore,
     pub ranked_bigram_stats: BigramStatsStore,
-    pub trigram_stats: TrigramStatsStore,
-    pub ranked_trigram_stats: TrigramStatsStore,
     pub user_median_transition_ms: f64,
     pub transition_buffer: Vec<f64>,
-    pub trigram_gain_history: Vec<f64>,
     pub current_focus: Option<FocusSelection>,
     pub post_drill_input_lock_until: Option<Instant>,
     adaptive_word_history: VecDeque<HashSet<String>>,
@@ -590,11 +587,8 @@ impl App {
             explorer_accuracy_cache_ranked: None,
             bigram_stats: BigramStatsStore::default(),
             ranked_bigram_stats: BigramStatsStore::default(),
-            trigram_stats: TrigramStatsStore::default(),
-            ranked_trigram_stats: TrigramStatsStore::default(),
             user_median_transition_ms: 0.0,
             transition_buffer: Vec::new(),
-            trigram_gain_history: Vec::new(),
             current_focus: None,
             post_drill_input_lock_until: None,
             adaptive_word_history: VecDeque::new(),
@@ -1159,7 +1153,7 @@ impl App {
             let drill_index = self.drill_history.len() as u32;
             let hesitation_thresh =
                 ngram_stats::hesitation_threshold(self.user_median_transition_ms);
-            let (bigram_events, trigram_events) =
+            let bigram_events =
                 extract_ngram_events(&result.per_key_times, hesitation_thresh);
             // Collect unique bigram keys for per-drill streak updates
             let mut seen_bigrams: std::collections::HashSet<ngram_stats::BigramKey> =
@@ -1180,15 +1174,6 @@ impl App {
                     .update_error_anomaly_streak(key, &self.key_stats);
                 self.bigram_stats
                     .update_speed_anomaly_streak(key, &self.key_stats);
-            }
-            for ev in &trigram_events {
-                self.trigram_stats.update(
-                    ev.key.clone(),
-                    ev.total_time_ms,
-                    ev.correct,
-                    ev.has_hesitation,
-                    drill_index,
-                );
             }
 
             if ranked {
@@ -1216,15 +1201,6 @@ impl App {
                         .update_error_anomaly_streak(key, &self.ranked_key_stats);
                     self.ranked_bigram_stats
                         .update_speed_anomaly_streak(key, &self.ranked_key_stats);
-                }
-                for ev in &trigram_events {
-                    self.ranked_trigram_stats.update(
-                        ev.key.clone(),
-                        ev.total_time_ms,
-                        ev.correct,
-                        ev.has_hesitation,
-                        drill_index,
-                    );
                 }
                 let update = self
                     .skill_tree
@@ -1351,16 +1327,6 @@ impl App {
             // Update transition buffer for hesitation baseline
             self.update_transition_buffer(&result.per_key_times);
 
-            // Periodic trigram marginal gain analysis (every 50 drills)
-            if self.profile.total_drills % 50 == 0 && self.profile.total_drills > 0 {
-                let gain = ngram_stats::trigram_marginal_gain(
-                    &self.ranked_trigram_stats,
-                    &self.ranked_bigram_stats,
-                    &self.ranked_key_stats,
-                );
-                self.trigram_gain_history.push(gain);
-            }
-
             self.drill_history.push(result.clone());
             if self.drill_history.len() > 500 {
                 self.drill_history.remove(0);
@@ -1406,7 +1372,7 @@ impl App {
             let drill_index = self.drill_history.len() as u32;
             let hesitation_thresh =
                 ngram_stats::hesitation_threshold(self.user_median_transition_ms);
-            let (bigram_events, trigram_events) =
+            let bigram_events =
                 extract_ngram_events(&result.per_key_times, hesitation_thresh);
             let mut seen_bigrams: std::collections::HashSet<ngram_stats::BigramKey> =
                 std::collections::HashSet::new();
@@ -1425,15 +1391,6 @@ impl App {
                     .update_error_anomaly_streak(key, &self.key_stats);
                 self.bigram_stats
                     .update_speed_anomaly_streak(key, &self.key_stats);
-            }
-            for ev in &trigram_events {
-                self.trigram_stats.update(
-                    ev.key.clone(),
-                    ev.total_time_ms,
-                    ev.correct,
-                    ev.has_hesitation,
-                    drill_index,
-                );
             }
 
             // Update transition buffer for hesitation baseline
@@ -1497,8 +1454,6 @@ impl App {
         // Reset n-gram stores
         self.bigram_stats = BigramStatsStore::default();
         self.ranked_bigram_stats = BigramStatsStore::default();
-        self.trigram_stats = TrigramStatsStore::default();
-        self.ranked_trigram_stats = TrigramStatsStore::default();
         self.transition_buffer.clear();
         self.user_median_transition_ms = 0.0;
 
@@ -1520,7 +1475,7 @@ impl App {
         for (drill_index, result) in history.iter().enumerate() {
             let hesitation_thresh =
                 ngram_stats::hesitation_threshold(self.user_median_transition_ms);
-            let (bigram_events, trigram_events) =
+            let bigram_events =
                 extract_ngram_events(&result.per_key_times, hesitation_thresh);
 
             // Rebuild char-level error/total counts and EMA from history
@@ -1560,15 +1515,6 @@ impl App {
                 self.bigram_stats
                     .update_speed_anomaly_streak(key, &self.key_stats);
             }
-            for ev in &trigram_events {
-                self.trigram_stats.update(
-                    ev.key.clone(),
-                    ev.total_time_ms,
-                    ev.correct,
-                    ev.has_hesitation,
-                    drill_index as u32,
-                );
-            }
 
             if result.ranked {
                 let mut seen_ranked_bigrams: std::collections::HashSet<ngram_stats::BigramKey> =
@@ -1603,15 +1549,6 @@ impl App {
                     self.ranked_bigram_stats
                         .update_speed_anomaly_streak(key, &self.ranked_key_stats);
                 }
-                for ev in &trigram_events {
-                    self.ranked_trigram_stats.update(
-                        ev.key.clone(),
-                        ev.total_time_ms,
-                        ev.correct,
-                        ev.has_hesitation,
-                        drill_index as u32,
-                    );
-                }
             }
 
             // Update transition buffer
@@ -1630,22 +1567,6 @@ impl App {
 
         // Put drill_history back
         self.drill_history = history;
-
-        // Prune trigrams — use drill_history.len() as total, matching the drill_index
-        // space used in last_seen_drill_index above (history position, includes partials)
-        let total_history_entries = self.drill_history.len() as u32;
-        self.trigram_stats.prune(
-            ngram_stats::MAX_TRIGRAMS,
-            total_history_entries,
-            &self.bigram_stats,
-            &self.key_stats,
-        );
-        self.ranked_trigram_stats.prune(
-            ngram_stats::MAX_TRIGRAMS,
-            total_history_entries,
-            &self.ranked_bigram_stats,
-            &self.ranked_key_stats,
-        );
     }
 
     pub fn retry_drill(&mut self) {
@@ -3125,11 +3046,8 @@ impl App {
             explorer_accuracy_cache_ranked: None,
             bigram_stats: BigramStatsStore::default(),
             ranked_bigram_stats: BigramStatsStore::default(),
-            trigram_stats: TrigramStatsStore::default(),
-            ranked_trigram_stats: TrigramStatsStore::default(),
             user_median_transition_ms: 0.0,
             transition_buffer: Vec::new(),
-            trigram_gain_history: Vec::new(),
             current_focus: None,
             post_drill_input_lock_until: None,
             adaptive_word_history: VecDeque::new(),

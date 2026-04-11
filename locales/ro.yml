@@ -146,10 +146,7 @@ stats:
   no_speed_anomalies: ' Nicio anomalie de viteza detectata'
   scope_label_prefix: ' '
   bi_label: ' | Bi: %{count}'
-  tri_label: ' | Tri: %{count}'
   hes_label: ' | Ezit: >%{ms}ms'
-  gain_label: ' | Castig: %{value}'
-  gain_interval: ' (la fiecare 50)'
   focus_char_value: 'Caracter ''%{ch}'''
 
 # Activity heatmap

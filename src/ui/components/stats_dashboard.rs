@@ -36,9 +36,7 @@ pub struct NgramTabData {
     pub error_anomalies: Vec<AnomalyBigramRow>,
     pub speed_anomalies: Vec<AnomalyBigramRow>,
     pub total_bigrams: usize,
-    pub total_trigrams: usize,
     pub hesitation_threshold_ms: f64,
-    pub latest_trigram_gain: Option<f64>,
     pub scope_label: String,
 }
 
@@ -1636,24 +1634,12 @@ impl StatsDashboard<'_> {
         let colors = &self.theme.colors;
         let w = area.width as usize;
 
-        let gain_str = match data.latest_trigram_gain {
-            Some(g) => format!("{:.1}%", g * 100.0),
-            None => "--".to_string(),
-        };
-
         // Build segments from most to least important, progressively drop from the right
         let scope = t!("stats.scope_label_prefix", ).to_string() + &data.scope_label;
         let bigrams = t!("stats.bi_label", count = data.total_bigrams).to_string();
-        let trigrams = t!("stats.tri_label", count = data.total_trigrams).to_string();
         let hesitation = t!("stats.hes_label", ms = format!("{:.0}", data.hesitation_threshold_ms)).to_string();
-        let gain = t!("stats.gain_label", value = &gain_str).to_string();
-        let gain_note_str = if data.latest_trigram_gain.is_none() {
-            t!("stats.gain_interval").to_string()
-        } else {
-            String::new()
-        };
 
-        let segments: &[&str] = &[&scope, &bigrams, &trigrams, &hesitation, &gain, &gain_note_str];
+        let segments: &[&str] = &[&scope, &bigrams, &hesitation];
         let mut line = String::new();
         for seg in segments {
             if line.len() + seg.len() <= w {

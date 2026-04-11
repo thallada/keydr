@@ -146,10 +146,7 @@ stats:
   no_speed_anomalies: ' Keine Tempo-Anomalien erkannt'
   scope_label_prefix: ' '
   bi_label: ' | Bi: %{count}'
-  tri_label: ' | Tri: %{count}'
   hes_label: ' | Hes: >%{ms}ms'
-  gain_label: ' | Gewinn: %{value}'
-  gain_interval: ' (alle 50)'
   focus_char_value: 'Zeichen ''%{ch}'''
 
 # Activity heatmap

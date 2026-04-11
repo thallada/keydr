@@ -4918,17 +4918,6 @@ mod review_tests {
         stat.error_rate_ema = 0.60;
         stat.error_anomaly_streak = 1;
 
-        // Add a trigram to verify count
-        let the_key = crate::engine::ngram_stats::TrigramKey(['t', 'h', 'e']);
-        app.ranked_trigram_stats
-            .stats
-            .entry(the_key)
-            .or_default()
-            .sample_count = 5;
-
-        // Set trigram gain history
-        app.trigram_gain_history.push(0.12);
-
         // Set drill scope
         app.drill_scope = DrillScope::Global;
         app.stats_tab = 5;
@@ -4938,15 +4927,8 @@ mod review_tests {
         // Verify scope label
         assert_eq!(data.scope_label, "Global");
 
-        // Verify trigram gain
-        assert_eq!(data.latest_trigram_gain, Some(0.12));
-
-        // Verify bigram/trigram counts
+        // Verify bigram count
         assert_eq!(data.total_bigrams, app.ranked_bigram_stats.stats.len());
-        assert!(
-            data.total_trigrams >= 1,
-            "should include at least our test trigram"
-        );
 
         // Verify hesitation threshold
         assert!(data.hesitation_threshold_ms >= 800.0);
@@ -5621,16 +5603,12 @@ fn build_ngram_tab_data(app: &App) -> NgramTabData {
 
     let hesitation_threshold_ms = ngram_stats::hesitation_threshold(app.user_median_transition_ms);
 
-    let latest_trigram_gain = app.trigram_gain_history.last().copied();
-
     NgramTabData {
         focus,
         error_anomalies,
         speed_anomalies,
         total_bigrams: app.ranked_bigram_stats.stats.len(),
-        total_trigrams: app.ranked_trigram_stats.stats.len(),
         hesitation_threshold_ms,
-        latest_trigram_gain,
         scope_label,
     }
 }

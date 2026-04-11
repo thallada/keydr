@@ -146,10 +146,7 @@ stats:
   no_speed_anomalies: ' Nie wykryto anomalii predkosci'
   scope_label_prefix: ' '
   bi_label: ' | Bi: %{count}'
-  tri_label: ' | Tri: %{count}'
   hes_label: ' | Wah: >%{ms}ms'
-  gain_label: ' | Zysk: %{value}'
-  gain_interval: ' (co 50)'
   focus_char_value: 'Znak ''%{ch}'''
 
 # Activity heatmap

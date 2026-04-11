@@ -146,10 +146,7 @@ stats:
   no_speed_anomalies: ' Nopeuspoikkeamia ei havaittu'
   scope_label_prefix: ' '
   bi_label: ' | Bi: %{count}'
-  tri_label: ' | Tri: %{count}'
   hes_label: ' | Epär: >%{ms}ms'
-  gain_label: ' | Kasvu: %{value}'
-  gain_interval: ' (joka 50.)'
   focus_char_value: 'Merkki ''%{ch}'''
 
 # Activity heatmap

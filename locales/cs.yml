@@ -146,10 +146,7 @@ stats:
   no_speed_anomalies: ' Nebyly detekovany anomalie rychlosti'
   scope_label_prefix: ' '
   bi_label: ' | Bi: %{count}'
-  tri_label: ' | Tri: %{count}'
   hes_label: ' | Vah: >%{ms}ms'
-  gain_label: ' | Zisk: %{value}'
-  gain_interval: ' (kazdych 50)'
   focus_char_value: 'Znak ''%{ch}'''
 
 # Activity heatmap
