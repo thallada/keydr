@@ -309,7 +309,7 @@ milestones:
   all_mastered_title: ' Full Keyboard Mastery! '
   unlocked: 'unlocked'
   mastered: 'mastered'
-  use_finger: 'Use your %{finger}'
+  use_finger: 'Use your %{finger} finger'
   hold_right_shift: 'Hold Right Shift (right pinky)'
   hold_left_shift: 'Hold Left Shift (left pinky)'
   congratulations_all_letters: 'Congratulations! You''ve mastered all %{count} primary letters'

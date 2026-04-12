@@ -3876,7 +3876,7 @@ fn render_milestone_overlay(
                             name.to_string()
                         }
                     };
-                    let use_finger_msg = t!("milestones.use_finger", finger = finger_desc.as_str());
+                    let use_finger_msg = t!("milestones.use_finger", finger = finger_desc.to_lowercase().as_str());
                     lines.push(Line::from(Span::styled(
                         format!("  {key_label}: {use_finger_msg}"),
                         Style::default().fg(colors.fg()),
