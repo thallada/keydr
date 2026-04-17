@@ -13,6 +13,7 @@ use crate::keyboard::model::KeyboardModel;
 use crate::session::result::DrillResult;
 use crate::ui::components::activity_heatmap::ActivityHeatmap;
 use crate::i18n::t;
+use crate::ui::hint;
 use crate::ui::layout::pack_hint_lines;
 use crate::ui::theme::Theme;
 
@@ -1673,20 +1674,20 @@ const TAB_SEPARATOR: &str = "  ";
 
 fn footer_hints_default() -> Vec<String> {
     vec![
-        t!("stats.hint_back").to_string(),
-        t!("stats.hint_next_tab").to_string(),
-        t!("stats.hint_switch_tab").to_string(),
+        hint::hint(hint::K_Q_ESC, t!("stats.hint_back").as_ref()),
+        hint::hint(hint::K_TAB, t!("stats.hint_next_tab").as_ref()),
+        hint::hint(hint::K_1_6, t!("stats.hint_switch_tab").as_ref()),
     ]
 }
 
 fn footer_hints_history() -> Vec<String> {
     vec![
-        t!("stats.hint_back").to_string(),
-        t!("stats.hint_next_tab").to_string(),
-        t!("stats.hint_switch_tab").to_string(),
-        t!("stats.hint_navigate").to_string(),
-        t!("stats.hint_page").to_string(),
-        t!("stats.hint_delete").to_string(),
+        hint::hint(hint::K_Q_ESC, t!("stats.hint_back").as_ref()),
+        hint::hint(hint::K_TAB, t!("stats.hint_next_tab").as_ref()),
+        hint::hint(hint::K_1_6, t!("stats.hint_switch_tab").as_ref()),
+        hint::hint(hint::K_J_K, t!("stats.hint_navigate").as_ref()),
+        hint::hint(hint::K_PGUP_PGDN, t!("stats.hint_page").as_ref()),
+        hint::hint(hint::K_X, t!("stats.hint_delete").as_ref()),
     ]
 }
 

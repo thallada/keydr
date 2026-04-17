@@ -9,6 +9,7 @@ use crate::engine::key_stats::KeyStatsStore;
 use crate::engine::skill_tree::{
     BranchId, BranchStatus, DrillScope, SkillTree as SkillTreeEngine, get_branch_definition,
 };
+use crate::ui::hint;
 use crate::ui::layout::{pack_hint_lines, wrapped_line_count};
 use crate::ui::theme::Theme;
 
@@ -137,11 +138,11 @@ impl Widget for SkillTreeWidget<'_> {
 
         // Layout: main split (branch list + detail) and footer (adaptive height)
         let branches = selectable_branches();
-        let h_navigate = t!("skill_tree.hint_navigate").to_string();
-        let h_scroll = t!("skill_tree.hint_scroll").to_string();
-        let h_back = t!("skill_tree.hint_back").to_string();
-        let h_unlock = t!("skill_tree.hint_unlock").to_string();
-        let h_start_drill = t!("skill_tree.hint_start_drill").to_string();
+        let h_navigate = hint::hint(hint::K_UD_JK, t!("skill_tree.hint_navigate").as_ref());
+        let h_scroll = hint::hint(hint::K_SCROLL_KEYS, t!("skill_tree.hint_scroll").as_ref());
+        let h_back = hint::hint(hint::K_Q_ESC, t!("skill_tree.hint_back").as_ref());
+        let h_unlock = hint::hint(hint::K_ENTER, t!("skill_tree.hint_unlock").as_ref());
+        let h_start_drill = hint::hint(hint::K_ENTER, t!("skill_tree.hint_start_drill").as_ref());
         let (footer_hints, footer_notice): (Vec<&str>, Option<String>) =
             if self.selected < branches.len() {
                 let bp = self.skill_tree.branch_progress(branches[self.selected]);

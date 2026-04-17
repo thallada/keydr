@@ -44,10 +44,15 @@ pub struct Config {
     pub code_onboarding_done: bool,
     #[serde(default = "default_ui_language")]
     pub ui_language: String,
+    #[serde(default = "default_adaptive_intro_done")]
+    pub adaptive_intro_done: bool,
 }
 
 fn default_target_wpm() -> u32 {
     35
+}
+fn default_adaptive_intro_done() -> bool {
+    false
 }
 fn default_theme() -> String {
     "terminal-default".to_string()
@@ -124,6 +129,7 @@ impl Default for Config {
             code_snippets_per_repo: default_code_snippets_per_repo(),
             code_onboarding_done: default_code_onboarding_done(),
             ui_language: default_ui_language(),
+            adaptive_intro_done: default_adaptive_intro_done(),
         }
     }
 }

@@ -6,6 +6,7 @@ use ratatui::widgets::{Block, Paragraph, Widget};
 
 use crate::i18n::t;
 use crate::session::result::DrillResult;
+use crate::ui::hint;
 use crate::ui::layout::pack_hint_lines;
 use crate::ui::theme::Theme;
 
@@ -44,17 +45,17 @@ impl Widget for Dashboard<'_> {
         let footer_line_count = if self.input_lock_remaining_ms.is_some() {
             1u16
         } else {
-            let hint_continue = t!("dashboard.hint_continue");
-            let hint_retry = t!("dashboard.hint_retry");
-            let hint_menu = t!("dashboard.hint_menu");
-            let hint_stats = t!("dashboard.hint_stats");
-            let hint_delete = t!("dashboard.hint_delete");
+            let hint_continue = hint::hint(hint::K_C_ENTER_SPACE, t!("dashboard.hint_continue").as_ref());
+            let hint_retry = hint::hint(hint::K_R, t!("dashboard.hint_retry").as_ref());
+            let hint_menu = hint::hint(hint::K_Q, t!("dashboard.hint_menu").as_ref());
+            let hint_stats = hint::hint(hint::K_S, t!("dashboard.hint_stats").as_ref());
+            let hint_delete = hint::hint(hint::K_X, t!("dashboard.hint_delete").as_ref());
             let hints = [
-                hint_continue.as_ref(),
-                hint_retry.as_ref(),
-                hint_menu.as_ref(),
-                hint_stats.as_ref(),
-                hint_delete.as_ref(),
+                hint_continue.as_str(),
+                hint_retry.as_str(),
+                hint_menu.as_str(),
+                hint_stats.as_str(),
+                hint_delete.as_str(),
             ];
             pack_hint_lines(&hints, inner.width as usize).len().max(1) as u16
         };
@@ -167,17 +168,17 @@ impl Widget for Dashboard<'_> {
                 ),
             ]))
         } else {
-            let hint_continue = t!("dashboard.hint_continue");
-            let hint_retry = t!("dashboard.hint_retry");
-            let hint_menu = t!("dashboard.hint_menu");
-            let hint_stats = t!("dashboard.hint_stats");
-            let hint_delete = t!("dashboard.hint_delete");
+            let hint_continue = hint::hint(hint::K_C_ENTER_SPACE, t!("dashboard.hint_continue").as_ref());
+            let hint_retry = hint::hint(hint::K_R, t!("dashboard.hint_retry").as_ref());
+            let hint_menu = hint::hint(hint::K_Q, t!("dashboard.hint_menu").as_ref());
+            let hint_stats = hint::hint(hint::K_S, t!("dashboard.hint_stats").as_ref());
+            let hint_delete = hint::hint(hint::K_X, t!("dashboard.hint_delete").as_ref());
             let hints = [
-                hint_continue.as_ref(),
-                hint_retry.as_ref(),
-                hint_menu.as_ref(),
-                hint_stats.as_ref(),
-                hint_delete.as_ref(),
+                hint_continue.as_str(),
+                hint_retry.as_str(),
+                hint_menu.as_str(),
+                hint_stats.as_str(),
+                hint_delete.as_str(),
             ];
             let lines: Vec<Line> = pack_hint_lines(&hints, inner.width as usize)
                 .into_iter()

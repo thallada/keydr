@@ -323,6 +323,29 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
+    // Adaptive intro overlay intercepts input before milestone handling.
+    if app.show_adaptive_intro {
+        match key.code {
+            KeyCode::Left => {
+                app.config.target_wpm = app.config.target_wpm.saturating_sub(5).max(10);
+                app.key_stats.target_cpm = app.config.target_cpm();
+                app.ranked_key_stats.target_cpm = app.config.target_cpm();
+            }
+            KeyCode::Right => {
+                app.config.target_wpm = (app.config.target_wpm + 5).min(200);
+                app.key_stats.target_cpm = app.config.target_cpm();
+                app.ranked_key_stats.target_cpm = app.config.target_cpm();
+            }
+            _ => {
+                app.show_adaptive_intro = false;
+                app.config.adaptive_intro_done = true;
+                let _ = app.config.save();
+                app.start_global_adaptive_drill();
+            }
+        }
+        return;
+    }
+
     // Milestone overlays are modal: one key action applies and is consumed.
     if let Some(milestone) = app.milestone_queue.front() {
         let open_skill_tree = milestone_supports_skill_tree_shortcut(milestone)
@@ -495,9 +518,9 @@ fn milestone_footer_hint_token_at(
     let inner = Block::bordered().inner(overlay_area);
     let footer_y = inner.y + inner.height.saturating_sub(1);
     let footer_area = Rect::new(inner.x, footer_y, inner.width, 1);
-    let hint_skill_tree = t!("milestones.hint_skill_tree_continue");
+    let hint_skill_tree = ui::hint::hint(ui::hint::K_T, t!("milestones.hint_skill_tree_continue").as_ref());
     let hint_any_key = t!("milestones.hint_any_key");
-    let hints: Vec<&str> = vec![hint_skill_tree.as_ref(), hint_any_key.as_ref()];
+    let hints: Vec<&str> = vec![hint_skill_tree.as_str(), hint_any_key.as_ref()];
     hint_token_at(
         footer_area,
         &hints,
@@ -556,7 +579,11 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
 fn activate_menu_selected(app: &mut App) {
     match app.menu.selected {
         0 => {
-            app.start_global_adaptive_drill();
+            if !app.config.adaptive_intro_done {
+                app.show_adaptive_intro = true;
+            } else {
+                app.start_global_adaptive_drill();
+            }
         }
         1 => {
             if app.config.code_onboarding_done {
@@ -587,19 +614,19 @@ fn handle_menu_mouse(app: &mut App, mouse: MouseEvent) {
         MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right) => {
             let is_secondary = matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right));
             let area = terminal_area();
-            let mh_start = t!("menu.hint_start");
-            let mh_tree = t!("menu.hint_skill_tree");
-            let mh_kbd = t!("menu.hint_keyboard");
-            let mh_stats = t!("menu.hint_stats");
-            let mh_settings = t!("menu.hint_settings");
-            let mh_quit = t!("menu.hint_quit");
+            let mh_start = ui::hint::hint(ui::hint::K_1_3, t!("menu.hint_start").as_ref());
+            let mh_tree = ui::hint::hint(ui::hint::K_T, t!("menu.hint_skill_tree").as_ref());
+            let mh_kbd = ui::hint::hint(ui::hint::K_B, t!("menu.hint_keyboard").as_ref());
+            let mh_stats = ui::hint::hint(ui::hint::K_S, t!("menu.hint_stats").as_ref());
+            let mh_settings = ui::hint::hint(ui::hint::K_C, t!("menu.hint_settings").as_ref());
+            let mh_quit = ui::hint::hint(ui::hint::K_Q, t!("menu.hint_quit").as_ref());
             let menu_hints: Vec<&str> = vec![
-                mh_start.as_ref(),
-                mh_tree.as_ref(),
-                mh_kbd.as_ref(),
-                mh_stats.as_ref(),
-                mh_settings.as_ref(),
-                mh_quit.as_ref(),
+                mh_start.as_str(),
+                mh_tree.as_str(),
+                mh_kbd.as_str(),
+                mh_stats.as_str(),
+                mh_settings.as_str(),
+                mh_quit.as_str(),
             ];
             let footer_line_count = pack_hint_lines(&menu_hints, area.width as usize)
                 .len()
@@ -677,9 +704,9 @@ fn handle_drill_mouse(app: &mut App, mouse: MouseEvent) {
     }
     let layout = AppLayout::new(terminal_area());
     if point_in_rect(mouse.column, mouse.row, layout.footer) {
-        let hint_end = t!("drill.hint_end");
-        let hint_bs = t!("drill.hint_backspace");
-        let hints: Vec<&str> = vec![hint_end.as_ref(), hint_bs.as_ref()];
+        let hint_end = ui::hint::hint(ui::hint::K_ESC, t!("drill.hint_end").as_ref());
+        let hint_bs = ui::hint::hint(ui::hint::K_BACKSPACE, t!("drill.hint_backspace").as_ref());
+        let hints: Vec<&str> = vec![hint_end.as_str(), hint_bs.as_str()];
         if let Some(token) = hint_token_at(layout.footer, &hints, mouse.column, mouse.row) {
             match token.as_str() {
                 "ESC" => {
@@ -739,17 +766,17 @@ fn handle_result_mouse(app: &mut App, mouse: MouseEvent) {
         let area = terminal_area();
         let centered = ui::layout::centered_rect(60, 70, area);
         let inner = Block::bordered().inner(centered);
-        let h_cont = t!("dashboard.hint_continue");
-        let h_retry = t!("dashboard.hint_retry");
-        let h_menu = t!("dashboard.hint_menu");
-        let h_stats = t!("dashboard.hint_stats");
-        let h_del = t!("dashboard.hint_delete");
+        let h_cont = ui::hint::hint(ui::hint::K_C_ENTER_SPACE, t!("dashboard.hint_continue").as_ref());
+        let h_retry = ui::hint::hint(ui::hint::K_R, t!("dashboard.hint_retry").as_ref());
+        let h_menu = ui::hint::hint(ui::hint::K_Q, t!("dashboard.hint_menu").as_ref());
+        let h_stats = ui::hint::hint(ui::hint::K_S, t!("dashboard.hint_stats").as_ref());
+        let h_del = ui::hint::hint(ui::hint::K_X, t!("dashboard.hint_delete").as_ref());
         let hints: Vec<&str> = vec![
-            h_cont.as_ref(),
-            h_retry.as_ref(),
-            h_menu.as_ref(),
-            h_stats.as_ref(),
-            h_del.as_ref(),
+            h_cont.as_str(),
+            h_retry.as_str(),
+            h_menu.as_str(),
+            h_stats.as_str(),
+            h_del.as_str(),
         ];
         let footer_line_count = pack_hint_lines(&hints, inner.width as usize).len().max(1) as u16;
         let footer_y = inner
@@ -852,23 +879,23 @@ fn handle_stats_mouse(app: &mut App, mouse: MouseEvent) {
     let inner = Block::bordered().inner(area);
     let width = inner.width as usize;
     let tab_line_count = wrapped_stats_tab_line_count(width) as u16;
-    let sh_back = t!("stats.hint_back");
-    let sh_next = t!("stats.hint_next_tab");
-    let sh_switch = t!("stats.hint_switch_tab");
-    let sh_nav = t!("stats.hint_navigate");
-    let sh_page = t!("stats.hint_page");
-    let sh_del = t!("stats.hint_delete");
+    let sh_back = ui::hint::hint(ui::hint::K_Q_ESC, t!("stats.hint_back").as_ref());
+    let sh_next = ui::hint::hint(ui::hint::K_TAB, t!("stats.hint_next_tab").as_ref());
+    let sh_switch = ui::hint::hint(ui::hint::K_1_6, t!("stats.hint_switch_tab").as_ref());
+    let sh_nav = ui::hint::hint(ui::hint::K_J_K, t!("stats.hint_navigate").as_ref());
+    let sh_page = ui::hint::hint(ui::hint::K_PGUP_PGDN, t!("stats.hint_page").as_ref());
+    let sh_del = ui::hint::hint(ui::hint::K_X, t!("stats.hint_delete").as_ref());
     let footer_hints: Vec<&str> = if app.stats_tab == 1 {
         vec![
-            sh_back.as_ref(),
-            sh_next.as_ref(),
-            sh_switch.as_ref(),
-            sh_nav.as_ref(),
-            sh_page.as_ref(),
-            sh_del.as_ref(),
+            sh_back.as_str(),
+            sh_next.as_str(),
+            sh_switch.as_str(),
+            sh_nav.as_str(),
+            sh_page.as_str(),
+            sh_del.as_str(),
         ]
     } else {
-        vec![sh_back.as_ref(), sh_next.as_ref(), sh_switch.as_ref()]
+        vec![sh_back.as_str(), sh_next.as_str(), sh_switch.as_str()]
     };
     let footer_line_count = pack_hint_lines(&footer_hints, width).len().max(1) as u16;
     let layout = Layout::default()
@@ -885,7 +912,7 @@ fn handle_stats_mouse(app: &mut App, mouse: MouseEvent) {
             let is_secondary = matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right));
             if let Some(token) = hint_token_at(layout[2], &footer_hints, mouse.column, mouse.row) {
                 match token.as_str() {
-                    "ESC" => app.go_to_menu(),
+                    "q/ESC" => app.go_to_menu(),
                     "Tab" => {
                         app.stats_tab = if is_secondary {
                             if app.stats_tab == 0 {
@@ -1181,13 +1208,13 @@ fn handle_settings_mouse(app: &mut App, mouse: MouseEvent) {
     let inner = Block::bordered().inner(centered);
     let fields = settings_fields(app);
     let header_height = if inner.height > 0 { 1 } else { 0 };
-    let sfh_save = t!("settings.hint_save_back");
-    let sfh_change = t!("settings.hint_change_value");
-    let sfh_edit = t!("settings.hint_edit_path");
+    let sfh_save = ui::hint::hint(ui::hint::K_ESC, t!("settings.hint_save_back").as_ref());
+    let sfh_change = ui::hint::hint(ui::hint::K_ENTER_ARROWS, t!("settings.hint_change_value").as_ref());
+    let sfh_edit = ui::hint::hint(ui::hint::K_ENTER_ON_PATH, t!("settings.hint_edit_path").as_ref());
     let footer_hints: Vec<&str> = vec![
-        sfh_save.as_ref(),
-        sfh_change.as_ref(),
-        sfh_edit.as_ref(),
+        sfh_save.as_str(),
+        sfh_change.as_str(),
+        sfh_edit.as_str(),
     ];
     let footer_height = if inner.height > header_height {
         pack_hint_lines(&footer_hints, inner.width as usize)
@@ -1207,22 +1234,22 @@ fn handle_settings_mouse(app: &mut App, mouse: MouseEvent) {
         .split(inner);
 
     if is_click && layout[2].height > 0 {
-        let efh_move = t!("settings.hint_move");
-        let efh_tab = t!("settings.hint_tab_complete");
-        let efh_confirm = t!("settings.hint_confirm");
-        let efh_cancel = t!("settings.hint_cancel");
+        let efh_move = ui::hint::hint(ui::hint::K_ARROW_LR, t!("settings.hint_move").as_ref());
+        let efh_tab = ui::hint::hint(ui::hint::K_TAB, t!("settings.hint_tab_complete").as_ref());
+        let efh_confirm = ui::hint::hint(ui::hint::K_ENTER, t!("settings.hint_confirm").as_ref());
+        let efh_cancel = ui::hint::hint(ui::hint::K_ESC, t!("settings.hint_cancel").as_ref());
         let footer_hints: Vec<&str> = if app.settings_editing_path.is_some() {
             vec![
-                efh_move.as_ref(),
-                efh_tab.as_ref(),
-                efh_confirm.as_ref(),
-                efh_cancel.as_ref(),
+                efh_move.as_str(),
+                efh_tab.as_str(),
+                efh_confirm.as_str(),
+                efh_cancel.as_str(),
             ]
         } else {
             vec![
-                sfh_save.as_ref(),
-                sfh_change.as_ref(),
-                sfh_edit.as_ref(),
+                sfh_save.as_str(),
+                sfh_change.as_str(),
+                sfh_edit.as_str(),
             ]
         };
         if let Some(token) = hint_token_at(layout[2], &footer_hints, mouse.column, mouse.row) {
@@ -1250,7 +1277,7 @@ fn handle_settings_mouse(app: &mut App, mouse: MouseEvent) {
                     "Enter" => {
                         handle_settings_key(app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
                     }
-                    "Esc" => {
+                    "ESC" => {
                         handle_settings_key(app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
                     }
                     _ => {}
@@ -1657,11 +1684,11 @@ fn is_dictionary_language_disabled(_app: &App, language_key: &str) -> bool {
 fn dictionary_language_list_area(area: Rect) -> Rect {
     let centered = ui::layout::centered_rect(60, 70, area);
     let inner = Block::bordered().inner(centered);
-    let h_nav = t!("select.hint_navigate");
-    let h_confirm = t!("select.hint_confirm");
-    let h_back = t!("select.hint_back");
+    let h_nav = ui::hint::hint(ui::hint::K_UP_DOWN_PGUP_PGDN, t!("select.hint_navigate").as_ref());
+    let h_confirm = ui::hint::hint(ui::hint::K_ENTER, t!("select.hint_confirm").as_ref());
+    let h_back = ui::hint::hint(ui::hint::K_Q_ESC, t!("select.hint_back").as_ref());
     let hint_lines = pack_hint_lines(
-        &[h_nav.as_ref(), h_confirm.as_ref(), h_back.as_ref()],
+        &[h_nav.as_str(), h_confirm.as_str(), h_back.as_str()],
         inner.width as usize,
     );
     let footer_height = (hint_lines.len() as u16).max(1);
@@ -1774,10 +1801,10 @@ fn handle_dictionary_language_mouse(app: &mut App, mouse: MouseEvent) {
             let area = terminal_area();
             let centered = ui::layout::centered_rect(60, 70, area);
             let inner = Block::bordered().inner(centered);
-            let h_nav = t!("select.hint_navigate");
-            let h_confirm = t!("select.hint_confirm");
-            let h_back = t!("select.hint_back");
-            let hints: Vec<&str> = vec![h_nav.as_ref(), h_confirm.as_ref(), h_back.as_ref()];
+            let h_nav = ui::hint::hint(ui::hint::K_UP_DOWN_PGUP_PGDN, t!("select.hint_navigate").as_ref());
+            let h_confirm = ui::hint::hint(ui::hint::K_ENTER, t!("select.hint_confirm").as_ref());
+            let h_back = ui::hint::hint(ui::hint::K_Q_ESC, t!("select.hint_back").as_ref());
+            let hints: Vec<&str> = vec![h_nav.as_str(), h_confirm.as_str(), h_back.as_str()];
             let footer_h = pack_hint_lines(&hints, inner.width as usize).len().max(1) as u16;
             let chunks = if inner.height > footer_h {
                 Some(
@@ -1794,7 +1821,7 @@ fn handle_dictionary_language_mouse(app: &mut App, mouse: MouseEvent) {
             {
                 match token.as_str() {
                     "Enter" => confirm_dictionary_language_selection(app),
-                    "ESC" => {
+                    "q/ESC" => {
                         app.go_to_settings();
                         app.settings_selected = SettingItem::DictionaryLanguage.index();
                     }
@@ -1899,11 +1926,11 @@ fn is_keyboard_layout_disabled(layout_key: &str) -> bool {
 fn keyboard_layout_list_area(area: Rect) -> Rect {
     let centered = ui::layout::centered_rect(60, 70, area);
     let inner = Block::bordered().inner(centered);
-    let h_nav = t!("select.hint_navigate");
-    let h_confirm = t!("select.hint_confirm");
-    let h_back = t!("select.hint_back");
+    let h_nav = ui::hint::hint(ui::hint::K_UP_DOWN_PGUP_PGDN, t!("select.hint_navigate").as_ref());
+    let h_confirm = ui::hint::hint(ui::hint::K_ENTER, t!("select.hint_confirm").as_ref());
+    let h_back = ui::hint::hint(ui::hint::K_Q_ESC, t!("select.hint_back").as_ref());
     let hint_lines = pack_hint_lines(
-        &[h_nav.as_ref(), h_confirm.as_ref(), h_back.as_ref()],
+        &[h_nav.as_str(), h_confirm.as_str(), h_back.as_str()],
         inner.width as usize,
     );
     let footer_height = (hint_lines.len() as u16).max(1);
@@ -2003,10 +2030,10 @@ fn handle_keyboard_layout_mouse(app: &mut App, mouse: MouseEvent) {
             let area = terminal_area();
             let centered = ui::layout::centered_rect(60, 70, area);
             let inner = Block::bordered().inner(centered);
-            let h_nav = t!("select.hint_navigate");
-            let h_confirm = t!("select.hint_confirm");
-            let h_back = t!("select.hint_back");
-            let hints: Vec<&str> = vec![h_nav.as_ref(), h_confirm.as_ref(), h_back.as_ref()];
+            let h_nav = ui::hint::hint(ui::hint::K_UP_DOWN_PGUP_PGDN, t!("select.hint_navigate").as_ref());
+            let h_confirm = ui::hint::hint(ui::hint::K_ENTER, t!("select.hint_confirm").as_ref());
+            let h_back = ui::hint::hint(ui::hint::K_Q_ESC, t!("select.hint_back").as_ref());
+            let hints: Vec<&str> = vec![h_nav.as_str(), h_confirm.as_str(), h_back.as_str()];
             let footer_h = pack_hint_lines(&hints, inner.width as usize).len().max(1) as u16;
             let chunks = if inner.height > footer_h {
                 Some(
@@ -2023,7 +2050,7 @@ fn handle_keyboard_layout_mouse(app: &mut App, mouse: MouseEvent) {
             {
                 match token.as_str() {
                     "Enter" => confirm_keyboard_layout_selection(app),
-                    "ESC" => {
+                    "q/ESC" => {
                         app.go_to_settings();
                         app.settings_selected = SettingItem::KeyboardLayout.index();
                     }
@@ -2118,11 +2145,11 @@ fn code_language_list_area(app: &App, area: Rect) -> Rect {
     let inner = Block::bordered().inner(centered);
     let options = code_language_options();
     let width = inner.width as usize;
-    let h_nav = t!("select.hint_navigate");
-    let h_confirm = t!("select.hint_confirm");
-    let h_back = t!("select.hint_back");
+    let h_nav = ui::hint::hint(ui::hint::K_UP_DOWN_PGUP_PGDN, t!("select.hint_navigate").as_ref());
+    let h_confirm = ui::hint::hint(ui::hint::K_ENTER, t!("select.hint_confirm").as_ref());
+    let h_back = ui::hint::hint(ui::hint::K_Q_ESC, t!("select.hint_back").as_ref());
     let hint_lines = pack_hint_lines(
-        &[h_nav.as_ref(), h_confirm.as_ref(), h_back.as_ref()],
+        &[h_nav.as_str(), h_confirm.as_str(), h_back.as_str()],
         width,
     );
     let disabled_notice_t = t!("select.disabled_network_notice");
@@ -2165,10 +2192,10 @@ fn handle_code_language_mouse(app: &mut App, mouse: MouseEvent) {
         MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right) => {
             let centered = ui::layout::centered_rect(50, 70, terminal_area());
             let inner = Block::bordered().inner(centered);
-            let h_nav = t!("select.hint_navigate");
-            let h_confirm = t!("select.hint_confirm");
-            let h_back = t!("select.hint_back");
-            let hints: Vec<&str> = vec![h_nav.as_ref(), h_confirm.as_ref(), h_back.as_ref()];
+            let h_nav = ui::hint::hint(ui::hint::K_UP_DOWN_PGUP_PGDN, t!("select.hint_navigate").as_ref());
+            let h_confirm = ui::hint::hint(ui::hint::K_ENTER, t!("select.hint_confirm").as_ref());
+            let h_back = ui::hint::hint(ui::hint::K_Q_ESC, t!("select.hint_back").as_ref());
+            let hints: Vec<&str> = vec![h_nav.as_str(), h_confirm.as_str(), h_back.as_str()];
             let hint_lines = pack_hint_lines(&hints, inner.width as usize);
             let disabled_notice_t = t!("select.disabled_network_notice");
             let disabled_notice = disabled_notice_t.as_ref();
@@ -2205,7 +2232,7 @@ fn handle_code_language_mouse(app: &mut App, mouse: MouseEvent) {
                                 KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
                             );
                         }
-                        "ESC" => app.go_to_menu(),
+                        "q/ESC" => app.go_to_menu(),
                         _ => {}
                     }
                     return;
@@ -2310,11 +2337,11 @@ fn passage_book_list_area(app: &App, area: Rect) -> Rect {
     let inner = Block::bordered().inner(centered);
     let options = passage_options();
     let width = inner.width as usize;
-    let h_nav_t = t!("select.hint_navigate");
-    let h_confirm_t = t!("select.hint_confirm");
-    let h_back_t = t!("select.hint_back");
+    let h_nav_t = ui::hint::hint(ui::hint::K_UP_DOWN, t!("select.hint_navigate").as_ref());
+    let h_confirm_t = ui::hint::hint(ui::hint::K_ENTER, t!("select.hint_confirm").as_ref());
+    let h_back_t = ui::hint::hint(ui::hint::K_Q_ESC, t!("select.hint_back").as_ref());
     let hint_lines = pack_hint_lines(
-        &[h_nav_t.as_ref(), h_confirm_t.as_ref(), h_back_t.as_ref()],
+        &[h_nav_t.as_str(), h_confirm_t.as_str(), h_back_t.as_str()],
         width,
     );
     let disabled_notice_t = t!("select.disabled_sources_notice");
@@ -2356,10 +2383,10 @@ fn handle_passage_book_mouse(app: &mut App, mouse: MouseEvent) {
         MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right) => {
             let centered = ui::layout::centered_rect(60, 70, terminal_area());
             let inner = Block::bordered().inner(centered);
-            let h_nav = t!("select.hint_navigate");
-            let h_confirm = t!("select.hint_confirm");
-            let h_back = t!("select.hint_back");
-            let hints: Vec<&str> = vec![h_nav.as_ref(), h_confirm.as_ref(), h_back.as_ref()];
+            let h_nav = ui::hint::hint(ui::hint::K_UP_DOWN, t!("select.hint_navigate").as_ref());
+            let h_confirm = ui::hint::hint(ui::hint::K_ENTER, t!("select.hint_confirm").as_ref());
+            let h_back = ui::hint::hint(ui::hint::K_Q_ESC, t!("select.hint_back").as_ref());
+            let hints: Vec<&str> = vec![h_nav.as_str(), h_confirm.as_str(), h_back.as_str()];
             let hint_lines = pack_hint_lines(&hints, inner.width as usize);
             let disabled_notice_t = t!("select.disabled_sources_notice");
             let disabled_notice = disabled_notice_t.as_ref();
@@ -2394,7 +2421,7 @@ fn handle_passage_book_mouse(app: &mut App, mouse: MouseEvent) {
                             app,
                             KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
                         ),
-                        "ESC" => app.go_to_menu(),
+                        "q/ESC" => app.go_to_menu(),
                         _ => {}
                     }
                     return;
@@ -2543,13 +2570,13 @@ fn intro_field_at_row(base_y: u16, y: u16) -> Option<(usize, bool)> {
 fn passage_intro_content_area(area: Rect) -> Rect {
     let centered = ui::layout::centered_rect(75, 80, area);
     let inner = Block::bordered().inner(centered);
-    let ih_nav = t!("intro.hint_navigate");
-    let ih_adj = t!("intro.hint_adjust");
-    let ih_edit = t!("intro.hint_edit");
-    let ih_confirm = t!("intro.hint_confirm");
-    let ih_cancel = t!("intro.hint_cancel");
+    let ih_nav = ui::hint::hint(ui::hint::K_UP_DOWN, t!("intro.hint_navigate").as_ref());
+    let ih_adj = ui::hint::hint(ui::hint::K_LEFT_RIGHT, t!("intro.hint_adjust").as_ref());
+    let ih_edit = ui::hint::hint(ui::hint::K_TYPE_BACKSPACE, t!("intro.hint_edit").as_ref());
+    let ih_confirm = ui::hint::hint(ui::hint::K_ENTER, t!("intro.hint_confirm").as_ref());
+    let ih_cancel = ui::hint::hint(ui::hint::K_Q_ESC, t!("intro.hint_cancel").as_ref());
     let hint_lines = pack_hint_lines(
-        &[ih_nav.as_ref(), ih_adj.as_ref(), ih_edit.as_ref(), ih_confirm.as_ref(), ih_cancel.as_ref()],
+        &[ih_nav.as_str(), ih_adj.as_str(), ih_edit.as_str(), ih_confirm.as_str(), ih_cancel.as_str()],
         inner.width as usize,
     );
     let footer_height = (hint_lines.len() + 1) as u16;
@@ -2578,12 +2605,12 @@ fn handle_passage_intro_mouse(app: &mut App, mouse: MouseEvent) {
         MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right) => {
             let centered = ui::layout::centered_rect(75, 80, terminal_area());
             let inner = Block::bordered().inner(centered);
-            let ih_nav = t!("intro.hint_navigate");
-            let ih_adj = t!("intro.hint_adjust");
-            let ih_edit = t!("intro.hint_edit");
-            let ih_confirm = t!("intro.hint_confirm");
-            let ih_cancel = t!("intro.hint_cancel");
-            let hints: Vec<&str> = vec![ih_nav.as_ref(), ih_adj.as_ref(), ih_edit.as_ref(), ih_confirm.as_ref(), ih_cancel.as_ref()];
+            let ih_nav = ui::hint::hint(ui::hint::K_UP_DOWN, t!("intro.hint_navigate").as_ref());
+            let ih_adj = ui::hint::hint(ui::hint::K_LEFT_RIGHT, t!("intro.hint_adjust").as_ref());
+            let ih_edit = ui::hint::hint(ui::hint::K_TYPE_BACKSPACE, t!("intro.hint_edit").as_ref());
+            let ih_confirm = ui::hint::hint(ui::hint::K_ENTER, t!("intro.hint_confirm").as_ref());
+            let ih_cancel = ui::hint::hint(ui::hint::K_Q_ESC, t!("intro.hint_cancel").as_ref());
+            let hints: Vec<&str> = vec![ih_nav.as_str(), ih_adj.as_str(), ih_edit.as_str(), ih_confirm.as_str(), ih_cancel.as_str()];
             let hint_lines = pack_hint_lines(&hints, inner.width as usize);
             let footer_height = (hint_lines.len() + 1) as u16;
             if footer_height > 0 && footer_height < inner.height {
@@ -2629,7 +2656,7 @@ fn handle_passage_intro_mouse(app: &mut App, mouse: MouseEvent) {
                             app,
                             KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
                         ),
-                        "ESC" => app.go_to_menu(),
+                        "q/ESC" => app.go_to_menu(),
                         _ => {}
                     }
                     return;
@@ -2758,13 +2785,13 @@ fn handle_code_intro_key(app: &mut App, key: KeyEvent) {
 fn code_intro_content_area(area: Rect) -> Rect {
     let centered = ui::layout::centered_rect(75, 80, area);
     let inner = Block::bordered().inner(centered);
-    let ih_nav = t!("intro.hint_navigate");
-    let ih_adj = t!("intro.hint_adjust");
-    let ih_edit = t!("intro.hint_edit");
-    let ih_confirm = t!("intro.hint_confirm");
-    let ih_cancel = t!("intro.hint_cancel");
+    let ih_nav = ui::hint::hint(ui::hint::K_UP_DOWN, t!("intro.hint_navigate").as_ref());
+    let ih_adj = ui::hint::hint(ui::hint::K_LEFT_RIGHT, t!("intro.hint_adjust").as_ref());
+    let ih_edit = ui::hint::hint(ui::hint::K_TYPE_BACKSPACE, t!("intro.hint_edit").as_ref());
+    let ih_confirm = ui::hint::hint(ui::hint::K_ENTER, t!("intro.hint_confirm").as_ref());
+    let ih_cancel = ui::hint::hint(ui::hint::K_Q_ESC, t!("intro.hint_cancel").as_ref());
     let hint_lines = pack_hint_lines(
-        &[ih_nav.as_ref(), ih_adj.as_ref(), ih_edit.as_ref(), ih_confirm.as_ref(), ih_cancel.as_ref()],
+        &[ih_nav.as_str(), ih_adj.as_str(), ih_edit.as_str(), ih_confirm.as_str(), ih_cancel.as_str()],
         inner.width as usize,
     );
     let footer_height = (hint_lines.len() + 1) as u16;
@@ -2793,12 +2820,12 @@ fn handle_code_intro_mouse(app: &mut App, mouse: MouseEvent) {
         MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Down(MouseButton::Right) => {
             let centered = ui::layout::centered_rect(75, 80, terminal_area());
             let inner = Block::bordered().inner(centered);
-            let ih_nav = t!("intro.hint_navigate");
-            let ih_adj = t!("intro.hint_adjust");
-            let ih_edit = t!("intro.hint_edit");
-            let ih_confirm = t!("intro.hint_confirm");
-            let ih_cancel = t!("intro.hint_cancel");
-            let hints: Vec<&str> = vec![ih_nav.as_ref(), ih_adj.as_ref(), ih_edit.as_ref(), ih_confirm.as_ref(), ih_cancel.as_ref()];
+            let ih_nav = ui::hint::hint(ui::hint::K_UP_DOWN, t!("intro.hint_navigate").as_ref());
+            let ih_adj = ui::hint::hint(ui::hint::K_LEFT_RIGHT, t!("intro.hint_adjust").as_ref());
+            let ih_edit = ui::hint::hint(ui::hint::K_TYPE_BACKSPACE, t!("intro.hint_edit").as_ref());
+            let ih_confirm = ui::hint::hint(ui::hint::K_ENTER, t!("intro.hint_confirm").as_ref());
+            let ih_cancel = ui::hint::hint(ui::hint::K_Q_ESC, t!("intro.hint_cancel").as_ref());
+            let hints: Vec<&str> = vec![ih_nav.as_str(), ih_adj.as_str(), ih_edit.as_str(), ih_confirm.as_str(), ih_cancel.as_str()];
             let hint_lines = pack_hint_lines(&hints, inner.width as usize);
             let footer_height = (hint_lines.len() + 1) as u16;
             if footer_height > 0 && footer_height < inner.height {
@@ -2842,7 +2869,7 @@ fn handle_code_intro_mouse(app: &mut App, mouse: MouseEvent) {
                             app,
                             KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
                         ),
-                        "ESC" => app.go_to_menu(),
+                        "q/ESC" => app.go_to_menu(),
                         _ => {}
                     }
                     return;
@@ -2978,44 +3005,44 @@ fn skill_tree_interactive_areas(app: &App, area: Rect) -> SkillTreeMouseLayout {
     let bp = branches
         .get(selected)
         .map(|id| app.skill_tree.branch_progress(*id));
-    let st_nav = t!("skill_tree.hint_navigate");
-    let st_scroll = t!("skill_tree.hint_scroll");
-    let st_back = t!("skill_tree.hint_back");
-    let st_unlock = t!("skill_tree.hint_unlock");
-    let st_drill = t!("skill_tree.hint_start_drill");
+    let st_nav = ui::hint::hint(ui::hint::K_UD_JK, t!("skill_tree.hint_navigate").as_ref());
+    let st_scroll = ui::hint::hint(ui::hint::K_SCROLL_KEYS, t!("skill_tree.hint_scroll").as_ref());
+    let st_back = ui::hint::hint(ui::hint::K_Q_ESC, t!("skill_tree.hint_back").as_ref());
+    let st_unlock = ui::hint::hint(ui::hint::K_ENTER, t!("skill_tree.hint_unlock").as_ref());
+    let st_drill = ui::hint::hint(ui::hint::K_ENTER, t!("skill_tree.hint_start_drill").as_ref());
     let (footer_hints, footer_notice): (Vec<&str>, Option<String>) =
         match bp.map(|b| b.status.clone()) {
             Some(BranchStatus::Locked) => (
                 vec![
-                    st_nav.as_ref(),
-                    st_scroll.as_ref(),
-                    st_back.as_ref(),
+                    st_nav.as_str(),
+                    st_scroll.as_str(),
+                    st_back.as_str(),
                 ],
                 Some(locked_branch_notice(app)),
             ),
             Some(BranchStatus::Available) => (
                 vec![
-                    st_unlock.as_ref(),
-                    st_nav.as_ref(),
-                    st_scroll.as_ref(),
-                    st_back.as_ref(),
+                    st_unlock.as_str(),
+                    st_nav.as_str(),
+                    st_scroll.as_str(),
+                    st_back.as_str(),
                 ],
                 None,
             ),
             Some(BranchStatus::InProgress) => (
                 vec![
-                    st_drill.as_ref(),
-                    st_nav.as_ref(),
-                    st_scroll.as_ref(),
-                    st_back.as_ref(),
+                    st_drill.as_str(),
+                    st_nav.as_str(),
+                    st_scroll.as_str(),
+                    st_back.as_str(),
                 ],
                 None,
             ),
             _ => (
                 vec![
-                    st_nav.as_ref(),
-                    st_scroll.as_ref(),
-                    st_back.as_ref(),
+                    st_nav.as_str(),
+                    st_scroll.as_str(),
+                    st_back.as_str(),
                 ],
                 None,
             ),
@@ -3169,49 +3196,49 @@ fn handle_skill_tree_mouse(app: &mut App, mouse: MouseEvent) {
                 .skill_tree_selected
                 .min(branches.len().saturating_sub(1));
             let bp = app.skill_tree.branch_progress(branches[selected]);
-            let st_nav = t!("skill_tree.hint_navigate");
-            let st_scroll = t!("skill_tree.hint_scroll");
-            let st_back = t!("skill_tree.hint_back");
-            let st_unlock = t!("skill_tree.hint_unlock");
-            let st_drill = t!("skill_tree.hint_start_drill");
+            let st_nav = ui::hint::hint(ui::hint::K_UD_JK, t!("skill_tree.hint_navigate").as_ref());
+            let st_scroll = ui::hint::hint(ui::hint::K_SCROLL_KEYS, t!("skill_tree.hint_scroll").as_ref());
+            let st_back = ui::hint::hint(ui::hint::K_Q_ESC, t!("skill_tree.hint_back").as_ref());
+            let st_unlock = ui::hint::hint(ui::hint::K_ENTER, t!("skill_tree.hint_unlock").as_ref());
+            let st_drill = ui::hint::hint(ui::hint::K_ENTER, t!("skill_tree.hint_start_drill").as_ref());
             let (footer_hints, footer_notice): (Vec<&str>, Option<String>) =
                 if *app.skill_tree.branch_status(branches[selected])
                     == engine::skill_tree::BranchStatus::Locked
                 {
                     (
                         vec![
-                            st_nav.as_ref(),
-                            st_scroll.as_ref(),
-                            st_back.as_ref(),
+                            st_nav.as_str(),
+                            st_scroll.as_str(),
+                            st_back.as_str(),
                         ],
                         Some(locked_branch_notice(app)),
                     )
                 } else if bp.status == engine::skill_tree::BranchStatus::Available {
                     (
                         vec![
-                            st_unlock.as_ref(),
-                            st_nav.as_ref(),
-                            st_scroll.as_ref(),
-                            st_back.as_ref(),
+                            st_unlock.as_str(),
+                            st_nav.as_str(),
+                            st_scroll.as_str(),
+                            st_back.as_str(),
                         ],
                         None,
                     )
                 } else if bp.status == engine::skill_tree::BranchStatus::InProgress {
                     (
                         vec![
-                            st_drill.as_ref(),
-                            st_nav.as_ref(),
-                            st_scroll.as_ref(),
-                            st_back.as_ref(),
+                            st_drill.as_str(),
+                            st_nav.as_str(),
+                            st_scroll.as_str(),
+                            st_back.as_str(),
                         ],
                         None,
                     )
                 } else {
                     (
                         vec![
-                            st_nav.as_ref(),
-                            st_scroll.as_ref(),
-                            st_back.as_ref(),
+                            st_nav.as_str(),
+                            st_scroll.as_str(),
+                            st_back.as_str(),
                         ],
                         None,
                     )
@@ -3233,17 +3260,9 @@ fn handle_skill_tree_mouse(app: &mut App, mouse: MouseEvent) {
                 inner.width,
                 footer_height,
             );
-            if let Some(token) = hint_token_at(
-                footer_area,
-                &footer_hints
-                    .iter()
-                    .map(|s| s.as_ref())
-                    .collect::<Vec<&str>>(),
-                mouse.column,
-                mouse.row,
-            ) {
+            if let Some(token) = hint_token_at(footer_area, &footer_hints, mouse.column, mouse.row) {
                 match token.as_str() {
-                    "q" => app.go_to_menu(),
+                    "q/ESC" => app.go_to_menu(),
                     "Enter" => {
                         let branch_id = branches[selected];
                         let status = app.skill_tree.branch_status(branch_id).clone();
@@ -3329,49 +3348,49 @@ fn skill_tree_detail_max_scroll(app: &App) -> usize {
         .skill_tree_selected
         .min(branches.len().saturating_sub(1));
     let bp = app.skill_tree.branch_progress(branches[selected]);
-    let st_nav = t!("skill_tree.hint_navigate");
-    let st_scroll = t!("skill_tree.hint_scroll");
-    let st_back = t!("skill_tree.hint_back");
-    let st_unlock = t!("skill_tree.hint_unlock");
-    let st_drill = t!("skill_tree.hint_start_drill");
+    let st_nav = ui::hint::hint(ui::hint::K_UD_JK, t!("skill_tree.hint_navigate").as_ref());
+    let st_scroll = ui::hint::hint(ui::hint::K_SCROLL_KEYS, t!("skill_tree.hint_scroll").as_ref());
+    let st_back = ui::hint::hint(ui::hint::K_Q_ESC, t!("skill_tree.hint_back").as_ref());
+    let st_unlock = ui::hint::hint(ui::hint::K_ENTER, t!("skill_tree.hint_unlock").as_ref());
+    let st_drill = ui::hint::hint(ui::hint::K_ENTER, t!("skill_tree.hint_start_drill").as_ref());
     let (footer_hints, footer_notice): (Vec<&str>, Option<String>) =
         if *app.skill_tree.branch_status(branches[selected])
             == engine::skill_tree::BranchStatus::Locked
         {
             (
                 vec![
-                    st_nav.as_ref(),
-                    st_scroll.as_ref(),
-                    st_back.as_ref(),
+                    st_nav.as_str(),
+                    st_scroll.as_str(),
+                    st_back.as_str(),
                 ],
                 Some(locked_branch_notice(app)),
             )
         } else if bp.status == engine::skill_tree::BranchStatus::Available {
             (
                 vec![
-                    st_unlock.as_ref(),
-                    st_nav.as_ref(),
-                    st_scroll.as_ref(),
-                    st_back.as_ref(),
+                    st_unlock.as_str(),
+                    st_nav.as_str(),
+                    st_scroll.as_str(),
+                    st_back.as_str(),
                 ],
                 None,
             )
         } else if bp.status == engine::skill_tree::BranchStatus::InProgress {
             (
                 vec![
-                    st_drill.as_ref(),
-                    st_nav.as_ref(),
-                    st_scroll.as_ref(),
-                    st_back.as_ref(),
+                    st_drill.as_str(),
+                    st_nav.as_str(),
+                    st_scroll.as_str(),
+                    st_back.as_str(),
                 ],
                 None,
             )
         } else {
             (
                 vec![
-                    st_nav.as_ref(),
-                    st_scroll.as_ref(),
-                    st_back.as_ref(),
+                    st_nav.as_str(),
+                    st_scroll.as_str(),
+                    st_back.as_str(),
                 ],
                 None,
             )
@@ -3433,6 +3452,12 @@ fn render(frame: &mut ratatui::Frame, app: &App) {
     let bg = Block::default().style(Style::default().bg(colors.bg()));
     frame.render_widget(bg, area);
 
+    // Adaptive intro overlay for first-time adaptive drill users.
+    if app.show_adaptive_intro {
+        render_adaptive_intro_overlay(frame, app);
+        return;
+    }
+
     // Milestone overlays are modal and shown before the underlying screen.
     if let Some(milestone) = app.milestone_queue.front() {
         render_milestone_overlay(frame, app, milestone);
@@ -3463,19 +3488,19 @@ fn render_menu(frame: &mut ratatui::Frame, app: &App) {
     let area = frame.area();
     let colors = &app.theme.colors;
 
-    let mh_start = t!("menu.hint_start");
-    let mh_tree = t!("menu.hint_skill_tree");
-    let mh_kbd = t!("menu.hint_keyboard");
-    let mh_stats = t!("menu.hint_stats");
-    let mh_settings = t!("menu.hint_settings");
-    let mh_quit = t!("menu.hint_quit");
+    let mh_start = ui::hint::hint(ui::hint::K_1_3, t!("menu.hint_start").as_ref());
+    let mh_tree = ui::hint::hint(ui::hint::K_T, t!("menu.hint_skill_tree").as_ref());
+    let mh_kbd = ui::hint::hint(ui::hint::K_B, t!("menu.hint_keyboard").as_ref());
+    let mh_stats = ui::hint::hint(ui::hint::K_S, t!("menu.hint_stats").as_ref());
+    let mh_settings = ui::hint::hint(ui::hint::K_C, t!("menu.hint_settings").as_ref());
+    let mh_quit = ui::hint::hint(ui::hint::K_Q, t!("menu.hint_quit").as_ref());
     let menu_hints: Vec<&str> = vec![
-        mh_start.as_ref(),
-        mh_tree.as_ref(),
-        mh_kbd.as_ref(),
-        mh_stats.as_ref(),
-        mh_settings.as_ref(),
-        mh_quit.as_ref(),
+        mh_start.as_str(),
+        mh_tree.as_str(),
+        mh_kbd.as_str(),
+        mh_stats.as_str(),
+        mh_settings.as_str(),
+        mh_quit.as_str(),
     ];
     let footer_lines_vec = pack_hint_lines(&menu_hints, area.width as usize);
     let footer_line_count = footer_lines_vec.len().max(1) as u16;
@@ -3775,6 +3800,88 @@ fn render_drill(frame: &mut ratatui::Frame, app: &App) {
             );
         }
     }
+}
+
+fn render_adaptive_intro_overlay(frame: &mut ratatui::Frame, app: &App) {
+    let area = frame.area();
+    let colors = &app.theme.colors;
+
+    let overlay_height = 20u16.min(area.height.saturating_sub(2));
+    let overlay_width = 62u16.min(area.width.saturating_sub(4));
+
+    let left = area.x + (area.width.saturating_sub(overlay_width)) / 2;
+    let top = area.y + (area.height.saturating_sub(overlay_height)) / 2;
+    let overlay_area = Rect::new(left, top, overlay_width, overlay_height);
+
+    frame.render_widget(ratatui::widgets::Clear, overlay_area);
+
+    let title_t = t!("adaptive_intro.title");
+    let block = Block::bordered()
+        .title(title_t.as_ref())
+        .border_style(Style::default().fg(colors.accent()))
+        .style(Style::default().bg(colors.bg()));
+    let inner = block.inner(overlay_area);
+    block.render(overlay_area, frame.buffer_mut());
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        format!("  {}", t!("adaptive_intro.how_it_works")),
+        Style::default()
+            .fg(colors.accent())
+            .add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(""));
+    for text in [
+        t!("adaptive_intro.desc_start").to_string(),
+        t!("adaptive_intro.desc_progress").to_string(),
+        t!("adaptive_intro.desc_expand").to_string(),
+    ] {
+        lines.push(Line::from(Span::styled(
+            format!("  {text}"),
+            Style::default().fg(colors.fg()),
+        )));
+    }
+    lines.push(Line::from(""));
+
+    // Target WPM adjuster
+    let wpm_label = t!("adaptive_intro.target_wpm_label");
+    let wpm_value = format!("\u{2190} {} \u{2192}", app.config.target_wpm);
+    lines.push(Line::from(vec![
+        Span::styled(
+            format!("  {wpm_label} "),
+            Style::default().fg(colors.fg()).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            wpm_value,
+            Style::default()
+                .fg(colors.accent())
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]));
+    lines.push(Line::from(""));
+    for text in [
+        t!("adaptive_intro.target_wpm_desc").to_string(),
+        t!("adaptive_intro.target_wpm_default").to_string(),
+    ] {
+        lines.push(Line::from(Span::styled(
+            format!("  {text}"),
+            Style::default().fg(colors.fg()),
+        )));
+    }
+    lines.push(Line::from(""));
+
+    // Footer hint
+    lines.push(Line::from(Span::styled(
+        format!("  {}", t!("adaptive_intro.hint")),
+        Style::default().fg(colors.text_pending()),
+    )));
+
+    frame.render_widget(
+        Paragraph::new(lines).wrap(Wrap { trim: false }),
+        inner,
+    );
 }
 
 fn render_milestone_overlay(
@@ -4095,7 +4202,7 @@ fn render_milestone_overlay(
         let footer_text = if let Some(ms) = app.post_drill_input_lock_remaining_ms() {
             format!("  {}", t!("milestones.input_blocked", ms = ms))
         } else if milestone_supports_skill_tree_shortcut(milestone) {
-            format!("  {}", t!("milestones.hint_skill_tree_continue"))
+            format!("  {}", ui::hint::hint(ui::hint::K_T, t!("milestones.hint_skill_tree_continue").as_ref()))
         } else {
             format!("  {}", t!("milestones.hint_any_key"))
         };
@@ -5140,7 +5247,7 @@ mod review_tests {
         // After editing: shows editing hints
         let output_during = render_settings_to_string(&app);
         assert!(output_during.contains("[Enter] Confirm"));
-        assert!(output_during.contains("[Esc] Cancel"));
+        assert!(output_during.contains("[ESC] Cancel"));
         assert!(output_during.contains("[Tab] Complete"));
     }
 
@@ -5637,19 +5744,19 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
         .as_ref()
         .map(|(_, input)| input.completion_error)
         .unwrap_or(false);
-    let fh_move = t!("settings.hint_move");
-    let fh_tab = t!("settings.hint_tab_complete");
-    let fh_confirm = t!("settings.hint_confirm");
-    let fh_cancel = t!("settings.hint_cancel");
-    let fh_save = t!("settings.hint_save_back");
-    let fh_change = t!("settings.hint_change_value");
-    let fh_edit = t!("settings.hint_edit_path");
+    let fh_move = ui::hint::hint(ui::hint::K_ARROW_LR, t!("settings.hint_move").as_ref());
+    let fh_tab = ui::hint::hint(ui::hint::K_TAB, t!("settings.hint_tab_complete").as_ref());
+    let fh_confirm = ui::hint::hint(ui::hint::K_ENTER, t!("settings.hint_confirm").as_ref());
+    let fh_cancel = ui::hint::hint(ui::hint::K_ESC, t!("settings.hint_cancel").as_ref());
+    let fh_save = ui::hint::hint(ui::hint::K_ESC, t!("settings.hint_save_back").as_ref());
+    let fh_change = ui::hint::hint(ui::hint::K_ENTER_ARROWS, t!("settings.hint_change_value").as_ref());
+    let fh_edit = ui::hint::hint(ui::hint::K_ENTER_ON_PATH, t!("settings.hint_edit_path").as_ref());
     let footer_hints: Vec<&str> = if app.is_editing_path() {
         let mut hints = vec![
-            fh_move.as_ref(),
-            fh_tab.as_ref(),
-            fh_confirm.as_ref(),
-            fh_cancel.as_ref(),
+            fh_move.as_str(),
+            fh_tab.as_str(),
+            fh_confirm.as_str(),
+            fh_cancel.as_str(),
         ];
         if completion_error {
             hints.push("(cannot read directory)");
@@ -5657,9 +5764,9 @@ fn render_settings(frame: &mut ratatui::Frame, app: &App) {
         hints
     } else {
         vec![
-            fh_save.as_ref(),
-            fh_change.as_ref(),
-            fh_edit.as_ref(),
+            fh_save.as_str(),
+            fh_change.as_str(),
+            fh_edit.as_str(),
         ]
     };
     let footer_packed = pack_hint_lines(&footer_hints, inner.width as usize);
@@ -5916,10 +6023,10 @@ fn render_dictionary_language_select(frame: &mut ratatui::Frame, app: &App) {
     block.render(centered, frame.buffer_mut());
 
     let options = language_packs();
-    let h_nav = t!("select.hint_navigate");
-    let h_confirm = t!("select.hint_confirm");
-    let h_back = t!("select.hint_back");
-    let footer_hints: Vec<&str> = vec![h_nav.as_ref(), h_confirm.as_ref(), h_back.as_ref()];
+    let h_nav = ui::hint::hint(ui::hint::K_UP_DOWN_PGUP_PGDN, t!("select.hint_navigate").as_ref());
+    let h_confirm = ui::hint::hint(ui::hint::K_ENTER, t!("select.hint_confirm").as_ref());
+    let h_back = ui::hint::hint(ui::hint::K_Q_ESC, t!("select.hint_back").as_ref());
+    let footer_hints: Vec<&str> = vec![h_nav.as_str(), h_confirm.as_str(), h_back.as_str()];
     let support_notice_t = t!("select.language_resets_layout");
     let support_notice = support_notice_t.as_ref();
     let width = inner.width as usize;
@@ -6103,10 +6210,10 @@ fn render_keyboard_layout_select(frame: &mut ratatui::Frame, app: &App) {
     block.render(centered, frame.buffer_mut());
 
     let options = keyboard::model::KeyboardModel::supported_layout_keys();
-    let h_nav = t!("select.hint_navigate");
-    let h_confirm = t!("select.hint_confirm");
-    let h_back = t!("select.hint_back");
-    let footer_hints: Vec<&str> = vec![h_nav.as_ref(), h_confirm.as_ref(), h_back.as_ref()];
+    let h_nav = ui::hint::hint(ui::hint::K_UP_DOWN_PGUP_PGDN, t!("select.hint_navigate").as_ref());
+    let h_confirm = ui::hint::hint(ui::hint::K_ENTER, t!("select.hint_confirm").as_ref());
+    let h_back = ui::hint::hint(ui::hint::K_Q_ESC, t!("select.hint_back").as_ref());
+    let footer_hints: Vec<&str> = vec![h_nav.as_str(), h_confirm.as_str(), h_back.as_str()];
     let support_notice_t = t!("select.layout_no_language_change");
     let support_notice = support_notice_t.as_ref();
     let width = inner.width as usize;
@@ -6233,10 +6340,10 @@ fn render_code_language_select(frame: &mut ratatui::Frame, app: &App) {
 
     let options = code_language_options();
     let cache_dir = &app.config.code_download_dir;
-    let h_nav = t!("select.hint_navigate");
-    let h_confirm = t!("select.hint_confirm");
-    let h_back = t!("select.hint_back");
-    let footer_hints: Vec<&str> = vec![h_nav.as_ref(), h_confirm.as_ref(), h_back.as_ref()];
+    let h_nav = ui::hint::hint(ui::hint::K_UP_DOWN_PGUP_PGDN, t!("select.hint_navigate").as_ref());
+    let h_confirm = ui::hint::hint(ui::hint::K_ENTER, t!("select.hint_confirm").as_ref());
+    let h_back = ui::hint::hint(ui::hint::K_Q_ESC, t!("select.hint_back").as_ref());
+    let footer_hints: Vec<&str> = vec![h_nav.as_str(), h_confirm.as_str(), h_back.as_str()];
     let disabled_notice_t = t!("select.disabled_sources_notice");
     let disabled_notice = disabled_notice_t.as_ref();
     let has_disabled = !app.config.code_downloads_enabled
@@ -6378,10 +6485,10 @@ fn render_passage_book_select(frame: &mut ratatui::Frame, app: &App) {
     block.render(centered, frame.buffer_mut());
 
     let options = passage_options();
-    let h_nav = t!("intro.hint_navigate");
-    let h_confirm = t!("select.hint_confirm");
-    let h_back = t!("select.hint_back");
-    let footer_hints: Vec<&str> = vec![h_nav.as_ref(), h_confirm.as_ref(), h_back.as_ref()];
+    let h_nav = ui::hint::hint(ui::hint::K_UP_DOWN, t!("select.hint_navigate").as_ref());
+    let h_confirm = ui::hint::hint(ui::hint::K_ENTER, t!("select.hint_confirm").as_ref());
+    let h_back = ui::hint::hint(ui::hint::K_Q_ESC, t!("select.hint_back").as_ref());
+    let footer_hints: Vec<&str> = vec![h_nav.as_str(), h_confirm.as_str(), h_back.as_str()];
     let disabled_notice_t = t!("select.disabled_sources_notice");
     let disabled_notice = disabled_notice_t.as_ref();
     let has_disabled = !app.config.passage_downloads_enabled
@@ -6612,12 +6719,12 @@ fn render_passage_intro(frame: &mut ratatui::Frame, app: &App) {
     let hint_lines = if app.passage_intro_downloading {
         Vec::new()
     } else {
-        let ih_nav = t!("intro.hint_navigate");
-        let ih_adj = t!("intro.hint_adjust");
-        let ih_edit = t!("intro.hint_edit");
-        let ih_confirm = t!("intro.hint_confirm");
-        let ih_cancel = t!("intro.hint_cancel");
-        let hints: Vec<&str> = vec![ih_nav.as_ref(), ih_adj.as_ref(), ih_edit.as_ref(), ih_confirm.as_ref(), ih_cancel.as_ref()];
+        let ih_nav = ui::hint::hint(ui::hint::K_UP_DOWN, t!("intro.hint_navigate").as_ref());
+        let ih_adj = ui::hint::hint(ui::hint::K_LEFT_RIGHT, t!("intro.hint_adjust").as_ref());
+        let ih_edit = ui::hint::hint(ui::hint::K_TYPE_BACKSPACE, t!("intro.hint_edit").as_ref());
+        let ih_confirm = ui::hint::hint(ui::hint::K_ENTER, t!("intro.hint_confirm").as_ref());
+        let ih_cancel = ui::hint::hint(ui::hint::K_Q_ESC, t!("intro.hint_cancel").as_ref());
+        let hints: Vec<&str> = vec![ih_nav.as_str(), ih_adj.as_str(), ih_edit.as_str(), ih_confirm.as_str(), ih_cancel.as_str()];
         pack_hint_lines(
             &hints,
             inner.width as usize,
@@ -6848,12 +6955,12 @@ fn render_code_intro(frame: &mut ratatui::Frame, app: &App) {
     let hint_lines = if app.code_intro_downloading {
         Vec::new()
     } else {
-        let ih_nav = t!("intro.hint_navigate");
-        let ih_adj = t!("intro.hint_adjust");
-        let ih_edit = t!("intro.hint_edit");
-        let ih_confirm = t!("intro.hint_confirm");
-        let ih_cancel = t!("intro.hint_cancel");
-        let hints: Vec<&str> = vec![ih_nav.as_ref(), ih_adj.as_ref(), ih_edit.as_ref(), ih_confirm.as_ref(), ih_cancel.as_ref()];
+        let ih_nav = ui::hint::hint(ui::hint::K_UP_DOWN, t!("intro.hint_navigate").as_ref());
+        let ih_adj = ui::hint::hint(ui::hint::K_LEFT_RIGHT, t!("intro.hint_adjust").as_ref());
+        let ih_edit = ui::hint::hint(ui::hint::K_TYPE_BACKSPACE, t!("intro.hint_edit").as_ref());
+        let ih_confirm = ui::hint::hint(ui::hint::K_ENTER, t!("intro.hint_confirm").as_ref());
+        let ih_cancel = ui::hint::hint(ui::hint::K_Q_ESC, t!("intro.hint_cancel").as_ref());
+        let hints: Vec<&str> = vec![ih_nav.as_str(), ih_adj.as_str(), ih_edit.as_str(), ih_confirm.as_str(), ih_cancel.as_str()];
         pack_hint_lines(
             &hints,
             inner.width as usize,
@@ -7099,8 +7206,8 @@ fn handle_keyboard_explorer_mouse(app: &mut App, mouse: MouseEvent) {
             Constraint::Length(1),
         ])
         .split(area);
-    let h_back = t!("keyboard.hint_back");
-    let footer_hints: Vec<&str> = vec![h_back.as_ref()];
+    let h_back = ui::hint::hint(ui::hint::K_ESC, t!("keyboard.hint_back").as_ref());
+    let footer_hints: Vec<&str> = vec![h_back.as_str()];
     if hint_token_at(layout[3], &footer_hints, mouse.column, mouse.row).is_some()
         || point_in_rect(mouse.column, mouse.row, layout[3])
     {
@@ -7188,9 +7295,9 @@ fn render_keyboard_explorer(frame: &mut ratatui::Frame, app: &App) {
     render_keyboard_detail_panel(frame, app, layout[2]);
 
     // Footer
-    let kbd_back = t!("keyboard.hint_back");
+    let kbd_back = ui::hint::hint(ui::hint::K_ESC, t!("keyboard.hint_back").as_ref());
     let footer = Paragraph::new(Line::from(vec![Span::styled(
-        format!(" {} ", kbd_back.as_ref()),
+        format!(" {} ", kbd_back.as_str()),
         Style::default().fg(colors.text_pending()),
     )]));
     frame.render_widget(footer, layout[3]);
