@@ -342,15 +342,14 @@ milestones:
 
 # Superposition d'introduction à l'exercice adaptatif
 adaptive_intro:
-  title: ' Bienvenue dans l''Exercice Adaptatif ! '
+  title: ' Bienvenue sur keydr ! '
   how_it_works: 'Comment fonctionnent les exercices adaptatifs :'
-  desc_start: 'Vous commencez avec un petit ensemble des lettres les plus courantes déverrouillées.'
-  desc_progress: 'Au fur et à mesure que vous les tapez avec confiance, de nouvelles touches se déverrouillent progressivement'
-  desc_expand: 'jusqu''à ce que vous ayez maîtrisé le clavier complet.'
+  description: 'Vous commencez avec un petit ensemble des lettres les plus courantes déverrouillées. L''exercice ne génère que des mots qui utilisent ces lettres. Au fur et à mesure que vous les tapez avec confiance, de nouvelles touches se déverrouillent progressivement jusqu''à ce que vous ayez maîtrisé le clavier complet.'
   target_wpm_label: 'WPM Objectif :'
-  target_wpm_desc: 'Cela influence la vitesse de déverrouillage des touches — des objectifs plus élevés nécessitent'
-  target_wpm_default: 'une frappe plus rapide. 35 WPM est un bon point de départ si vous n''êtes pas sûr.'
-  hint: '[←→] Régler WPM  [Enter/Space] Commencer l''exercice'
+  target_wpm_desc: 'Cela influence la vitesse de déverrouillage des touches — des objectifs plus élevés nécessitent une frappe plus rapide. 35 WPM est un bon point de départ si vous n''êtes pas sûr. Vous pouvez toujours modifier cela plus tard dans les paramètres.'
+  hint_adjust: 'Régler WPM'
+  hint_start: 'Commencer l''exercice'
+  hint_back: 'Menu principal'
 
 # Explorateur de clavier
 keyboard:

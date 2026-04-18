@@ -342,15 +342,14 @@ milestones:
 
 # Adaptive drill intro overlay
 adaptive_intro:
-  title: ' Velkommen til adaptiv oevelse! '
+  title: ' Velkommen til keydr! '
   how_it_works: 'Slik fungerer adaptive oevelser:'
-  desc_start: 'Du starter med et lite sett av de vanligste bokstavene laast opp.'
-  desc_progress: 'Etter hvert som du skriver dem med trygghet, laases nye taster gradvis'
-  desc_expand: 'opp til du har mestret hele tastaturet.'
+  description: 'Du starter med et lite sett av de vanligste bokstavene laast opp. Oevelsen genererer bare ord som bruker disse bokstavene. Etter hvert som du skriver dem med trygghet, laases nye taster gradvis opp til du har mestret hele tastaturet.'
   target_wpm_label: 'Maal-WPM:'
-  target_wpm_desc: 'Dette pavirker hvor raskt taster laases opp — hoyere maal krever'
-  target_wpm_default: 'raskere skriving. 35 WPM er et godt utgangspunkt hvis du er usikker.'
-  hint: '[←→] Juster WPM  [Enter/Space] Start oevelse'
+  target_wpm_desc: 'Dette paavirker hvor raskt taster laases opp — hoeyere maal krever raskere skriving. 35 WPM er et godt utgangspunkt hvis du er usikker. Du kan alltid endre dette senere i innstillingene.'
+  hint_adjust: 'Juster WPM'
+  hint_start: 'Start oevelse'
+  hint_back: 'Hovedmeny'
 
 # Keyboard explorer
 keyboard:

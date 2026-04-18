@@ -31,7 +31,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph, Widget, Wrap};
+use ratatui::widgets::{Block, Padding, Paragraph, Widget, Wrap};
 
 use app::{App, AppScreen, DrillMode, MilestoneKind, SettingItem, StatusKind};
 use i18n::t;
@@ -335,6 +335,12 @@ fn handle_key(app: &mut App, key: KeyEvent) {
                 app.config.target_wpm = (app.config.target_wpm + 5).min(200);
                 app.key_stats.target_cpm = app.config.target_cpm();
                 app.ranked_key_stats.target_cpm = app.config.target_cpm();
+            }
+            KeyCode::Esc | KeyCode::Char('q') => {
+                app.show_adaptive_intro = false;
+                app.config.adaptive_intro_done = true;
+                let _ = app.config.save();
+                app.go_to_menu();
             }
             _ => {
                 app.show_adaptive_intro = false;
@@ -3819,30 +3825,46 @@ fn render_adaptive_intro_overlay(frame: &mut ratatui::Frame, app: &App) {
     let block = Block::bordered()
         .title(title_t.as_ref())
         .border_style(Style::default().fg(colors.accent()))
-        .style(Style::default().bg(colors.bg()));
+        .style(Style::default().bg(colors.bg()))
+        .padding(Padding::horizontal(2));
     let inner = block.inner(overlay_area);
     block.render(overlay_area, frame.buffer_mut());
+
+    let hint_h_back = ui::hint::hint(ui::hint::K_Q_ESC, t!("adaptive_intro.hint_back").as_ref());
+    let hint_h_adjust = ui::hint::hint(ui::hint::K_ARROW_LR, t!("adaptive_intro.hint_adjust").as_ref());
+    let hint_h_start = ui::hint::hint(ui::hint::K_ENTER_SPACE, t!("adaptive_intro.hint_start").as_ref());
+    let hints: Vec<&str> = vec![
+        hint_h_adjust.as_str(),
+        hint_h_start.as_str(),
+        hint_h_back.as_str(),
+    ];
+    let hint_lines_text = pack_hint_lines(&hints, inner.width as usize);
+    let footer_height = hint_lines_text.len().max(1) as u16;
+
+    let (content_area, footer_area) = if inner.height > footer_height {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(footer_height)])
+            .split(inner);
+        (chunks[0], Some(chunks[1]))
+    } else {
+        (inner, None)
+    };
 
     let mut lines: Vec<Line> = Vec::new();
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        format!("  {}", t!("adaptive_intro.how_it_works")),
+        t!("adaptive_intro.how_it_works").to_string(),
         Style::default()
             .fg(colors.accent())
             .add_modifier(Modifier::BOLD),
     )));
     lines.push(Line::from(""));
-    for text in [
-        t!("adaptive_intro.desc_start").to_string(),
-        t!("adaptive_intro.desc_progress").to_string(),
-        t!("adaptive_intro.desc_expand").to_string(),
-    ] {
-        lines.push(Line::from(Span::styled(
-            format!("  {text}"),
-            Style::default().fg(colors.fg()),
-        )));
-    }
+    lines.push(Line::from(Span::styled(
+        t!("adaptive_intro.description").to_string(),
+        Style::default().fg(colors.fg()),
+    )));
     lines.push(Line::from(""));
 
     // Target WPM adjuster
@@ -3850,7 +3872,7 @@ fn render_adaptive_intro_overlay(frame: &mut ratatui::Frame, app: &App) {
     let wpm_value = format!("\u{2190} {} \u{2192}", app.config.target_wpm);
     lines.push(Line::from(vec![
         Span::styled(
-            format!("  {wpm_label} "),
+            format!("{wpm_label} "),
             Style::default().fg(colors.fg()).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
@@ -3861,27 +3883,31 @@ fn render_adaptive_intro_overlay(frame: &mut ratatui::Frame, app: &App) {
         ),
     ]));
     lines.push(Line::from(""));
-    for text in [
-        t!("adaptive_intro.target_wpm_desc").to_string(),
-        t!("adaptive_intro.target_wpm_default").to_string(),
-    ] {
-        lines.push(Line::from(Span::styled(
-            format!("  {text}"),
-            Style::default().fg(colors.fg()),
-        )));
-    }
-    lines.push(Line::from(""));
-
-    // Footer hint
     lines.push(Line::from(Span::styled(
-        format!("  {}", t!("adaptive_intro.hint")),
-        Style::default().fg(colors.text_pending()),
+        t!("adaptive_intro.target_wpm_desc").to_string(),
+        Style::default().fg(colors.fg()),
     )));
 
     frame.render_widget(
         Paragraph::new(lines).wrap(Wrap { trim: false }),
-        inner,
+        content_area,
     );
+
+    if let Some(footer) = footer_area {
+        let footer_lines: Vec<Line> = hint_lines_text
+            .into_iter()
+            .map(|line| {
+                Line::from(Span::styled(
+                    line,
+                    Style::default().fg(colors.text_pending()),
+                ))
+            })
+            .collect();
+        frame.render_widget(
+            Paragraph::new(footer_lines).wrap(Wrap { trim: false }),
+            footer,
+        );
+    }
 }
 
 fn render_milestone_overlay(

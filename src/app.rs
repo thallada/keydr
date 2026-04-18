@@ -614,7 +614,11 @@ impl App {
         // Rebuild n-gram stats from drill history
         app.rebuild_ngram_stats();
 
-        app.start_drill();
+        if !app.config.adaptive_intro_done {
+            app.show_adaptive_intro = true;
+        } else {
+            app.start_drill();
+        }
         app
     }
 

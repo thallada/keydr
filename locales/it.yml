@@ -342,15 +342,14 @@ milestones:
 
 # Sovrapposizione introduzione esercizio adattivo
 adaptive_intro:
-  title: ' Benvenuto nell''Esercizio Adattivo! '
+  title: ' Benvenuto su keydr! '
   how_it_works: 'Come funzionano gli esercizi adattivi:'
-  desc_start: 'Inizi con un piccolo insieme delle lettere più comuni sbloccate.'
-  desc_progress: 'Man mano che le digiti con sicurezza, nuovi tasti vengono gradualmente'
-  desc_expand: 'sbloccati finché non hai padroneggiato la tastiera completa.'
+  description: 'Inizi con un piccolo insieme delle lettere più comuni sbloccate. L''esercizio genera solo parole che usano queste lettere. Man mano che le digiti con sicurezza, nuovi tasti vengono gradualmente sbloccati finché non hai padroneggiato la tastiera completa.'
   target_wpm_label: 'WPM Obiettivo:'
-  target_wpm_desc: 'Questo influenza la velocità di sblocco dei tasti — obiettivi più alti richiedono'
-  target_wpm_default: 'una digitazione più veloce. 35 WPM è un buon punto di partenza se non sei sicuro.'
-  hint: '[←→] Regola WPM  [Enter/Space] Inizia esercizio'
+  target_wpm_desc: 'Questo influenza la velocità di sblocco dei tasti — obiettivi più alti richiedono una digitazione più veloce. 35 WPM è un buon punto di partenza se non sei sicuro. Puoi sempre modificarlo più tardi nelle impostazioni.'
+  hint_adjust: 'Regola WPM'
+  hint_start: 'Inizia esercizio'
+  hint_back: 'Menu principale'
 
 # Esploratore tastiera
 keyboard:

@@ -25,6 +25,7 @@ pub const K_Q: &str = "q";
 
 // ── Universal keys ────────────────────────────────────────────────────────────
 pub const K_ENTER: &str = "Enter";
+pub const K_ENTER_SPACE: &str = "Enter/Space";
 pub const K_TAB: &str = "Tab";
 pub const K_BACKSPACE: &str = "Backspace";
 
@@ -61,9 +62,6 @@ pub const K_TYPE_BACKSPACE: &str = "Type/Backspace";
 // ── Skill tree ────────────────────────────────────────────────────────────────
 pub const K_UD_JK: &str = "↑↓/jk";
 pub const K_SCROLL_KEYS: &str = "PgUp/PgDn or Ctrl+U/Ctrl+D";
-
-// ── Keyboard explorer ─────────────────────────────────────────────────────────
-pub const K_KBD_NAV: &str = "←→↑↓/hjkl/Tab";
 
 /// Assembles a single hint entry: `"[key] label"`.
 ///

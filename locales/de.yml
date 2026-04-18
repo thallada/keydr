@@ -342,15 +342,14 @@ milestones:
 
 # Adaptive drill intro overlay
 adaptive_intro:
-  title: ' Willkommen zur Adaptiven Lektion! '
+  title: ' Willkommen bei keydr! '
   how_it_works: 'Wie adaptive Lektionen funktionieren:'
-  desc_start: 'Du startest mit einer kleinen Auswahl der haeufigsten Buchstaben.'
-  desc_progress: 'Je sicherer du sie tippst, desto mehr neue Tasten werden'
-  desc_expand: 'schrittweise freigeschaltet, bis du die ganze Tastatur beherrschst.'
+  description: 'Du startest mit einer kleinen Auswahl der haeufigsten Buchstaben. Die Lektion generiert nur Woerter, die diese Buchstaben verwenden. Je sicherer du sie tippst, desto mehr neue Tasten werden schrittweise freigeschaltet, bis du die ganze Tastatur beherrschst.'
   target_wpm_label: 'Ziel-WPM:'
-  target_wpm_desc: 'Dies beeinflusst, wie schnell Tasten freigeschaltet werden — hoehere Ziele erfordern'
-  target_wpm_default: 'schnelleres Tippen. 35 WPM ist ein guter Ausgangspunkt, falls unsicher.'
-  hint: '[←→] WPM anpassen  [Enter/Space] Lektion starten'
+  target_wpm_desc: 'Dies beeinflusst, wie schnell Tasten freigeschaltet werden — hoehere Ziele erfordern schnelleres Tippen. 35 WPM ist ein guter Ausgangspunkt, falls unsicher. Du kannst dies spaeter jederzeit in den Einstellungen aendern.'
+  hint_adjust: 'WPM anpassen'
+  hint_start: 'Lektion starten'
+  hint_back: 'Hauptmenue'
 
 # Keyboard explorer
 keyboard:

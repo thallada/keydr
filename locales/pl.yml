@@ -342,15 +342,14 @@ milestones:
 
 # Adaptive drill intro overlay
 adaptive_intro:
-  title: ' Witaj w treningu adaptacyjnym! '
+  title: ' Witaj w keydr! '
   how_it_works: 'Jak dzialaja treningi adaptacyjne:'
-  desc_start: 'Zaczynasz z malym zestawem najczestszych liter odblokowanych.'
-  desc_progress: 'W miare jak piszesz je pewnie, nowe klawisze sa stopniowo'
-  desc_expand: 'odblokowywane, az opanujesz cala klawiature.'
+  description: 'Zaczynasz z malym zestawem najczestszych liter odblokowanych. Trening generuje tylko slowa, ktore uzywaja tych liter. W miare jak piszesz je pewnie, nowe klawisze sa stopniowo odblokowywane, az opanujesz cala klawiature.'
   target_wpm_label: 'Docelowy WPM:'
-  target_wpm_desc: 'Wplywa to na szybkosc odblokowywania klawiszy — wyzsze cele wymagaja'
-  target_wpm_default: 'szybszego pisania. 35 WPM to dobry punkt startowy, jesli nie jestes pewien.'
-  hint: '[←→] Dostosuj WPM  [Enter/Space] Rozpocznij trening'
+  target_wpm_desc: 'Wplywa to na szybkosc odblokowywania klawiszy — wyzsze cele wymagaja szybszego pisania. 35 WPM to dobry punkt startowy, jesli nie jestes pewien. Zawsze mozesz to zmienic pozniej w ustawieniach.'
+  hint_adjust: 'Dostosuj WPM'
+  hint_start: 'Rozpocznij trening'
+  hint_back: 'Menu glowne'
 
 # Keyboard explorer
 keyboard:

@@ -342,15 +342,14 @@ milestones:
 
 # Adaptive drill intro overlay
 adaptive_intro:
-  title: ' Tervetuloa Mukautuvaan harjoitukseen! '
+  title: ' Tervetuloa keydriin! '
   how_it_works: 'Miten mukautuvat harjoitukset toimivat:'
-  desc_start: 'Aloitat pienellä joukolla yleisimpiä kirjaimia avattuna.'
-  desc_progress: 'Kun kirjoitat niitä varmasti, uusia näppäimiä avataan vähitellen'
-  desc_expand: 'kunnes olet hallinnut koko näppäimistön.'
+  description: 'Aloitat pienellä joukolla yleisimpiä kirjaimia avattuna. Harjoitus tuottaa vain sanoja, jotka käyttävät näitä kirjaimia. Kun kirjoitat niitä varmasti, uusia näppäimiä avataan vähitellen, kunnes olet hallinnut koko näppäimistön.'
   target_wpm_label: 'Tavoite-WPM:'
-  target_wpm_desc: 'Tämä vaikuttaa näppäinten avausnopeuteen — korkeammat tavoitteet vaativat'
-  target_wpm_default: 'nopeampaa kirjoittamista. 35 WPM on hyvä lähtökohta, jos et ole varma.'
-  hint: '[←→] Säädä WPM  [Enter/Space] Aloita harjoitus'
+  target_wpm_desc: 'Tämä vaikuttaa näppäinten avausnopeuteen — korkeammat tavoitteet vaativat nopeampaa kirjoittamista. 35 WPM on hyvä lähtökohta, jos et ole varma. Voit aina muuttaa tätä myöhemmin asetuksissa.'
+  hint_adjust: 'Säädä WPM'
+  hint_start: 'Aloita harjoitus'
+  hint_back: 'Päävalikko'
 
 # Keyboard explorer
 keyboard:

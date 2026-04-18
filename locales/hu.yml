@@ -342,15 +342,14 @@ milestones:
 
 # Adaptív gyakorlat bevezető felugró
 adaptive_intro:
-  title: ' Üdvözöljük az Adaptív Gyakorlatban! '
+  title: ' Üdvözöljük a keydr-ben! '
   how_it_works: 'Hogyan működnek az adaptív gyakorlatok:'
-  desc_start: 'A leggyakoribb betűk egy kis készletével kezd, amelyek fel vannak oldva.'
-  desc_progress: 'Ahogy magabiztosan gépeli őket, az új billentyűk fokozatosan'
-  desc_expand: 'feloldódnak, amíg el nem sajátítja a teljes billentyűzetet.'
+  description: 'A leggyakoribb betűk egy kis készletével kezd, amelyek fel vannak oldva. A gyakorlat csak olyan szavakat generál, amelyek ezeket a betűket használják. Ahogy magabiztosan gépeli őket, az új billentyűk fokozatosan feloldódnak, amíg el nem sajátítja a teljes billentyűzetet.'
   target_wpm_label: 'Cél WPM:'
-  target_wpm_desc: 'Ez befolyásolja a billentyűk feloldásának sebességét — magasabb célok'
-  target_wpm_default: 'gyorsabb gépelést igényelnek. 35 WPM jó kiindulópont, ha bizonytalan.'
-  hint: '[←→] WPM beállítása  [Enter/Space] Gyakorlat indítása'
+  target_wpm_desc: 'Ez befolyásolja a billentyűk feloldásának sebességét — magasabb célok gyorsabb gépelést igényelnek. 35 WPM jó kiindulópont, ha bizonytalan. Ezt később bármikor módosíthatja a beállításokban.'
+  hint_adjust: 'WPM beállítása'
+  hint_start: 'Gyakorlat indítása'
+  hint_back: 'Főmenü'
 
 # Keyboard explorer
 keyboard:

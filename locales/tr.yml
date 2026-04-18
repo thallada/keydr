@@ -342,15 +342,14 @@ milestones:
 
 # Uyarlanır alıştırma giriş katmanı
 adaptive_intro:
-  title: ' Uyarlanır Alıştırmaya Hoş Geldiniz! '
+  title: ' keydr''e hoş geldiniz! '
   how_it_works: 'Uyarlanır alıştırmalar nasıl çalışır:'
-  desc_start: 'En yaygın harflerin küçük bir kümesiyle başlarsınız.'
-  desc_progress: 'Onları güvenle yazdıkça, yeni tuşlar kademeli olarak'
-  desc_expand: 'tam klavyeye hakim olana kadar açılır.'
+  description: 'En yaygın harflerin küçük bir kümesiyle başlarsınız. Alıştırma yalnızca bu harfleri kullanan kelimeler üretir. Onları güvenle yazdıkça, tam klavyeye hakim olana kadar yeni tuşlar kademeli olarak açılır.'
   target_wpm_label: 'Hedef WPM:'
-  target_wpm_desc: 'Bu, tuşların ne kadar hızlı açılacağını etkiler — daha yüksek hedefler gerektirir'
-  target_wpm_default: 'daha hızlı yazma. Emin değilseniz 35 WPM iyi bir başlangıç noktasıdır.'
-  hint: '[←→] WPM Ayarla  [Enter/Space] Alıştırmaya başla'
+  target_wpm_desc: 'Bu, tuşların ne kadar hızlı açılacağını etkiler — daha yüksek hedefler daha hızlı yazma gerektirir. Emin değilseniz 35 WPM iyi bir başlangıç noktasıdır. Bunu daha sonra ayarlardan her zaman değiştirebilirsiniz.'
+  hint_adjust: 'WPM Ayarla'
+  hint_start: 'Alıştırmaya başla'
+  hint_back: 'Ana menü'
 
 # Klavye gezgini
 keyboard:

@@ -342,15 +342,14 @@ milestones:
 
 # Adaptive drill intro overlay
 adaptive_intro:
-  title: ' Sveiki atvykę į adaptyvias pratybas! '
+  title: ' Sveiki atvykę į keydr! '
   how_it_works: 'Kaip veikia adaptyvios pratybos:'
-  desc_start: 'Pradžioje atrakinamas nedidelis dažniausių raidžių rinkinys.'
-  desc_progress: 'Kai jas spausdinsite užtikrintai, nauji klavišai palaipsniui'
-  desc_expand: 'atrakinami, kol įvaldysite visą klaviatūrą.'
+  description: 'Pradžioje atrakinamas nedidelis dažniausių raidžių rinkinys. Pratybos generuoja tik žodžius, kurie naudoja šias raides. Kai jas spausdinsite užtikrintai, nauji klavišai palaipsniui atrakinami, kol įvaldysite visą klaviatūrą.'
   target_wpm_label: 'Tikslinis WPM:'
-  target_wpm_desc: 'Tai lemia, kaip greitai atrakinami klavišai — aukštesni tikslai reikalauja'
-  target_wpm_default: 'greitesnio spausdinimo. 35 WPM — gera pradžios vieta, jei nesate tikri.'
-  hint: '[←→] Reguliuoti WPM  [Enter/Space] Pradėti pratybas'
+  target_wpm_desc: 'Tai lemia, kaip greitai atrakinami klavišai — aukštesni tikslai reikalauja greitesnio spausdinimo. 35 WPM — gera pradžios vieta, jei nesate tikri. Tai visada galite pakeisti vėliau nustatymuose.'
+  hint_adjust: 'Reguliuoti WPM'
+  hint_start: 'Pradėti pratybas'
+  hint_back: 'Pagrindinis meniu'
 
 # Keyboard explorer
 keyboard:

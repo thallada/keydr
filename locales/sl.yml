@@ -342,15 +342,14 @@ milestones:
 
 # Uvodni prekrivnik prilagodljive vaje
 adaptive_intro:
-  title: ' Dobrodošli v prilagodljivi vaji! '
+  title: ' Dobrodošli v keydr! '
   how_it_works: 'Kako delujejo prilagodljive vaje:'
-  desc_start: 'Začnete z majhnim naborom najpogostejših odkljenjenih črk.'
-  desc_progress: 'Ko jih tipkate samozavestno, se nove tipke postopoma'
-  desc_expand: 'odklenejo, dokler ne obvladate celotne tipkovnice.'
+  description: 'Začnete z majhnim naborom najpogostejših odkljenjenih črk. Vaja ustvarja samo besede, ki uporabljajo te črke. Ko jih tipkate samozavestno, se nove tipke postopoma odklenejo, dokler ne obvladate celotne tipkovnice.'
   target_wpm_label: 'Ciljni WPM:'
-  target_wpm_desc: 'To vpliva na hitrost odklepanja tipk — višji cilji zahtevajo'
-  target_wpm_default: 'hitrejše tipkanje. 35 WPM je dobro izhodišče, če niste prepričani.'
-  hint: '[←→] Prilagodi WPM  [Enter/Space] Začni vajo'
+  target_wpm_desc: 'To vpliva na hitrost odklepanja tipk — višji cilji zahtevajo hitrejše tipkanje. 35 WPM je dobro izhodišče, če niste prepričani. To lahko vedno spremenite kasneje v nastavitvah.'
+  hint_adjust: 'Prilagodi WPM'
+  hint_start: 'Začni vajo'
+  hint_back: 'Glavni meni'
 
 # Raziskovalec tipkovnice
 keyboard:

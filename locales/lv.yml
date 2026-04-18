@@ -342,15 +342,14 @@ milestones:
 
 # Adaptive drill intro overlay
 adaptive_intro:
-  title: ' Laipni lūdzam adaptīvajā vingrinājumā! '
+  title: ' Laipni lūdzam keydr! '
   how_it_works: 'Kā darbojas adaptīvie vingrinājumi:'
-  desc_start: 'Sākat ar nelielu visbiežāk lietoto burtu kopu.'
-  desc_progress: 'Kad rakstāt tos pārliecinoši, jauni taustiņi pakāpeniski'
-  desc_expand: 'tiek atbloķēti, līdz esat apguvis visu tastatūru.'
+  description: 'Sākat ar nelielu visbiežāk lietoto burtu kopu. Vingrinājums ģenerē tikai vārdus, kas izmanto šos burtus. Kad rakstāt tos pārliecinoši, jauni taustiņi pakāpeniski tiek atbloķēti, līdz esat apguvis visu tastatūru.'
   target_wpm_label: 'Mērķa WPM:'
-  target_wpm_desc: 'Tas ietekmē, cik ātri taustiņi tiek atbloķēti — augstāki mērķi prasa'
-  target_wpm_default: 'ātrāku rakstīšanu. 35 WPM ir labs sākumpunkts, ja neesat pārliecināts.'
-  hint: '[←→] Pielāgot WPM  [Enter/Space] Sākt vingrinājumu'
+  target_wpm_desc: 'Tas ietekmē, cik ātri taustiņi tiek atbloķēti — augstāki mērķi prasa ātrāku rakstīšanu. 35 WPM ir labs sākumpunkts, ja neesat pārliecināts. Jūs vienmēr varat to mainīt vēlāk iestatījumos.'
+  hint_adjust: 'Pielāgot WPM'
+  hint_start: 'Sākt vingrinājumu'
+  hint_back: 'Galvenā izvēlne'
 
 # Keyboard explorer
 keyboard:

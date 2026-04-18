@@ -342,15 +342,14 @@ milestones:
 
 # Suprapunere introducere exercitiu adaptiv
 adaptive_intro:
-  title: ' Bine ai venit la exercitiul adaptiv! '
+  title: ' Bine ai venit la keydr! '
   how_it_works: 'Cum functioneaza exercitiile adaptive:'
-  desc_start: 'Incepi cu un set mic de litere comune deblocate.'
-  desc_progress: 'Pe masura ce le tastezi cu incredere, taste noi sunt deblocate treptat'
-  desc_expand: 'pana cand stapanesti tastatura completa.'
+  description: 'Incepi cu un set mic de litere comune deblocate. Exercitiul genereaza doar cuvinte care folosesc aceste litere. Pe masura ce le tastezi cu incredere, taste noi sunt deblocate treptat pana cand stapanesti tastatura completa.'
   target_wpm_label: 'WPM tinta:'
-  target_wpm_desc: 'Aceasta afecteaza viteza de deblocare a tastelor — tinte mai mari necesita'
-  target_wpm_default: 'tastare mai rapida. 35 WPM este un punct bun de start daca nu esti sigur.'
-  hint: '[←→] Ajusteaza WPM  [Enter/Space] Incepe exercitiul'
+  target_wpm_desc: 'Aceasta afecteaza viteza de deblocare a tastelor — tinte mai mari necesita tastare mai rapida. 35 WPM este un punct bun de start daca nu esti sigur. Poti modifica oricand aceasta valoare mai tarziu in setari.'
+  hint_adjust: 'Ajusteaza WPM'
+  hint_start: 'Incepe exercitiul'
+  hint_back: 'Meniu principal'
 
 # Keyboard explorer
 keyboard:

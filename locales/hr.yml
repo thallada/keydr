@@ -342,15 +342,14 @@ milestones:
 
 # Uvodni prekrivač prilagodljive vježbe
 adaptive_intro:
-  title: ' Dobrodošli u Prilagodljivu Vježbu! '
+  title: ' Dobrodošli u keydr! '
   how_it_works: 'Kako funkcioniraju prilagodljive vježbe:'
-  desc_start: 'Počinjete s malim skupom najčešćih slova koja su otključana.'
-  desc_progress: 'Kako ih tipkate s pouzdanošću, nove tipke se postupno'
-  desc_expand: 'otključavaju dok ne savladate cijelu tipkovnicu.'
+  description: 'Počinjete s malim skupom najčešćih slova koja su otključana. Vježba generira samo riječi koje koriste ta slova. Kako ih tipkate s pouzdanošću, nove tipke se postupno otključavaju dok ne savladate cijelu tipkovnicu.'
   target_wpm_label: 'Ciljni WPM:'
-  target_wpm_desc: 'Ovo utječe na brzinu otključavanja tipki — viši ciljevi zahtijevaju'
-  target_wpm_default: 'brže tipkanje. 35 WPM je dobro polazište ako niste sigurni.'
-  hint: '[←→] Podesi WPM  [Enter/Space] Počni vježbu'
+  target_wpm_desc: 'Ovo utječe na brzinu otključavanja tipki — viši ciljevi zahtijevaju brže tipkanje. 35 WPM je dobro polazište ako niste sigurni. To uvijek možete promijeniti kasnije u postavkama.'
+  hint_adjust: 'Podesi WPM'
+  hint_start: 'Počni vježbu'
+  hint_back: 'Glavni izbornik'
 
 # Keyboard explorer
 keyboard:

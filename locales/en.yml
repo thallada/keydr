@@ -342,15 +342,14 @@ milestones:
 
 # Adaptive drill intro overlay
 adaptive_intro:
-  title: ' Welcome to Adaptive Drill! '
+  title: ' Welcome to keydr! '
   how_it_works: 'How adaptive drills work:'
-  desc_start: 'You start with a small set of the most common letters unlocked.'
-  desc_progress: 'As you type them with confidence, new keys are gradually'
-  desc_expand: 'unlocked until you''ve mastered the full keyboard.'
+  description: 'You start with a small set of the most common letters unlocked. The drill only generates words that use these letters. As you type them with confidence, new keys are gradually unlocked until you''ve mastered the full keyboard.'
   target_wpm_label: 'Target WPM:'
-  target_wpm_desc: 'This affects how quickly keys unlock — higher targets require'
-  target_wpm_default: 'faster typing. 35 WPM is a good starting point if unsure.'
-  hint: '[←→] Adjust WPM  [Enter/Space] Start drilling'
+  target_wpm_desc: 'This affects how quickly keys unlock — higher targets require faster typing. 35 WPM is a good starting point if unsure. You can always change this later in settings.'
+  hint_adjust: 'Adjust WPM'
+  hint_start: 'Start drilling'
+  hint_back: 'Main menu'
 
 # Keyboard explorer
 keyboard:

@@ -342,15 +342,14 @@ milestones:
 
 # Adaptive drill intro overlay
 adaptive_intro:
-  title: ' Welkom bij de adaptieve oefening! '
+  title: ' Welkom bij keydr! '
   how_it_works: 'Hoe adaptieve oefeningen werken:'
-  desc_start: 'Je begint met een kleine set van de meest voorkomende letters ontgrendeld.'
-  desc_progress: 'Naarmate je ze met vertrouwen typt, worden nieuwe toetsen geleidelijk'
-  desc_expand: 'ontgrendeld totdat je het volledige toetsenbord beheerst.'
+  description: 'Je begint met een kleine set van de meest voorkomende letters ontgrendeld. De oefening genereert alleen woorden die deze letters gebruiken. Naarmate je ze met vertrouwen typt, worden nieuwe toetsen geleidelijk ontgrendeld totdat je het volledige toetsenbord beheerst.'
   target_wpm_label: 'Doel-WPM:'
-  target_wpm_desc: 'Dit bepaalt hoe snel toetsen ontgrendelen — hogere doelen vereisen'
-  target_wpm_default: 'sneller typen. 35 WPM is een goed startpunt als je het niet zeker weet.'
-  hint: '[←→] WPM aanpassen  [Enter/Space] Oefening starten'
+  target_wpm_desc: 'Dit bepaalt hoe snel toetsen ontgrendelen — hogere doelen vereisen sneller typen. 35 WPM is een goed startpunt als je het niet zeker weet. Je kunt dit later altijd wijzigen in de instellingen.'
+  hint_adjust: 'WPM aanpassen'
+  hint_start: 'Oefening starten'
+  hint_back: 'Hoofdmenu'
 
 # Keyboard explorer
 keyboard:

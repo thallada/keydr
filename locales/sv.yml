@@ -342,15 +342,14 @@ milestones:
 
 # Intro-oeverlagg foer adaptiv oevning
 adaptive_intro:
-  title: ' Vaelkommen till adaptiv oevning! '
+  title: ' Vaelkommen till keydr! '
   how_it_works: 'Hur adaptiva oevningar fungerar:'
-  desc_start: 'Du boerjar med en liten uppsaettning av de vanligaste uplaasta bokstaeverna.'
-  desc_progress: 'Naer du skriver dem med saekerhtet laases nya tangenter gradvis upp'
-  desc_expand: 'tills du behaerskar hela tangentbordet.'
+  description: 'Du boerjar med en liten uppsaettning av de vanligaste uplaasta bokstaeverna. Oevningen genererar bara ord som anvaender dessa bokstaever. Naer du skriver dem med saekerhet laases nya tangenter gradvis upp tills du behaerskar hela tangentbordet.'
   target_wpm_label: 'Maal-WPM:'
-  target_wpm_desc: 'Detta paaverkar hur snabbt tangenter laases upp — hoegre maal kraever'
-  target_wpm_default: 'snabbare skrivande. 35 WPM aer en bra startpunkt om du aer osaeker.'
-  hint: '[←→] Justera WPM  [Enter/Space] Boerja oeva'
+  target_wpm_desc: 'Detta paaverkar hur snabbt tangenter laases upp — hoegre maal kraever snabbare skrivande. 35 WPM aer en bra startpunkt om du aer osaeker. Du kan alltid aendra detta senare i installningarna.'
+  hint_adjust: 'Justera WPM'
+  hint_start: 'Starta oevning'
+  hint_back: 'Huvudmeny'
 
 # Keyboard explorer
 keyboard:

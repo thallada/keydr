@@ -342,15 +342,14 @@ milestones:
 
 # Adaptive drill intro overlay
 adaptive_intro:
-  title: ' Vitejte v Adaptivnim cviceni! '
+  title: ' Vitejte v keydr! '
   how_it_works: 'Jak funguje adaptivni cviceni:'
-  desc_start: 'Zacinas s malou sadou nejbeznejsich pismen.'
-  desc_progress: 'Jak je pises s jistotou, nove klavesy jsou postupne'
-  desc_expand: 'odemykany, az zvladnes celou klavesnici.'
+  description: 'Zacinas s malou sadou nejbeznejsich odemcenych pismen. Cviceni generuje pouze slova, ktera pouzivaji tato pismena. Jak je pises s jistotou, nove klavesy jsou postupne odemykany, az zvladnes celou klavesnici.'
   target_wpm_label: 'Cilovy WPM:'
-  target_wpm_desc: 'Ovlivnuje rychlost odemykani — vyssi cile vyzaduji'
-  target_wpm_default: 'rychlejsi psani. 35 WPM je dobry vychozi bod.'
-  hint: '[←→] Upravit WPM  [Enter/Space] Spustit cviceni'
+  target_wpm_desc: 'Ovlivnuje rychlost odemykani klaves — vyssi cile vyzaduji rychlejsi psani. 35 WPM je dobry vychozi bod, pokud si nejsi jisty. Toto muzes kdykoli zmenit v nastaveni.'
+  hint_adjust: 'Upravit WPM'
+  hint_start: 'Spustit cviceni'
+  hint_back: 'Hlavni menu'
 
 # Keyboard explorer
 keyboard:

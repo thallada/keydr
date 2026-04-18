@@ -342,15 +342,14 @@ milestones:
 
 # Kohanduva harjutuse sissejuhatuse ülekate
 adaptive_intro:
-  title: ' Tere tulemast Kohanduvasse harjutusse! '
+  title: ' Tere tulemast keydri! '
   how_it_works: 'Kuidas kohanduvad harjutused toimivad:'
-  desc_start: 'Alustad väikese hulga kõige levinumate tähtedega.'
-  desc_progress: 'Kui trükid neid kindlalt, avatakse uued klahvid järk-järgult'
-  desc_expand: 'kuni oled omandanud kogu klaviatuuri.'
+  description: 'Alustad väikese hulga kõige levinumate tähtedega. Harjutus genereerib ainult sõnu, mis kasutavad neid tähti. Kui trükid neid kindlalt, avatakse uued klahvid järk-järgult, kuni oled omandanud kogu klaviatuuri.'
   target_wpm_label: 'Siht-WPM:'
-  target_wpm_desc: 'See mõjutab klahvide avamise kiirust — kõrgemad sihid nõuavad'
-  target_wpm_default: 'kiiremat trükkimist. 35 WPM on hea lähtepunkt, kui pole kindel.'
-  hint: '[←→] Kohanda WPM  [Enter/Space] Alusta harjutust'
+  target_wpm_desc: 'See mõjutab klahvide avamise kiirust — kõrgemad sihid nõuavad kiiremat trükkimist. 35 WPM on hea lähtepunkt, kui pole kindel. Saad seda alati hiljem seadetes muuta.'
+  hint_adjust: 'Kohanda WPM'
+  hint_start: 'Alusta harjutust'
+  hint_back: 'Peamenüü'
 
 # Klaviatuuri uurija
 keyboard:
